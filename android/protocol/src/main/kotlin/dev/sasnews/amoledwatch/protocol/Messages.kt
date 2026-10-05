@@ -124,8 +124,14 @@ sealed interface Req {
         )
     }
 
+    /** 今日の歩数と目標を返す。 */
+    data object StepsGet : Req {
+        override val method get() = "steps.get"
+        override fun params() = Cbor.Cmap(emptyMap())
+    }
+
     /**
-     * AI の返答を時計へ送る (agent.request / BULK kind="agent" に対する応答)。
+     * AI の返答を時計へ送る (agent.request / BULK kind="agent_audio" に対する応答)。
      * id は要求と同じ値。text は最大960バイト (UTF-8)。
      */
     data class AgentReply(val id: Int, val text: String) : Req {
@@ -134,6 +140,7 @@ sealed interface Req {
             mapOf("id" to Cbor.Cint(id.toLong()), "text" to Cbor.Ctext(text)),
         )
     }
+
 
     /** 型を足していない method をそのまま送るとき用。 */
     data class Raw(val m: String, val p: Cbor.Cmap = Cbor.Cmap(emptyMap())) : Req {
@@ -289,6 +296,8 @@ object SettingsKeys {
     const val BUTTON_PWR_DOUBLE = "button.pwr.double"
     const val AUDIO_VOLUME = "audio.volume"
     const val AUDIO_CLICK = "audio.click"
+    const val RAISE_TO_WAKE = "raise_to_wake"
+    const val STEPS_GOAL = "steps.goal"
     const val AGENT_Q1 = "agent.q1"
     const val AGENT_Q2 = "agent.q2"
     const val AGENT_Q3 = "agent.q3"
@@ -300,6 +309,7 @@ object SettingsKeys {
         BUTTON_BOOT_SHORT, BUTTON_BOOT_LONG, BUTTON_BOOT_DOUBLE,
         BUTTON_PWR_SHORT, BUTTON_PWR_LONG, BUTTON_PWR_DOUBLE,
         AUDIO_VOLUME, AUDIO_CLICK,
+        RAISE_TO_WAKE, STEPS_GOAL,
         AGENT_Q1, AGENT_Q2, AGENT_Q3,
     )
 
@@ -319,6 +329,8 @@ object SettingsKeys {
         BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
         AUDIO_VOLUME to Cbor.Cint(70),
         AUDIO_CLICK to Cbor.Cint(1),
+        RAISE_TO_WAKE to Cbor.Cint(1),
+        STEPS_GOAL to Cbor.Cint(8000),
         AGENT_Q1 to Cbor.Ctext("今日の予定は？"),
         AGENT_Q2 to Cbor.Ctext("今の天気は？"),
         AGENT_Q3 to Cbor.Ctext(""),
@@ -349,6 +361,7 @@ object ActionNames {
         ActionSpec("nav.agent", "エージェント"),
         ActionSpec("nav.settings", "設定"),
         ActionSpec("nav.media", "メディア"),
+        ActionSpec("nav.steps", "歩数"),
         ActionSpec("nav.ota", "ファーム更新"),
         ActionSpec("memo.record", "メモ録音"),
         ActionSpec("timer.start", "タイマー開始"),
@@ -483,6 +496,16 @@ data class OtaStatusInfo(
                 msg = m.text("msg"),
                 version = m.text("version"),
             )
+        }
+    }
+}
+
+/** steps.get の RES を展開する。 */
+data class StepsInfo(val steps: Long, val goal: Long) {
+    companion object {
+        fun fromCbor(v: Cbor): StepsInfo? {
+            val m = v as? Cbor.Cmap ?: return null
+            return StepsInfo(steps = m.int("steps"), goal = m.int("goal"))
         }
     }
 }

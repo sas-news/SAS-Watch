@@ -5,6 +5,7 @@
 #include "watch/features/clock.hpp"
 #include "watch/features/counter.hpp"
 #include "watch/features/memo.hpp"
+#include "watch/features/steps.hpp"
 #include "watch/features/stopwatch.hpp"
 #include "watch/features/timer.hpp"
 
@@ -13,7 +14,8 @@ namespace watch {
 namespace {
 const FeatureDescriptor* const kBuiltin[] = {
     &features::kClock,   &features::kTimer, &features::kStopwatch,
-    &features::kCounter, &features::kMemo,  &features::kAgent,
+    &features::kCounter, &features::kSteps, &features::kMemo,
+    &features::kAgent,
 };
 }
 

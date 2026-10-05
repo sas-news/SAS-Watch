@@ -20,11 +20,13 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/src/input_mapper.cpp
     ${WATCH_CORE_DIR}/src/feature.cpp
     ${WATCH_CORE_DIR}/src/settings.cpp
+    ${WATCH_CORE_DIR}/src/sensors.cpp
     ${WATCH_CORE_DIR}/src/runtime.cpp
     ${WATCH_CORE_DIR}/features/clock/clock.cpp
     ${WATCH_CORE_DIR}/features/timer/timer.cpp
     ${WATCH_CORE_DIR}/features/stopwatch/stopwatch.cpp
     ${WATCH_CORE_DIR}/features/counter/counter.cpp
+    ${WATCH_CORE_DIR}/features/steps/steps.cpp
     ${WATCH_CORE_DIR}/features/memo/memo.cpp
     ${WATCH_CORE_DIR}/features/agent/agent.cpp
     ${WATCH_CORE_DIR}/features/registry.cpp

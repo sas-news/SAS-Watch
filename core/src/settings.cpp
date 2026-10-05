@@ -38,6 +38,8 @@ constexpr SettingKey kKeys[] = {
     WATCH_SSET_STR("button.pwr.double", button_pwr_double),
     WATCH_SSET_U32("audio.volume", audio_volume),
     WATCH_SSET_U32("audio.click", audio_click),
+    WATCH_SSET_U32("raise_to_wake", raise_to_wake),
+    WATCH_SSET_U32("steps.goal", steps_goal),
     WATCH_SSET_STR("agent.q1", agent_q1),
     WATCH_SSET_STR("agent.q2", agent_q2),
     WATCH_SSET_STR("agent.q3", agent_q3),
