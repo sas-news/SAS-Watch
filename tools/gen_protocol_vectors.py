@@ -493,6 +493,8 @@ def main():
                     "button.pwr.double": "none",
                     "audio.volume": 70,
                     "audio.click": 1,
+                    "face": "bold",
+                    "clock_font": "auto",
                 },
             },
         ),

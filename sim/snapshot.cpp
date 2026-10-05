@@ -11,6 +11,7 @@
 #include "lvgl.h"
 #include "png.hpp"
 #include "sim_platform.hpp"
+#include "ui/face_data.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/memo.hpp"
@@ -144,6 +145,16 @@ int main(int argc, char** argv) {
   watch::features::memo_create(m1, std::strlen(m1), fctx);
   watch::features::memo_create(m2, std::strlen(m2), fctx);
 
+  // 文字盤の補助データ (ui/face_data.hpp)。実機配線は歩数・通知・
+  // アラームの Feature が持つので、ここではスクショ用の固定値をフック。
+  static const ui::face_data::Hooks kFaceData = {
+      []() -> int32_t { return 6214; },             // steps
+      []() -> int32_t { return 8000; },             // steps_goal
+      []() -> int32_t { return 3; },                // notifications
+      []() -> int32_t { return 19 * 60 + 30; },     // next_alarm_min
+  };
+  ui::face_data::set_hooks(&kFaceData);
+
   // Action 出口 → core キュー。
   ui::set_action_sink(&sink);
   ui::create({&s_bus, &s_nav, &s_settings, &fctx});
@@ -200,6 +211,18 @@ int main(int argc, char** argv) {
   back_home();
   nav_to(watch::Route::Settings);
   ok &= save(out, "11_settings");
+
+  // 「文字盤」「時計の数字フォント」カードはスクロール下にある。
+  // (settings scr: child 0=header, 1=content)
+  lv_obj_t* s_content = lv_obj_get_child(lv_screen_active(), 1);
+  if (s_content) {
+    lv_obj_scroll_to_y(s_content, 780, LV_ANIM_OFF);   // 文字盤カード
+    pump(200);
+    ok &= save(out, "27_settings_faces");
+    lv_obj_scroll_to_y(s_content, 1150, LV_ANIM_OFF);  // フォントカード
+    pump(200);
+    ok &= save(out, "28_settings_fonts");
+  }
 
   nav_to(watch::Route::PowerMenu);
   ok &= save(out, "12_powermenu");
@@ -258,6 +281,38 @@ int main(int argc, char** argv) {
   tap(205, 190);
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
+
+  // ---- 文字盤 (settings.face) ----
+  // standard テーマで4面 (01_home = bold と同じ見えになるが、
+  // 文字盤名を揃えて残すため明示的に撮る)。
+  back_home();
+  ui::emit_text(watch::ActionType::SetTheme, "standard");
+  pump(400);
+  const char* kFaceShots[][2] = {
+      {"bold", "21_face_bold"},
+      {"analog", "22_face_analog"},
+      {"hud", "23_face_hud"},
+      {"minimal", "24_face_minimal"},
+  };
+  for (const auto& fs : kFaceShots) {
+    ui::emit_text(watch::ActionType::SetFace, fs[0]);
+    pump(300);
+    ok &= save(out, fs[1]);
+  }
+  // chara_* は立ち絵 (face_chara) のある mame テーマで。
+  ui::emit_text(watch::ActionType::SetTheme, "mame");
+  pump(500);
+  ui::emit_text(watch::ActionType::SetFace, "chara_side");
+  pump(300);
+  ok &= save(out, "25_face_chara_side");
+  ui::emit_text(watch::ActionType::SetFace, "chara_bubble");
+  pump(300);
+  ok &= save(out, "26_face_chara_bubble");
+  // 元に戻す。
+  ui::emit_text(watch::ActionType::SetFace, "bold");
+  ui::emit_text(watch::ActionType::SetTheme, "standard");
+  pump(300);
+
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

@@ -4,6 +4,14 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/theme_manager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/components.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/shell.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/face_data.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/faces.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_bold.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_analog.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_hud.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_minimal.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_chara_side.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_chara_bubble.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/registry.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/home.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/quick.cpp
@@ -18,6 +26,27 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_26.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_digits_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_digits_56.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_150.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_l_150.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_34.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_18.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_150.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_34.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_18.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_150.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_34.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_18.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_150.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_34.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_18.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_150.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_34.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_18.c
 )
 
 set(WATCH_UI_INCLUDE_DIRS ${CMAKE_CURRENT_LIST_DIR}/include)

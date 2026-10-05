@@ -31,6 +31,10 @@
 #define LV_USE_FLEX 1
 #define LV_USE_GRID 1
 
+// 文字盤の放射グラデーション (analog の盤面・chara_side のグロー) で必要。
+// firmware 側は sdkconfig.defaults の CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS。
+#define LV_USE_DRAW_SW_COMPLEX_GRADIENTS 1
+
 #define LV_USE_LOG 0
 #define LV_USE_ASSERT_NULL 1
 #define LV_USE_ASSERT_MALLOC 1

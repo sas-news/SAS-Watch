@@ -132,6 +132,22 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
         return true;
       }
       return false;
+    case ActionType::SetFace:
+      // 文字盤 id。実在するかは UI 側が判定し、未知なら "bold" に倒す。
+      if (a.text[0] == '\0') return false;
+      if (settings_set_str(settings_, &ctx.storage, "face", a.text)) {
+        bus_.publish({EventType::FaceChanged, 0});
+        return true;
+      }
+      return false;
+    case ActionType::SetClockFont:
+      // 時計数字フォント id。未知なら UI 側で "auto" に倒す。
+      if (a.text[0] == '\0') return false;
+      if (settings_set_str(settings_, &ctx.storage, "clock_font", a.text)) {
+        bus_.publish({EventType::FaceChanged, 0});
+        return true;
+      }
+      return false;
     default:
       break;
   }

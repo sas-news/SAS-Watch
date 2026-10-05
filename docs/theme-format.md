@@ -39,9 +39,15 @@ VFS パスで言うと `/assets/themes/<id>/`。
     "on_primary": "0x051018",
     "text":       "0xF2F5F8",
     "text_dim":   "0x8B95A3",
-    "accent":     "0xFFC24D",
+    "accent":     "0xFF8A3D",
     "danger":     "0xFF5C5C",
     "ok":         "0x46E29A",
+    "accent2":    "0xE8D7B0",   // 第2アクセント (analog の針・数字など)
+    "accent3":    "0x00E0C6",   // 第3アクセント (HUD の飾り・バーなど)
+    "accent4":    "0x7A5CFF",   // 第4アクセント (グロー・日進捗の弧など)
+    "accent5":    "0xFF5C8A",   // 第5アクセント (キャラ文字盤の強調)
+    "bubble_bg":  "0xFFFFFF",   // chara_bubble ふきだしの背景
+    "bubble_text":"0x2B1D45",   // chara_bubble ふきだしの文字色
     "radius_sm": 10,        // uint
     "radius_lg": 18,        // uint
     "space":     8,         // uint 基本余白
@@ -54,7 +60,15 @@ VFS パスで言うと `/assets/themes/<id>/`。
   "images": {               // 省略可。スロット名 → zip 内ファイル名
     "home_bg":    "home_bg.bin",
     "stand":      "stand.bin",
-    "timer_done": "timer_done.bin"
+    "timer_done": "timer_done.bin",
+    "face_chara": "face_chara.bin"
+  },
+  "bubble": {               // 省略可。chara_bubble 文字盤のふきだし文言
+    "morning": "おはよう！",      // 朝 (5-10時)
+    "noon":    "こんにちは！",     // 昼 (10-16時)
+    "evening": "おつかれさま！",   // 夕 (16-19時)
+    "night":   "おやすみー",      // 夜 (19-5時)
+    "steps":   "あと{n}歩だよ"   // 歩数目標の残り行。"{n}" に残り歩数を埋める
   }
 }
 ```
@@ -64,6 +78,9 @@ VFS パスで言うと `/assets/themes/<id>/`。
 - フォントは内蔵4種 (`font_jp_20` / `font_jp_26` / `font_digits_96` /
   `font_digits_56`) のサイズ指定のみ。フォント自体は配布しない
   (日本語サブセットで数百KBになるため)。
+- `bubble` の各文言は48バイト (UTF-8) まで。省略したキーは
+  内蔵の既定文を使う。`steps` は歩数・目標が両方分かり、残りが
+  ある時だけ2行目として使われる (残り0または不明なら挨拶だけ)。
 
 ## 画像スロット
 
@@ -74,6 +91,11 @@ Screen 側が持つ差替え枠。テーマが画像を持たなければ従来�
 | `home_bg` | Home 背景 (時刻の背後・下帯) | 410x240 | 410x502 |
 | `stand` | Home 立ち絵 (右下) | 160x200 | 240x360 |
 | `timer_done` | タイマー終了アラート中央 | 320x240 | 410x320 |
+| `face_chara` | 文字盤 `chara_side` / `chara_bubble` の立ち絵 (透過 RGB565A8 推奨) | 240x410 | 240x410 |
+
+- `face_chara` が無いテーマでは chara_* 文字盤は `stand` を **拡大せず**
+  そのまま使う。どちらも無ければ「キャラ画像なし」の簡易レイアウト
+  (時刻中央) にフォールバックする。
 
 ## 画像形式 (`.bin` = LVGL バイナリ画像)
 

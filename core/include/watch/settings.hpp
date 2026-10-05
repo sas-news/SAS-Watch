@@ -30,6 +30,10 @@ struct Settings {
   // 音 (Phase 9)。volume は再生/ビープ共通、click はボタン音のON/OFF。
   uint32_t audio_volume = 70;  // 0-100
   uint32_t audio_click = 1;    // 0/1
+  // 文字盤 (watch face)。face = 盤 id、clock_font = 時計数字フォント。
+  // 未知の値は適用側が既定 ("bold" / "auto") にフォールバックする。
+  char face[16] = "bold";
+  char clock_font[16] = "auto";
 };
 
 struct SettingKey {

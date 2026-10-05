@@ -80,6 +80,8 @@ error code:
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
 | `audio.volume` | u32 | 70 | クリック音・ビープ・メモ再生の音量 0-100 |
 | `audio.click` | u32 | 1 | ボタンのクリック音 ON/OFF (0/1) |
+| `face` | text | `bold` | 文字盤 id (`bold`/`analog`/`hud`/`minimal`/`chara_side`/`chara_bubble`) |
+| `clock_font` | text | `auto` | 時計数字フォント id (`auto`/`oswald`/`bebas`/`orbitron`/`outfit`/`chakra`) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正

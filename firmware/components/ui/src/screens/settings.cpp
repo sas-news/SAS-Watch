@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "../components.hpp"
+#include "../faces/faces.hpp"
 #include "../theme.hpp"
 #include "screens.hpp"
 #include "ui/port.hpp"
@@ -102,6 +103,45 @@ lv_obj_t* build(lv_obj_t* scr) {
     char lbl[80];
     std::snprintf(lbl, sizeof(lbl), "%s", ui::theme_name());
     ui::c::list_row(tc, lbl, "使用中", nullptr, nullptr);
+  }
+
+  // 文字盤: 6種を縦に並べる。選択中に「使用中」。
+  lv_obj_t* fc = ui::c::card(col);
+  ui::c::line(fc, "文字盤");
+  for (const ui::face::Ops* const* p = ui::face::all(); *p; ++p) {
+    const bool inuse = std::strcmp(st.face, (*p)->id) == 0;
+    ui::c::list_row(fc, ui::face::label_ja((*p)->id),
+                    inuse ? "使用中" : nullptr,
+                    [](lv_event_t* e) {
+                      const char* id = static_cast<const char*>(
+                          lv_event_get_user_data(e));
+                      ui::emit_text(watch::ActionType::SetFace, id);
+                    },
+                    const_cast<char*>((*p)->id));
+  }
+
+  // 時計の数字フォント: auto + 5種。選択中に「使用中」。
+  lv_obj_t* cf = ui::c::card(col);
+  ui::c::line(cf, "時計の数字フォント");
+  {
+    static const struct { const char* id; const char* ja; } kFonts[] = {
+        {"auto", "自動 (文字盤に合わせる)"},
+        {"oswald", "Oswald"},
+        {"bebas", "Bebas Neue"},
+        {"orbitron", "Orbitron"},
+        {"outfit", "Outfit"},
+        {"chakra", "Chakra Petch"},
+    };
+    for (const auto& f : kFonts) {
+      const bool inuse = std::strcmp(st.clock_font, f.id) == 0;
+      ui::c::list_row(cf, f.ja, inuse ? "使用中" : nullptr,
+                      [](lv_event_t* e) {
+                        const char* id = static_cast<const char*>(
+                            lv_event_get_user_data(e));
+                        ui::emit_text(watch::ActionType::SetClockFont, id);
+                      },
+                      const_cast<char*>(f.id));
+    }
   }
 
   lv_obj_t* btn = ui::c::card(col);

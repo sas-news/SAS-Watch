@@ -200,9 +200,21 @@ MAME_TOKENS = {
     "primary": "0xFFB84D", "on_primary": "0x2A1A00",
     "text": "0xFFF4E2", "text_dim": "0xBCA98C",
     "accent": "0x8FD98F", "danger": "0xFF6E6E", "ok": "0x7ED4A0",
+    "accent2": "0xE8D7B0", "accent3": "0x7ED4A0", "accent4": "0xB08DFF",
+    "accent5": "0xFF9DBB",
+    "bubble_bg": "0xFFF8EC", "bubble_text": "0x4A3626",
     "radius_sm": 12, "radius_lg": 20, "space": 8, "anim_ms": 200,
     "font_body": 20, "font_title": 26, "font_digits": 96,
     "font_digits_sm": 56,
+}
+
+# 文字盤 chara_bubble のふきだし文言 (manifest "bubble"、{n} に残り歩数)。
+MAME_BUBBLE = {
+    "morning": "おはよう！",
+    "noon": "こんにちは！",
+    "evening": "おつかれさま！",
+    "night": "おやすみー",
+    "steps": "あと{n}歩だよ",
 }
 
 # パレット
@@ -314,16 +326,26 @@ def gen_timer_done():
     return cv.downsampled()
 
 
+def gen_face_chara():
+    """240x410 の文字盤用立ち絵 (chara_side / chara_bubble)。透過。"""
+    cv = Canvas(240, 410)
+    s = cv.ss
+    # 見本の「右に大きく」に合わせ、体の中心をやや右下に置く。
+    draw_mame(cv, 120 * s, 205 * s, 3.2)
+    return cv.downsampled()
+
+
 # ---------------------------------------------------------------- 出力
 
 def build():
     imgs = {
-        "home_bg": gen_home_bg(),       # 410x240
-        "stand": gen_stand(),           # 160x200
-        "timer_done": gen_timer_done(), # 320x240
+        "home_bg": gen_home_bg(),        # 410x240
+        "stand": gen_stand(),            # 160x200
+        "timer_done": gen_timer_done(),  # 320x240
+        "face_chara": gen_face_chara(),  # 240x410
     }
     dims = {"home_bg": (410, 240), "stand": (160, 200),
-            "timer_done": (320, 240)}
+            "timer_done": (320, 240), "face_chara": (240, 410)}
 
     manifest = cbor_map([
         ("id", cbor_text("mame")),
@@ -335,6 +357,8 @@ def build():
                              for k, v in MAME_TOKENS.items()])),
         ("images", cbor_map([(k, cbor_text(k + ".bin"))
                              for k in imgs.keys()])),
+        ("bubble", cbor_map([(k, cbor_text(v))
+                             for k, v in MAME_BUBBLE.items()])),
     ])
 
     # 展開済み (sim 用) + zip (配布用)
@@ -365,22 +389,24 @@ def build():
         print(f"  {os.path.relpath(out_zip, REPO)}  "
               f"{os.path.getsize(out_zip)} B (stored)")
 
-    # プレビュー PNG (3 画像を横に並べた 900x260)
-    pw = sum(d[0] for d in dims.values()) + 40
+    # プレビュー PNG (4 画像を横に並べる。face_chara は縦長なので縮めて置く)
+    pw = 410 + 160 + 320 + 240 + 60
     ph = 240
     prev = Canvas(pw, ph, ss=1)
     prev.rect(0, 0, pw, ph, (12, 13, 17, 255))
     x = 0
-    for slot in ("home_bg", "stand", "timer_done"):
+    for slot in ("home_bg", "stand", "timer_done", "face_chara"):
         rgba, (w, h) = imgs[slot], dims[slot]
-        for y in range(h):
-            for xx in range(w):
-                i = (y * w + xx) * 4
+        sc = min(1.0, ph / h)  # 高さが ph を超える画像は縮小表示
+        ow, oh = int(w * sc), int(h * sc)
+        for y in range(oh):
+            for xx in range(ow):
+                i = (int(y / sc) * w + int(xx / sc)) * 4
                 a = rgba[i + 3]
                 if a:
                     prev.blend(x + xx, y,
                                (rgba[i], rgba[i + 1], rgba[i + 2], a))
-        x += w + 20
+        x += ow + 20
     write_png(os.path.join(REPO, "tools", "themes", "mame_preview.png"),
               prev.px, pw, ph)
     print(f"  tools/themes/mame_preview.png")

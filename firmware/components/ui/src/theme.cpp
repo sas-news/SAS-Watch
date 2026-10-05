@@ -13,7 +13,18 @@ namespace {
 
 // ---- 内蔵テーマ ----
 
+// chara_bubble 文字盤のふきだし既定文言 (manifest "bubble" で上書き可)。
+// 0:朝(5-10時) 1:昼(10-16時) 2:夕(16-19時) 3:夜(19-5時) 4:歩数残り
+constexpr const char* kBubbleDefault[5] = {
+    "おはよう！",
+    "こんにちは！",
+    "おつかれさま！",
+    "おやすみ〜",
+    "あと{n}歩だよ",
+};
+
 // 既定ダーク (AMOLED 向け。黒背景で画素を消す)。
+// accent 系はデザイン見本 (docs/design/faces) の色を標準値にしている。
 const Theme kStandard = {
     .bg = lv_color_hex(0x000000),
     .surface = lv_color_hex(0x131820),
@@ -22,9 +33,15 @@ const Theme kStandard = {
     .on_primary = lv_color_hex(0x051018),
     .text = lv_color_hex(0xF2F5F8),
     .text_dim = lv_color_hex(0x8B95A3),
-    .accent = lv_color_hex(0xFFC24D),
+    .accent = lv_color_hex(0xFF8A3D),
     .danger = lv_color_hex(0xFF5C5C),
     .ok = lv_color_hex(0x46E29A),
+    .accent2 = lv_color_hex(0xE8D7B0),
+    .accent3 = lv_color_hex(0x00E0C6),
+    .accent4 = lv_color_hex(0x7A5CFF),
+    .accent5 = lv_color_hex(0xFF5C8A),
+    .bubble_bg = lv_color_hex(0xFFFFFF),
+    .bubble_text = lv_color_hex(0x2B1D45),
     .font_body = &font_jp_20,
     .font_title = &font_jp_26,
     .font_digits = &font_digits_96,
@@ -37,6 +54,9 @@ const Theme kStandard = {
     .img_home_bg = nullptr,
     .img_stand = nullptr,
     .img_timer_done = nullptr,
+    .img_face_chara = nullptr,
+    .bubble = {kBubbleDefault[0], kBubbleDefault[1], kBubbleDefault[2],
+               kBubbleDefault[3], kBubbleDefault[4]},
 };
 
 // 明るめ (屋外視認用)。背景は濃い目のグレーで AMOLED を活かす。
@@ -51,6 +71,12 @@ const Theme kLight = {
     .accent = lv_color_hex(0xC77400),
     .danger = lv_color_hex(0xD03030),
     .ok = lv_color_hex(0x0E8A50),
+    .accent2 = lv_color_hex(0x8A6B35),
+    .accent3 = lv_color_hex(0x007A6B),
+    .accent4 = lv_color_hex(0x5E3FD1),
+    .accent5 = lv_color_hex(0xC22A5C),
+    .bubble_bg = lv_color_hex(0xFFFFFF),
+    .bubble_text = lv_color_hex(0x2B1D45),
     .font_body = &font_jp_20,
     .font_title = &font_jp_26,
     .font_digits = &font_digits_96,
@@ -63,6 +89,9 @@ const Theme kLight = {
     .img_home_bg = nullptr,
     .img_stand = nullptr,
     .img_timer_done = nullptr,
+    .img_face_chara = nullptr,
+    .bubble = {kBubbleDefault[0], kBubbleDefault[1], kBubbleDefault[2],
+               kBubbleDefault[3], kBubbleDefault[4]},
 };
 
 // 現在有効なテーマ。theme_apply() が書き換える (LVGL コンテキスト内のみ)。
