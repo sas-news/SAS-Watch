@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 34 px
  * Bpp: 4
- * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/BebasNeue-400.ttf --size 34 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789: --lv-font-name font_fc_bebas_34 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_bebas_34.c
+ * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/BebasNeue-400.ttf --size 34 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_bebas_34 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_bebas_34.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -22,6 +22,9 @@
 
 /*Store the image of the glyphs*/
 static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
+    /* U+002E "." */
+    0x59, 0x9b, 0x19, 0xa0, 0xf, 0xc0,
+
     /* U+0030 "0" */
     0x0, 0x15, 0x77, 0xfb, 0x1c, 0x3, 0x2e, 0xa8,
     0x80, 0xe, 0x34, 0x40, 0xa8, 0x3, 0xe2, 0xa0,
@@ -181,31 +184,35 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
 
 static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
-    {.bitmap_index = 0, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 74, .adv_w = 218, .box_w = 9, .box_h = 24, .ofs_x = 2, .ofs_y = 0},
-    {.bitmap_index = 103, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 213, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 335, .adv_w = 218, .box_w = 14, .box_h = 24, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 429, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 536, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 642, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 738, .adv_w = 218, .box_w = 13, .box_h = 24, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 871, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 980, .adv_w = 102, .box_w = 4, .box_h = 17, .ofs_x = 1, .ofs_y = 0}
+    {.bitmap_index = 0, .adv_w = 102, .box_w = 4, .box_h = 4, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 6, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 80, .adv_w = 218, .box_w = 9, .box_h = 24, .ofs_x = 2, .ofs_y = 0},
+    {.bitmap_index = 109, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 219, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 341, .adv_w = 218, .box_w = 14, .box_h = 24, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 435, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 542, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 648, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 744, .adv_w = 218, .box_w = 13, .box_h = 24, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 877, .adv_w = 218, .box_w = 12, .box_h = 24, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 986, .adv_w = 102, .box_w = 4, .box_h = 17, .ofs_x = 1, .ofs_y = 0}
 };
 
 /*---------------------
  *  CHARACTER MAPPING
  *--------------------*/
 
-
+static const uint8_t glyph_id_ofs_list_0[] = {
+    0, 0, 1, 2, 3, 4, 5, 6,
+    7, 8, 9, 10, 11
+};
 
 /*Collect the unicode lists and glyph_id offsets*/
 static const lv_font_fmt_txt_cmap_t cmaps[] =
 {
     {
-        .range_start = 48, .range_length = 11, .glyph_id_start = 1,
-        .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY
+        .range_start = 46, .range_length = 13, .glyph_id_start = 1,
+        .unicode_list = NULL, .glyph_id_ofs_list = glyph_id_ofs_list_0, .list_length = 13, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_FULL
     }
 };
 

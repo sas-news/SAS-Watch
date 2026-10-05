@@ -21,6 +21,7 @@ enum class EventType : uint16_t {
   TimerStarted,          // arg0 = 秒
   TimerStopped,
   TimerFinished,
+  TimerPaused,           // 一時停止した (arg0 = 残り秒)
   StopwatchChanged,      // arg0 = 0:stop 1:run 2:lap
   CounterChanged,        // arg0 = 値 (uint32解釈)
   MemoSaved,             // arg0 = memo id

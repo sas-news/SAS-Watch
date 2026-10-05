@@ -27,15 +27,8 @@ M s;
 
 watch::FeatureContext* fctx() { return ui::ctx().fctx; }
 
-// ui::c::button_*/list_row は画面幅いっぱい(kW-2kPad-16)で作られる。
-// カード内に置くとカードと同幅になりパディングが潰れて端で切れて見えるので、
-// カード内側幅(=pad分内側)に合わせる。settings 画面と同じ左右余白になる。
-void fit_in_card(lv_obj_t* o) { lv_obj_set_width(o, LV_PCT(100)); }
-
 lv_obj_t* fit_btn(lv_obj_t* card, const char* text, lv_event_cb_t cb) {
-  lv_obj_t* b = ui::c::button_primary(card, text, cb, nullptr);
-  fit_in_card(b);
-  return b;
+  return ui::c::button_primary(card, text, cb, nullptr);
 }
 
 void set_btn_text(lv_obj_t* btn, const char* text) {
@@ -97,7 +90,7 @@ void rebuild_list() {
     } else {
       std::snprintf(label, sizeof(label), "%s", m.text);
     }
-    lv_obj_t* row = ui::c::list_row(s.list_box, label, nullptr,
+    ui::c::row(s.list_box, label, nullptr, nullptr, true,
                     [](lv_event_t* e) {
                       s.detail_id = static_cast<uint32_t>(
                           reinterpret_cast<uintptr_t>(
@@ -127,12 +120,6 @@ void rebuild_list() {
                                          LV_OBJ_FLAG_HIDDEN);
                     },
                     reinterpret_cast<void*>(static_cast<uintptr_t>(m.id)));
-    fit_in_card(row);
-    // 行内のラベルは kW 基準の固定幅で、カード内幅を超えて右端が欠ける。
-    // 行の内側幅に収めて折り返させる。
-    if (lv_obj_t* l = lv_obj_get_child(row, 0)) {
-      lv_obj_set_width(l, LV_PCT(100));
-    }
   }
 }
 
@@ -169,7 +156,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_flex_align(s.detail_box, LV_FLEX_ALIGN_START,
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s.detail_l = lv_label_create(s.detail_box);
-  lv_obj_set_width(s.detail_l, 330);
+  lv_obj_set_width(s.detail_l, LV_PCT(100));
   lv_obj_set_style_text_font(s.detail_l, t.font_body, 0);
   lv_obj_set_style_text_color(s.detail_l, t.text, 0);
   lv_label_set_long_mode(s.detail_l, LV_LABEL_LONG_WRAP);
@@ -183,15 +170,15 @@ lv_obj_t* build(lv_obj_t* scr) {
         }
       });
 
-  fit_in_card(ui::c::button_danger(
+  ui::c::button_danger(
       s.detail_box, "削除",
       [](lv_event_t*) {
         ui::emit(watch::ActionType::MemoDelete, s.detail_id);
         show_list();
       },
-      nullptr));
-  fit_in_card(ui::c::button(s.detail_box, "一覧に戻る",
-                [](lv_event_t*) { show_list(); }, nullptr));
+      nullptr);
+  ui::c::button(s.detail_box, "一覧に戻る",
+                [](lv_event_t*) { show_list(); }, nullptr);
   lv_obj_add_flag(s.detail_box, LV_OBJ_FLAG_HIDDEN);
 
   rebuild_list();

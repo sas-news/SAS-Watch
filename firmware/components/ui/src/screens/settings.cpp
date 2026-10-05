@@ -1,4 +1,6 @@
-// settings.cpp — 設定: 明るさ、画面OFFまでの秒数、テーマ、ボタン割り当て、端末情報。
+// settings.cpp — 設定: 画面 / 音と振動 / テーマ / ボタン割り当て。
+// セクションごとにキャプション + 区切り線つきグループ。
+// 「文字盤」「数字フォント」は行タップで選択ビューに切替える (掘り下げ)。
 #include <cstdio>
 #include <cstring>
 
@@ -9,7 +11,7 @@
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 
-// フォント選択行の「12:34」プレビュー用 (生成済みの最小サイズのみ使う)。
+// フォント選択ビューの「12:34」プレビュー用 (生成済みの最小サイズのみ使う)。
 LV_FONT_DECLARE(font_fc_oswald_34);
 LV_FONT_DECLARE(font_fc_bebas_34);
 LV_FONT_DECLARE(font_fc_orbitron_34);
@@ -18,63 +20,109 @@ LV_FONT_DECLARE(font_fc_chakra_34);
 
 namespace {
 
+lv_obj_t* s_col = nullptr;    // メイン列
+lv_obj_t* s_pick = nullptr;   // 選択ビュー列 (文字盤/フォント)
+lv_obj_t* s_pick_grp = nullptr;
 lv_obj_t* s_bri = nullptr;
 lv_obj_t* s_off = nullptr;
 lv_obj_t* s_vol = nullptr;
-lv_obj_t* s_click_l = nullptr;
-lv_obj_t* s_vib_l = nullptr;
-lv_obj_t* s_raise_l = nullptr;
+lv_obj_t* s_raise_sw = nullptr;
+lv_obj_t* s_click_sw = nullptr;
+lv_obj_t* s_vib_sw = nullptr;
 bool s_updating = false;
 
-// 選択行 (テーマ/文字盤/フォント共通): 上段にタイトル、選択中は
-// 2行目に「使用中」。preview_font があれば右に「12:34」プレビュー。
-lv_obj_t* select_row(lv_obj_t* parent, const char* title, bool in_use,
-                     const lv_font_t* preview_font, lv_event_cb_t cb,
-                     void* ud) {
+void show_main() {
+  lv_obj_remove_flag(s_col, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(s_pick, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_scroll_to_y(s_col, 0, LV_ANIM_OFF);
+}
+
+void show_pick() {
+  lv_obj_add_flag(s_col, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(s_pick, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_scroll_to_y(s_pick, 0, LV_ANIM_OFF);
+}
+
+// 選択ビューの行: タイトル + 選択中なら sub「使用中」、preview_font があれば
+// 右に「12:34」のプレビュー。
+lv_obj_t* pick_row(lv_obj_t* grp, const char* label, bool in_use,
+                   const lv_font_t* preview, lv_event_cb_t cb, void* ud) {
   const ui::Theme& t = ui::theme();
-  lv_obj_t* r = lv_obj_create(parent);
-  lv_obj_add_flag(r, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_CLICKABLE |
-                                              LV_OBJ_FLAG_EVENT_BUBBLE));
-  // 2行になる行は高さを内容に合わせる (固定高だと「使用中」が食われる)。
-  lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_style_min_height(r, t.tap_min, 0);
-  lv_obj_set_style_radius(r, t.radius_sm, 0);
-  lv_obj_set_style_bg_color(r, t.surface, 0);
-  lv_obj_set_style_border_width(r, 0, 0);
-  lv_obj_set_style_pad_left(r, 14, 0);
-  lv_obj_set_style_pad_right(r, 14, 0);
-  lv_obj_set_style_pad_top(r, 8, 0);
-  lv_obj_set_style_pad_bottom(r, 8, 0);
-  lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
-
-  lv_obj_t* l = lv_label_create(r);
-  lv_obj_add_flag(l, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_label_set_text(l, title);
-  lv_obj_set_style_text_font(l, t.font_body, 0);
-  lv_obj_set_style_text_color(l, t.text, 0);
-  lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
-  // 右にプレビューがある行はタイトル幅を絞る。
-  lv_obj_set_width(l, preview_font ? 240 : 360);
-  lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, in_use ? 2 : 0);
-
-  if (preview_font) {
+  lv_obj_t* r = ui::c::row_box(grp, cb, ud);
+  // プレビューある時はその分タイトル幅を絞る。
+  ui::c::row_text(r, label, in_use ? "使用中" : nullptr,
+                  preview ? 244 : 334);
+  if (preview) {
     lv_obj_t* p = lv_label_create(r);
     lv_obj_add_flag(p, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_label_set_text(p, "12:34");
-    lv_obj_set_style_text_font(p, preview_font, 0);
+    lv_obj_set_style_text_font(p, preview, 0);
     lv_obj_set_style_text_color(p, t.text_dim, 0);
-    lv_obj_align(p, LV_ALIGN_RIGHT_MID, 0, 0);
   }
-  if (in_use) {
-    lv_obj_t* sub = lv_label_create(r);
-    lv_obj_add_flag(sub, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_label_set_text(sub, "使用中");
-    lv_obj_set_style_text_font(sub, t.font_body, 0);
-    lv_obj_set_style_text_color(sub, t.text_dim, 0);
-    lv_obj_align_to(sub, l, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
-  }
-  if (cb) lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, ud);
   return r;
+}
+
+// 選択ビュー共通の先頭行 (‹ 戻るでメインに戻る)。
+void pick_back_row(lv_obj_t* grp) {
+  ui::c::back_row(grp, [](lv_event_t*) { show_main(); });
+}
+
+const char* font_ja(const char* id) {
+  struct { const char* en; const char* ja; } static const kNames[] = {
+      {"auto", "自動"},     {"oswald", "Oswald"},
+      {"bebas", "Bebas"},   {"orbitron", "Orbitron"},
+      {"outfit", "Outfit"}, {"chakra", "Chakra"},
+  };
+  for (const auto& m : kNames)
+    if (std::strcmp(m.en, id) == 0) return m.ja;
+  return id;
+}
+
+void open_face_picker() {
+  const watch::Settings& st = *ui::ctx().settings;
+  lv_obj_clean(s_pick_grp);
+  pick_back_row(s_pick_grp);
+  for (const ui::face::Ops* const* p = ui::face::all(); *p; ++p) {
+    const bool inuse = std::strcmp(st.face, (*p)->id) == 0;
+    pick_row(s_pick_grp, ui::face::label_ja((*p)->id), inuse, nullptr,
+             [](lv_event_t* e) {
+               const char* id = static_cast<const char*>(
+                   lv_event_get_user_data(e));
+               ui::emit_text(watch::ActionType::SetFace, id);
+               // FaceChanged → shell が画面を組み直すのでそのままメインに戻る
+             },
+             const_cast<char*>((*p)->id));
+  }
+  show_pick();
+}
+
+void open_font_picker() {
+  const watch::Settings& st = *ui::ctx().settings;
+  static const struct {
+    const char* id;
+    const char* ja;
+    const lv_font_t* preview;
+  } kFonts[] = {
+      {"auto", "自動 (文字盤に合わせる)", nullptr},
+      {"oswald", "Oswald", &font_fc_oswald_34},
+      {"bebas", "Bebas Neue", &font_fc_bebas_34},
+      {"orbitron", "Orbitron", &font_fc_orbitron_34},
+      {"outfit", "Outfit", &font_fc_outfit_34},
+      {"chakra", "Chakra Petch", &font_fc_chakra_34},
+  };
+  lv_obj_clean(s_pick_grp);
+  pick_back_row(s_pick_grp);
+  for (const auto& f : kFonts) {
+    const bool inuse = std::strcmp(st.clock_font, f.id) == 0;
+    pick_row(s_pick_grp, f.ja, inuse, f.preview,
+             [](lv_event_t* e) {
+               const char* id = static_cast<const char*>(
+                   lv_event_get_user_data(e));
+               ui::emit_text(watch::ActionType::SetClockFont, id);
+             },
+             const_cast<char*>(f.id));
+  }
+  show_pick();
 }
 
 const char* action_jp(const char* name) {
@@ -96,21 +144,23 @@ lv_obj_t* build(lv_obj_t* scr) {
   const ui::Theme& t = ui::theme();
   lv_obj_set_style_bg_color(scr, t.bg, 0);
   ui::c::header(scr, "設定", true);
-  lv_obj_t* col = ui::c::content(scr);
+  s_col = ui::c::content(scr);
   const watch::Settings& st = *ui::ctx().settings;
 
-  s_bri = ui::c::slider_of(ui::c::slider_row(
-      col, "明るさ", 5, 100, static_cast<int32_t>(st.brightness),
+  // ---- 画面 ----
+  ui::c::caption(s_col, "画面");
+  lv_obj_t* g_scr = ui::c::group(s_col);
+  s_bri = ui::c::slider_row(
+      g_scr, "明るさ", "%", 5, 100, static_cast<int32_t>(st.brightness),
       [](lv_event_t* e) {
         if (s_updating) return;
         lv_obj_t* s = lv_event_get_target_obj(e);
         ui::emit(watch::ActionType::SetBrightness,
                  static_cast<uint32_t>(lv_slider_get_value(s)));
       },
-      nullptr));
-
-  s_off = ui::c::slider_of(ui::c::slider_row(
-      col, "画面OFFまで (秒)", 5, 120,
+      nullptr);
+  s_off = ui::c::slider_row(
+      g_scr, "画面OFFまで", "秒", 5, 120,
       static_cast<int32_t>(st.screen_off_after_s),
       [](lv_event_t* e) {
         if (s_updating) return;
@@ -118,147 +168,110 @@ lv_obj_t* build(lv_obj_t* scr) {
         ui::emit(watch::ActionType::SetScreenOffAfter,
                  static_cast<uint32_t>(lv_slider_get_value(s)));
       },
+      nullptr);
+  ui::c::row(g_scr, "文字盤", nullptr, ui::face::label_ja(st.face), true,
+             [](lv_event_t*) { open_face_picker(); }, nullptr);
+  ui::c::row(g_scr, "数字フォント", nullptr, font_ja(st.clock_font), true,
+             [](lv_event_t*) { open_font_picker(); }, nullptr);
+  s_raise_sw = ui::c::switch_of(ui::c::row_switch(
+      g_scr, "腕を上げて画面オン", nullptr, st.raise_to_wake,
+      [](lv_event_t*) {
+        const watch::Settings& cur = *ui::ctx().settings;
+        ui::emit(watch::ActionType::SetRaiseToWake,
+                 cur.raise_to_wake ? 0u : 1u);
+      },
       nullptr));
 
-  s_vol = ui::c::slider_of(ui::c::slider_row(
-      col, "音量", 0, 100, static_cast<int32_t>(st.audio_volume),
+  // ---- 音と振動 ----
+  ui::c::caption(s_col, "音と振動");
+  lv_obj_t* g_snd = ui::c::group(s_col);
+  s_vol = ui::c::slider_row(
+      g_snd, "音量", "%", 0, 100, static_cast<int32_t>(st.audio_volume),
       [](lv_event_t* e) {
         if (s_updating) return;
         lv_obj_t* s = lv_event_get_target_obj(e);
         ui::emit(watch::ActionType::SetAudioVolume,
                  static_cast<uint32_t>(lv_slider_get_value(s)));
       },
-      nullptr));
-
-  lv_obj_t* sen = ui::c::card(col);
-  ui::c::line(sen, "センサー");
-  s_raise_l = ui::c::list_row(
-      sen, "腕を上げて画面オン",
-      st.raise_to_wake ? "ON" : "OFF",
-      [](lv_event_t*) {
-        const watch::Settings& cur = *ui::ctx().settings;
-        ui::emit(watch::ActionType::SetRaiseToWake,
-                 cur.raise_to_wake ? 0u : 1u);
-      },
       nullptr);
-
-  lv_obj_t* snd = ui::c::card(col);
-  ui::c::line(snd, "音と振動");
-  s_click_l = ui::c::list_row(
-      snd, "クリック音",
-      st.audio_click ? "ON" : "OFF",
+  s_click_sw = ui::c::switch_of(ui::c::row_switch(
+      g_snd, "クリック音", nullptr, st.audio_click,
       [](lv_event_t*) {
         const watch::Settings& cur = *ui::ctx().settings;
         ui::emit(watch::ActionType::SetAudioClick,
                  cur.audio_click ? 0u : 1u);
       },
-      nullptr);
-  s_vib_l = ui::c::list_row(
-      snd, "通知の振動",
-      st.notify_vibrate ? "ON" : "OFF",
+      nullptr));
+  s_vib_sw = ui::c::switch_of(ui::c::row_switch(
+      g_snd, "通知で振動", nullptr, st.notify_vibrate,
       [](lv_event_t*) {
         const watch::Settings& cur = *ui::ctx().settings;
         ui::emit(watch::ActionType::SetNotifyVibrate,
                  cur.notify_vibrate ? 0u : 1u);
       },
-      nullptr);
+      nullptr));
 
-  // テーマ: 内蔵 2 種は時計から切替可。BLE で入れた file テーマは
+  // ---- テーマ ----
+  // 内蔵 2 種は時計から切替可。BLE で入れた file テーマは
   // 適用中だけ表示する (選び直すにはスマホから送る)。
-  lv_obj_t* tc = ui::c::card(col);
-  ui::c::line(tc, "テーマ");
+  ui::c::caption(s_col, "テーマ");
+  lv_obj_t* g_theme = ui::c::group(s_col);
   const char* cur = ui::theme_id();
   const bool is_standard = std::strcmp(cur, "standard") == 0;
   const bool is_light = std::strcmp(cur, "light") == 0;
-  select_row(tc, "標準 (ダーク)", is_standard, nullptr,
+  ui::c::row(g_theme, "標準 (ダーク)", is_standard ? "使用中" : nullptr,
+             nullptr, false,
              [](lv_event_t*) {
                ui::emit_text(watch::ActionType::SetTheme, "standard");
              },
              nullptr);
-  select_row(tc, "明るい", is_light, nullptr,
+  ui::c::row(g_theme, "明るい", is_light ? "使用中" : nullptr, nullptr,
+             false,
              [](lv_event_t*) {
                ui::emit_text(watch::ActionType::SetTheme, "light");
              },
              nullptr);
   if (!is_standard && !is_light) {
-    char lbl[80];
-    std::snprintf(lbl, sizeof(lbl), "%s", ui::theme_name());
-    select_row(tc, lbl, true, nullptr, nullptr, nullptr);
+    ui::c::row(g_theme, ui::theme_name(), "使用中", nullptr, false, nullptr,
+               nullptr);
   }
 
-  // 文字盤: 6種を縦に並べる。選択中に「使用中」。
-  lv_obj_t* fc = ui::c::card(col);
-  ui::c::line(fc, "文字盤");
-  for (const ui::face::Ops* const* p = ui::face::all(); *p; ++p) {
-    const bool inuse = std::strcmp(st.face, (*p)->id) == 0;
-    select_row(fc, ui::face::label_ja((*p)->id), inuse, nullptr,
-               [](lv_event_t* e) {
-                 const char* id = static_cast<const char*>(
-                     lv_event_get_user_data(e));
-                 ui::emit_text(watch::ActionType::SetFace, id);
-               },
-               const_cast<char*>((*p)->id));
-  }
+  // ---- ボタン割り当て (参照のみ) ----
+  ui::c::caption(s_col, "ボタン割り当て");
+  lv_obj_t* g_btn = ui::c::group(s_col);
+  ui::c::row(g_btn, "BOOT 短押し", nullptr,
+             action_jp(st.button_boot_short), false, nullptr, nullptr);
+  ui::c::row(g_btn, "BOOT 長押し", nullptr,
+             action_jp(st.button_boot_long), false, nullptr, nullptr);
+  ui::c::row(g_btn, "BOOT 2連打", nullptr,
+             action_jp(st.button_boot_double), false, nullptr, nullptr);
+  ui::c::row(g_btn, "PWR 短押し", nullptr,
+             action_jp(st.button_pwr_short), false, nullptr, nullptr);
+  ui::c::row(g_btn, "PWR 長押し", nullptr,
+             action_jp(st.button_pwr_long), false, nullptr, nullptr);
 
-  // 時計の数字フォント: auto + 5種。選択中に「使用中」。
-  lv_obj_t* cf = ui::c::card(col);
-  ui::c::line(cf, "時計の数字フォント");
-  {
-    // プレビューは各 family の最小の見本サイズ (34px) を使う。
-    static const struct {
-      const char* id;
-      const char* ja;
-      const lv_font_t* preview;
-    } kFonts[] = {
-        {"auto", "自動 (文字盤に合わせる)", nullptr},
-        {"oswald", "Oswald", &font_fc_oswald_34},
-        {"bebas", "Bebas Neue", &font_fc_bebas_34},
-        {"orbitron", "Orbitron", &font_fc_orbitron_34},
-        {"outfit", "Outfit", &font_fc_outfit_34},
-        {"chakra", "Chakra Petch", &font_fc_chakra_34},
-    };
-    for (const auto& f : kFonts) {
-      const bool inuse = std::strcmp(st.clock_font, f.id) == 0;
-      select_row(cf, f.ja, inuse, f.preview,
-                 [](lv_event_t* e) {
-                   const char* id = static_cast<const char*>(
-                       lv_event_get_user_data(e));
-                   ui::emit_text(watch::ActionType::SetClockFont, id);
-                 },
-                 const_cast<char*>(f.id));
-    }
-  }
-
-  lv_obj_t* btn = ui::c::card(col);
-  ui::c::line(btn, "ボタン割り当て");
-  ui::c::list_row(btn, "BOOT 短押し", action_jp(st.button_boot_short), nullptr,
-                  nullptr);
-  ui::c::list_row(btn, "BOOT 長押し", action_jp(st.button_boot_long), nullptr,
-                  nullptr);
-  ui::c::list_row(btn, "BOOT 2連打", action_jp(st.button_boot_double), nullptr,
-                  nullptr);
-  ui::c::list_row(btn, "PWR 短押し", action_jp(st.button_pwr_short), nullptr,
-                  nullptr);
-  ui::c::list_row(btn, "PWR 長押し", action_jp(st.button_pwr_long), nullptr,
-                  nullptr);
-
-  // ファーム更新: 現在バージョンを出しつつ進捗画面へ。
-  lv_obj_t* fw = ui::c::card(col);
-  ui::c::line(fw, "ファーム更新");
+  // ---- その他 ----
+  ui::c::caption(s_col, "その他");
+  lv_obj_t* g_etc = ui::c::group(s_col);
   char fwver[48];
   std::snprintf(fwver, sizeof(fwver), "現在 v%s", ui::port::fw_version());
-  ui::c::list_row(fw, "ファーム更新", fwver,
-                  [](lv_event_t*) {
-                    ui::emit(watch::ActionType::Navigate,
-                             static_cast<uint32_t>(watch::Route::Ota));
-                  },
-                  nullptr);
-
-  lv_obj_t* info = ui::c::card(col);
-  ui::c::line(info, "端末情報");
+  ui::c::row(g_etc, "ファーム更新", nullptr, fwver, true,
+             [](lv_event_t*) {
+               ui::emit(watch::ActionType::Navigate,
+                        static_cast<uint32_t>(watch::Route::Ota));
+             },
+             nullptr);
+  lv_obj_t* info = ui::c::card(s_col);
   char buf[96];
   ui::port::device_info(buf, sizeof(buf));
   ui::c::line(info, buf);
+
+  // ---- 選択ビュー列 (メイン列と同じ位置。普段は隠す) ----
+  s_pick = ui::c::content(scr);
+  s_pick_grp = ui::c::group(s_pick);
+  lv_obj_add_flag(s_pick, LV_OBJ_FLAG_HIDDEN);
+
+  show_main();
   return scr;
 }
 
@@ -269,28 +282,16 @@ void on_event(lv_obj_t*, const watch::Event& e) {
   }
   const watch::Settings& st = *ui::ctx().settings;
   s_updating = true;
-  if (s_bri)
-    lv_slider_set_value(s_bri, static_cast<int32_t>(st.brightness),
-                        LV_ANIM_OFF);
+  if (s_bri) ui::c::slider_set(s_bri, static_cast<int32_t>(st.brightness));
   if (s_off)
-    lv_slider_set_value(s_off, static_cast<int32_t>(st.screen_off_after_s),
-                        LV_ANIM_OFF);
-  if (s_vol)
-    lv_slider_set_value(s_vol, static_cast<int32_t>(st.audio_volume),
-                        LV_ANIM_OFF);
-  if (s_click_l) {
-    // list_row のサブラベルは child 1。
-    lv_obj_t* sub = lv_obj_get_child(s_click_l, 1);
-    if (sub) lv_label_set_text(sub, st.audio_click ? "ON" : "OFF");
-  }
-  if (s_vib_l) {
-    lv_obj_t* sub = lv_obj_get_child(s_vib_l, 1);
-    if (sub) lv_label_set_text(sub, st.notify_vibrate ? "ON" : "OFF");
-  }
-  if (s_raise_l) {
-    lv_obj_t* sub = lv_obj_get_child(s_raise_l, 1);
-    if (sub) lv_label_set_text(sub, st.raise_to_wake ? "ON" : "OFF");
-  }
+    ui::c::slider_set(s_off, static_cast<int32_t>(st.screen_off_after_s));
+  if (s_vol) ui::c::slider_set(s_vol, static_cast<int32_t>(st.audio_volume));
+  if (s_click_sw)
+    lv_obj_set_state(s_click_sw, LV_STATE_CHECKED, st.audio_click);
+  if (s_vib_sw)
+    lv_obj_set_state(s_vib_sw, LV_STATE_CHECKED, st.notify_vibrate);
+  if (s_raise_sw)
+    lv_obj_set_state(s_raise_sw, LV_STATE_CHECKED, st.raise_to_wake);
   s_updating = false;
 }
 

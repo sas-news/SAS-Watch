@@ -32,6 +32,7 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_26.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_digits_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_digits_56.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_chev_22.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_l_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_112.c

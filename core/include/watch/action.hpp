@@ -17,9 +17,11 @@ enum class ActionType : uint16_t {
   PrimaryAction,  // 画面ごとの主アクション (Timer開始/停止 など)
   Wake,           // 明示的な復帰要求 (処理はしない)
   // Timer
-  TimerStart,     // arg0 = 秒 (0 = 前回/既定)
+  TimerStart,     // arg0 = 秒 (0 = 前回/既定。一時停止中は再開)
   TimerStop,
   TimerReset,
+  TimerPause,     // 一時停止 (UI 内部。止まっていれば何もしない)
+  TimerAddMinute, // 実行中は +60秒。停止/終了後は 60秒で開始 (「もう1分」)
   // Stopwatch
   StopwatchToggle,
   StopwatchLap,

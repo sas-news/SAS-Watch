@@ -1,5 +1,6 @@
 // stopwatch.cpp — ストップウォッチ: 開始/停止、ラップ(最大20)、リセット。
 #include "../components.hpp"
+#include "../faces/faces.hpp"
 #include "../theme.hpp"
 
 #include <cstdio>
@@ -24,6 +25,8 @@ void fmt(char* buf, size_t cap, int64_t ms) {
   std::snprintf(buf, cap, "%02d:%02d.%02d", total_cs / 6000,
                 (total_cs / 100) % 60, total_cs % 100);
 }
+// ※ 表示フォントは時計フォントなので "." は gen_fonts.py の
+//   FACE_FONT_SYMBOLS に含めてある。
 
 void tick_cb(lv_timer_t*) {
   char buf[16];
@@ -42,7 +45,7 @@ void rebuild_laps(lv_obj_t* col) {
   for (size_t i = 0; i < st.lap_count; ++i) {
     fmt(buf, sizeof(buf), st.laps[i]);
     std::snprintf(name, sizeof(name), "ラップ %u", (unsigned)(i + 1));
-    ui::c::list_row(s.laps_col, name, buf, nullptr, nullptr);
+    ui::c::row(s.laps_col, name, nullptr, buf, false, nullptr, nullptr);
   }
 }
 
@@ -67,29 +70,30 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_t* col = ui::c::content(scr);
   s = S{};
 
-  lv_obj_t* card = ui::c::card(col);
-  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
-  s.disp = lv_label_create(card);
-  lv_obj_set_style_text_font(s.disp, t.font_digits_sm, 0);
+  // 大きな数字は時計フォント (clock_font 設定)。
+  s.disp = lv_label_create(col);
+  lv_obj_add_flag(s.disp, LV_OBJ_FLAG_EVENT_BUBBLE);
+  // 時計フォント (clock_font)。「00:00.78」は 34px 級が横幅に収まる。
+  lv_obj_set_style_text_font(s.disp, ui::face::digits(34), 0);
   lv_obj_set_style_text_color(s.disp, t.text, 0);
+  lv_obj_set_style_pad_top(s.disp, 8, 0);
 
-  s.toggle = ui::c::button_primary(card, "開始",
+  s.toggle = ui::c::button_primary(col, "開始",
                                  [](lv_event_t*) {
                                    ui::emit(watch::ActionType::StopwatchToggle);
                                  },
                                  nullptr);
   s.toggle_l = lv_obj_get_child(s.toggle, 0);
-  ui::c::button(card, "ラップ",
+  ui::c::button(col, "ラップ",
                 [](lv_event_t*) { ui::emit(watch::ActionType::StopwatchLap); },
                 nullptr);
-  ui::c::button(card, "リセット",
+  ui::c::button(col, "リセット",
                 [](lv_event_t*) {
                   ui::emit(watch::ActionType::StopwatchReset);
                 },
                 nullptr);
 
-  s.laps_col = ui::c::card(col);
+  s.laps_col = ui::c::group(col);
   sync(col);
   return scr;
 }

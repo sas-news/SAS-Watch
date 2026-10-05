@@ -132,6 +132,76 @@ TEST(Timer, RestoreAfterExpiryFinishesOnTick) {
   EXPECT_EQ(f2.rec.count_of(EventType::TimerFinished), 1u);
 }
 
+TEST(Timer, PauseKeepsRemaining) {
+  FeatFixture f;
+  f.clock.set_now_ms(0);
+  f.act(features::kTimer, ActionType::TimerStart, 90);
+  f.clock.advance_ms(30'000);
+  f.act(features::kTimer, ActionType::TimerPause);
+  const auto& st = features::timer_state();
+  EXPECT_FALSE(st.running);
+  EXPECT_TRUE(st.paused);
+  EXPECT_EQ(st.paused_ms, 60'000);
+  EXPECT_EQ(features::timer_remaining_ms(f.clock.now_ms()), 60'000);
+  EXPECT_EQ(f.rec.last_of(EventType::TimerPaused)->arg0, 60u);
+  // 一時停止中に時間が進んでも残りは減らないし、終了イベントも出ない。
+  f.clock.advance_ms(120'000);
+  features::kTimer.tick(f.clock.now_ms(), f.ctx);
+  EXPECT_FALSE(features::timer_state().finished);
+  EXPECT_EQ(features::timer_remaining_ms(f.clock.now_ms()), 60'000);
+}
+
+TEST(Timer, ResumeFromPause) {
+  FeatFixture f;
+  f.clock.set_now_ms(0);
+  f.act(features::kTimer, ActionType::TimerStart, 90);
+  f.clock.advance_ms(30'000);
+  f.act(features::kTimer, ActionType::TimerPause);
+  f.clock.advance_ms(5'000);
+  f.act(features::kTimer, ActionType::TimerStart, 0);  // arg0=0 で再開
+  EXPECT_TRUE(features::timer_state().running);
+  EXPECT_FALSE(features::timer_state().paused);
+  // 残り 60s が今から数え直しになる。
+  EXPECT_EQ(features::timer_remaining_ms(f.clock.now_ms()), 60'000);
+}
+
+TEST(Timer, AddMinuteWhileRunning) {
+  FeatFixture f;
+  f.clock.set_now_ms(0);
+  f.act(features::kTimer, ActionType::TimerStart, 60);
+  f.clock.advance_ms(10'000);
+  f.act(features::kTimer, ActionType::TimerAddMinute);
+  EXPECT_TRUE(features::timer_state().running);
+  EXPECT_EQ(features::timer_remaining_ms(f.clock.now_ms()), 110'000);
+  EXPECT_EQ(features::timer_state().duration_s, 120u);
+}
+
+TEST(Timer, AddMinuteAfterFinishStarts60s) {
+  // 「もう1分」: 終了アラートから押すと 60 秒タイマーとして再開。
+  FeatFixture f;
+  f.clock.set_now_ms(0);
+  f.act(features::kTimer, ActionType::TimerStart, 10);
+  f.clock.advance_ms(10'000);
+  features::kTimer.tick(f.clock.now_ms(), f.ctx);
+  EXPECT_TRUE(features::timer_state().finished);
+  f.act(features::kTimer, ActionType::TimerAddMinute);
+  const auto& st = features::timer_state();
+  EXPECT_TRUE(st.running);
+  EXPECT_FALSE(st.finished);
+  EXPECT_EQ(st.duration_s, 60u);
+  EXPECT_EQ(features::timer_remaining_ms(f.clock.now_ms()), 60'000);
+}
+
+TEST(Timer, AddMinuteWhilePausedExtends) {
+  FeatFixture f;
+  f.clock.set_now_ms(0);
+  f.act(features::kTimer, ActionType::TimerStart, 60);
+  f.act(features::kTimer, ActionType::TimerPause);
+  f.act(features::kTimer, ActionType::TimerAddMinute);
+  EXPECT_TRUE(features::timer_state().paused);
+  EXPECT_EQ(features::timer_remaining_ms(f.clock.now_ms()), 120'000);
+}
+
 // ---------- Stopwatch ----------
 
 TEST(Stopwatch, TogglePauseElapsed) {

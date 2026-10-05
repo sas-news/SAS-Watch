@@ -17,8 +17,6 @@ struct M {
 };
 M s;
 
-void fit_in_card(lv_obj_t* o) { lv_obj_set_width(o, LV_PCT(100)); }
-
 void refresh() {
   if (!s.title) return;
   const watch::features::MediaState& m = watch::features::media_state();
@@ -34,14 +32,14 @@ void refresh() {
 }
 
 void cmd_btn(lv_obj_t* card, const char* text, watch::MediaCmd cmd) {
-  fit_in_card(ui::c::button(
+  ui::c::button(
       card, text,
       [](lv_event_t* e) {
         const auto c = static_cast<watch::MediaCmd>(
             reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
         ui::emit(watch::ActionType::MediaCommand, static_cast<uint32_t>(c));
       },
-      reinterpret_cast<void*>(static_cast<uintptr_t>(cmd))));
+      reinterpret_cast<void*>(static_cast<uintptr_t>(cmd)));
 }
 
 lv_obj_t* build(lv_obj_t* scr) {
@@ -56,12 +54,12 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_style_text_font(s.state, t.font_body, 0);
   lv_obj_set_style_text_color(s.state, t.accent, 0);
   s.title = lv_label_create(info);
-  lv_obj_set_width(s.title, 330);
+  lv_obj_set_width(s.title, LV_PCT(100));
   lv_obj_set_style_text_font(s.title, t.font_body, 0);
   lv_obj_set_style_text_color(s.title, t.text, 0);
   lv_label_set_long_mode(s.title, LV_LABEL_LONG_DOT);
   s.artist = lv_label_create(info);
-  lv_obj_set_width(s.artist, 330);
+  lv_obj_set_width(s.artist, LV_PCT(100));
   lv_obj_set_style_text_font(s.artist, t.font_body, 0);
   lv_obj_set_style_text_color(s.artist, t.text_dim, 0);
   lv_label_set_long_mode(s.artist, LV_LABEL_LONG_DOT);
