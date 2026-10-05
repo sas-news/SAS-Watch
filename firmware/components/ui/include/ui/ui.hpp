@@ -11,6 +11,7 @@
 #include "watch/action.hpp"
 #include "watch/event.hpp"
 #include "watch/event_bus.hpp"
+#include "watch/feature.hpp"
 #include "watch/navigation.hpp"
 #include "watch/settings.hpp"
 
@@ -21,6 +22,8 @@ struct Ctx {
   watch::EventBus* bus = nullptr;
   watch::Navigator* nav = nullptr;
   const watch::Settings* settings = nullptr;
+  // FeatureContext (audio の有無や録音経過を知りたい画面用)。無くても動く。
+  watch::FeatureContext* fctx = nullptr;
 };
 
 // Action の出口。watch_app (firmware) / sim が Runtime のキューへつなぐ。

@@ -45,6 +45,17 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- 音声メモの共有 (WAV) 用 FileProvider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- 通知転送 + メディアセッション取得用 NotificationListener -->
         <service
             android:name=".notif.NotificationForwarder"

@@ -109,6 +109,20 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
       }
       return false;
     }
+    case ActionType::SetAudioVolume:
+      if (settings_set_u32(settings_, &ctx.storage, "audio.volume",
+                           a.arg0 > 100 ? 100 : a.arg0)) {
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
+    case ActionType::SetAudioClick:
+      if (settings_set_u32(settings_, &ctx.storage, "audio.click",
+                           a.arg0 ? 1 : 0)) {
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
     case ActionType::SetTheme:
       // theme id は [a-z0-9-]{1,31} (docs/theme-format.md)。
       // 実在するかは適用層が判定し、失敗時は standard にフォールバックする。

@@ -5,6 +5,7 @@
 
 #include "internal.hpp"
 
+#include "audio/audio.hpp"
 #include "board/board.hpp"
 #include "esp_log.h"
 #include "esp_pm.h"
@@ -133,10 +134,21 @@ bool start(const Deps& deps) {
 
   static watch::FeatureContext fctx{s_bus, *s_kv, *s_clock, &s_nav, &s_power};
   s_fctx = &fctx;
+  fctx.settings = &s_settings;
+  // Phase 9: 音声サービス (littlefs の storage パーティション + コーデック)。
+  // 失敗しても audio 無しで動く (録音ボタンは出ない)。
+  audio::Deps audio_deps;
+  audio_deps.power = &s_power;
+  audio_deps.settings = &s_settings;
+  if (audio::init(audio_deps)) {
+    fctx.audio = audio::port();
+    audio::attach(s_bus);
+  }
   s_rt.init(fctx);
   s_features.restore_all(fctx);
 
   s_bus.subscribe(watch::EventType::BleConnChanged, ble_cb, nullptr);
+  ble_glue_init();
 
   // UI の Action 出口をこのキューへ。
   ui::set_action_sink(&push_action);

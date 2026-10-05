@@ -53,6 +53,28 @@ sealed interface Req {
         override fun params() = Cbor.Cmap(mapOf("text" to Cbor.Ctext(text)))
     }
 
+    /** メモ一覧 (i=開始index, n=最大件数 1..16)。新しい順に返る。 */
+    data class MemoList(val i: Int = 0, val n: Int = 16) : Req {
+        override val method get() = "memo.list"
+        override fun params() = Cbor.Cmap(mapOf("i" to Cbor.Cint(i.toLong()), "n" to Cbor.Cint(n.toLong())))
+    }
+
+    data class MemoGet(val id: Int) : Req {
+        override val method get() = "memo.get"
+        override fun params() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
+    }
+
+    data class MemoDelete(val id: Int) : Req {
+        override val method get() = "memo.delete"
+        override fun params() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
+    }
+
+    /** 音声メモの実体取得。RES 直後に時計から BULK kind="memo" が送られる。 */
+    data class MemoAudioGet(val id: Int) : Req {
+        override val method get() = "memo.audio.get"
+        override fun params() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
+    }
+
     data class NotifyPost(val app: String, val title: String, val body: String) : Req {
         override val method get() = "notify.post"
         override fun params() = Cbor.Cmap(
@@ -134,8 +156,20 @@ sealed interface Evt {
         override val data get() = Cbor.Cmap(emptyMap())
     }
 
-    data class MemoSaved(val id: Int) : Evt {
+    /** kind は "text" / "voice"。sec は voice の秒数 (text では 0)。 */
+    data class MemoSaved(val id: Int, val kind: String = "text", val sec: Int = 0) : Evt {
         override val name get() = "memo.saved"
+        override val data get() = Cbor.Cmap(
+            mapOf(
+                "id" to Cbor.Cint(id.toLong()),
+                "kind" to Cbor.Ctext(kind),
+                "sec" to Cbor.Cint(sec.toLong()),
+            ),
+        )
+    }
+
+    data class MemoDeleted(val id: Int) : Evt {
+        override val name get() = "memo.deleted"
         override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
     }
 
@@ -162,7 +196,12 @@ sealed interface Evt {
             return when (name) {
                 "battery" -> Battery(d.int("level").toInt(), d.bool("charging"))
                 "timer.finished" -> TimerFinished
-                "memo.saved" -> MemoSaved(d.int("id").toInt())
+                "memo.saved" -> MemoSaved(
+                    d.int("id").toInt(),
+                    d.text("kind", "text"),
+                    d.int("sec").toInt(),
+                )
+                "memo.deleted" -> MemoDeleted(d.int("id").toInt())
                 "media.cmd" -> MediaCommand(MediaCmd.of(d.text("cmd")) ?: return Unknown(name, d))
                 "agent.request" -> AgentRequest(d.int("id").toInt(), d.text("text"))
                 else -> Unknown(name, d)
@@ -187,6 +226,8 @@ object SettingsKeys {
     const val BUTTON_PWR_SHORT = "button.pwr.short"
     const val BUTTON_PWR_LONG = "button.pwr.long"
     const val BUTTON_PWR_DOUBLE = "button.pwr.double"
+    const val AUDIO_VOLUME = "audio.volume"
+    const val AUDIO_CLICK = "audio.click"
 
     /** kKeys と同じ順。 */
     val ALL = listOf(
@@ -194,6 +235,7 @@ object SettingsKeys {
         TZ_OFFSET_MIN, THEME,
         BUTTON_BOOT_SHORT, BUTTON_BOOT_LONG, BUTTON_BOOT_DOUBLE,
         BUTTON_PWR_SHORT, BUTTON_PWR_LONG, BUTTON_PWR_DOUBLE,
+        AUDIO_VOLUME, AUDIO_CLICK,
     )
 
     /** button.* のデフォルト値（core `settings.hpp` と一致）。 */
@@ -210,6 +252,8 @@ object SettingsKeys {
         BUTTON_PWR_SHORT to Cbor.Ctext("back"),
         BUTTON_PWR_LONG to Cbor.Ctext("power_menu"),
         BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
+        AUDIO_VOLUME to Cbor.Cint(70),
+        AUDIO_CLICK to Cbor.Cint(1),
     )
 }
 
@@ -280,6 +324,79 @@ data class HelloResult(val proto: Int, val fw: String, val caps: List<String>) {
         fun fromCbor(v: Cbor): HelloResult? {
             val m = v as? Cbor.Cmap ?: return null
             return HelloResult(m.int("proto").toInt(), m.text("fw"), m.textList("caps"))
+        }
+    }
+}
+
+// ---------- メモ (memo.list / memo.get / memo.audio.get) ----------
+
+/** memo.list の memos[] の1件。kind は "text" / "voice"。 */
+data class MemoEntry(
+    val id: Int,
+    val kind: String,
+    val sec: Int,
+    val size: Long,
+) {
+    companion object {
+        fun fromCbor(v: Cbor): MemoEntry? {
+            val m = v as? Cbor.Cmap ?: return null
+            return MemoEntry(
+                id = m.int("id").toInt(),
+                kind = m.text("kind", "text"),
+                sec = m.int("sec").toInt(),
+                size = m.int("size"),
+            )
+        }
+    }
+}
+
+/** memo.list の RES を展開する。 */
+data class MemoListResult(val total: Int, val memos: List<MemoEntry>) {
+    companion object {
+        fun fromCbor(v: Cbor): MemoListResult? {
+            val m = v as? Cbor.Cmap ?: return null
+            val arr = m.value["memos"] as? Cbor.Carray ?: return null
+            return MemoListResult(
+                total = m.int("total").toInt(),
+                memos = arr.value.mapNotNull { MemoEntry.fromCbor(it) },
+            )
+        }
+    }
+}
+
+/** memo.get の RES を展開する (text メモは text に本文)。 */
+data class MemoInfo(
+    val id: Int,
+    val kind: String,
+    val sec: Int,
+    val size: Long,
+    val text: String,
+) {
+    companion object {
+        fun fromCbor(v: Cbor): MemoInfo? {
+            val m = v as? Cbor.Cmap ?: return null
+            return MemoInfo(
+                id = m.int("id").toInt(),
+                kind = m.text("kind", "text"),
+                sec = m.int("sec").toInt(),
+                size = m.int("size"),
+                text = m.text("text"),
+            )
+        }
+    }
+}
+
+/** memo.audio.get の RES を展開する。sha256 は 32 bytes。 */
+data class MemoAudioInfo(val id: Int, val size: Long, val sha256: ByteArray) {
+    companion object {
+        fun fromCbor(v: Cbor): MemoAudioInfo? {
+            val m = v as? Cbor.Cmap ?: return null
+            val sha = m.value["sha256"] as? Cbor.Cbytes ?: return null
+            return MemoAudioInfo(
+                id = m.int("id").toInt(),
+                size = m.int("size"),
+                sha256 = sha.value,
+            )
         }
     }
 }

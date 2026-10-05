@@ -132,6 +132,8 @@ int main(int argc, char** argv) {
   s_settings.tz_offset_min = 540;  // JST
   static watch::FeatureContext fctx{s_bus, sim::kv(), sim::clock(),
                                     &s_nav, &s_power};
+  fctx.audio = &sim::audio();
+  fctx.settings = &s_settings;
   s_fctx = &fctx;
   s_rt.init(fctx);
   s_features.restore_all(fctx);
@@ -144,7 +146,7 @@ int main(int argc, char** argv) {
 
   // Action 出口 → core キュー。
   ui::set_action_sink(&sink);
-  ui::create({&s_bus, &s_nav, &s_settings});
+  ui::create({&s_bus, &s_nav, &s_settings, &fctx});
   pump(400);
 
   bool ok = true;
@@ -188,10 +190,11 @@ int main(int argc, char** argv) {
   nav_to(watch::Route::Memo);
   ok &= save(out, "09_memo_list");
   // 先頭行をタップして詳細 (削除ボタンが見える)。
-  tap(205, 150);
+  // 録音カードが上にあるので行の中心は y≈200。
+  tap(205, 200);
   pump(200);
   ok &= save(out, "10_memo_detail");
-  tap(205, 430);  // 一覧に戻る (ボタン位置がズレても次shotで確認)
+  tap(205, 290);  // 一覧に戻る (削除の下)
   pump(200);
 
   back_home();
@@ -243,6 +246,18 @@ int main(int argc, char** argv) {
   ui::emit_text(watch::ActionType::SetTheme, "standard");
   pump(400);
 
+  // 音声メモ: 録音中の表示 → 確定 → 音声メモ詳細 (再生ボタン)。
+  back_home();
+  nav_to(watch::Route::Memo);
+  ui::emit(watch::ActionType::MemoRecordStart);
+  pump(2500);
+  ok &= save(out, "19_memo_recording");
+  ui::emit(watch::ActionType::MemoRecordStop);
+  pump(400);
+  // 先頭行 (新しい音声メモ) を開く。
+  tap(205, 190);
+  pump(300);
+  ok &= save(out, "20_memo_voice_detail");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

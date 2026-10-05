@@ -12,14 +12,17 @@
 namespace watch {
 
 class PowerPolicy;
+struct Settings;
 
 // Feature が共有するコンテキスト。実体は Runtime が持つ。
 struct FeatureContext {
   EventBus& bus;
   KeyValueStore& storage;
   Clock& clock;
-  Navigator* nav = nullptr;      // 無くても動く (テスト用に nullable)
-  PowerPolicy* power = nullptr;  // 同上
+  Navigator* nav = nullptr;        // 無くても動く (テスト用に nullable)
+  PowerPolicy* power = nullptr;    // 同上
+  AudioPort* audio = nullptr;      // 無ければ音声機能は無効
+  const Settings* settings = nullptr;  // 読み取り専用 (音量など)
 };
 
 enum FeatureCapability : uint32_t {

@@ -30,5 +30,12 @@ interface WatchLink {
     /** BULK 転送路（bulk 特性）。接続がこの経路を持たないときは null。 */
     val bulk: BulkChannel?
 
+    /**
+     * 時計→スマホの BULK 転送 (kind="memo") を受け取る。
+     * `memo.audio.get` の RES 直後に呼ぶ。転送 id = id & 0xFFFF。
+     * sha256 は RES で受け取った期待値。失敗・不一致・タイムアウトなら null。
+     */
+    suspend fun fetchBulk(id: Int, sha256: ByteArray, timeoutMs: Long = 30_000): ByteArray?
+
     fun close()
 }

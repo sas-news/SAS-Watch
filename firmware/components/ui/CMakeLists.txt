@@ -10,6 +10,7 @@ idf_component_register(
     REQUIRES watch_core board
     PRIV_REQUIRES esp_lvgl_port waveshare__esp32_s3_touch_amoled_2_06
                   esp_lcd espressif__esp_lcd_touch lvgl esp_timer esp_system
+                  audio
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE

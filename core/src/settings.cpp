@@ -36,6 +36,8 @@ constexpr SettingKey kKeys[] = {
     WATCH_SSET_STR("button.pwr.short", button_pwr_short),
     WATCH_SSET_STR("button.pwr.long", button_pwr_long),
     WATCH_SSET_STR("button.pwr.double", button_pwr_double),
+    WATCH_SSET_U32("audio.volume", audio_volume),
+    WATCH_SSET_U32("audio.click", audio_click),
 };
 
 char* field_ptr(Settings& s, const SettingKey& k) {

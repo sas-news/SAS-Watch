@@ -33,6 +33,8 @@ watch::Runtime& runtime();
 watch::Navigator& navigator();
 watch::EventBus& bus();
 const watch::Settings& settings();
+// FeatureContext (audio の有無など UI が直接読む情報用)。start() 済みなら非null。
+watch::FeatureContext* fctx();
 
 #if CONFIG_SAS_BLE_LINK
 // app_main が ble_link_start() に渡す設定。

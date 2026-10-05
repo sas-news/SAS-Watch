@@ -64,6 +64,7 @@ uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 uint16_t s_mtu = BLE_ATT_MTU_DFLT;
 uint8_t s_addr_type = 0;
 uint16_t s_evt_msg_id = 1;
+uint16_t s_bulk_tx_msg_id = 1;  // 時計→スマホ方向の BULK の連番
 uint16_t s_passkey_conn = BLE_HS_CONN_HANDLE_NONE;  // numcmp 確認待ち
 
 // char の値ハンドル (ble_gatts_add_svcs が埋める)。
@@ -219,6 +220,17 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
         send_res_payload(msg.msg_id, buf, encode_res_ok(buf, sizeof(buf)));
       } else {
         send_res_err(msg.msg_id, "bad_request");
+      }
+      break;
+    }
+    case watch::proto::FrameType::BulkAck: {
+      // 時計→スマホ方向の転送で Phone が返す ACK。
+      uint16_t id = 0;
+      uint32_t next = 0;
+      if (watch::proto::bulk_parse_ack(msg.payload, msg.payload_len, &id,
+                                     &next) &&
+          s_cfg.on_bulk_ack) {
+        s_cfg.on_bulk_ack(id, next, s_cfg.bulk_ctx);
       }
       break;
     }
@@ -576,4 +588,19 @@ extern "C" esp_err_t ble_link_confirm_passkey(bool accept) {
   const uint16_t conn = s_passkey_conn;
   s_passkey_conn = BLE_HS_CONN_HANDLE_NONE;
   return ble_sm_inject_io(conn, &io) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+extern "C" bool ble_link_bulk_ready(void) {
+  return s_conn != BLE_HS_CONN_HANDLE_NONE && s_bulk_notify;
+}
+
+extern "C" esp_err_t ble_link_bulk_send(uint8_t frame_type, uint16_t msg_id,
+                                        const uint8_t* payload, size_t len) {
+  if (!s_started || !payload || len == 0) return ESP_ERR_INVALID_ARG;
+  if (!ble_link_bulk_ready()) return ESP_ERR_INVALID_STATE;
+  (void)s_bulk_tx_msg_id;  // 送信側でも連番を持つ (いまは msg_id を使い回す)
+  const bool ok = watch::proto::send_message(
+      static_cast<watch::proto::FrameType>(frame_type), msg_id, payload, len,
+      s_mtu, notify_emit, reinterpret_cast<void*>(s_bulk_val_handle));
+  return ok ? ESP_OK : ESP_FAIL;
 }

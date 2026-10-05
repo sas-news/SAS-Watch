@@ -19,6 +19,18 @@ uint32_t read_le32(const uint8_t* p) {
          (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
 }
 
+void write_le16(uint8_t* p, uint16_t v) {
+  p[0] = static_cast<uint8_t>(v);
+  p[1] = static_cast<uint8_t>(v >> 8);
+}
+
+void write_le32(uint8_t* p, uint32_t v) {
+  p[0] = static_cast<uint8_t>(v);
+  p[1] = static_cast<uint8_t>(v >> 8);
+  p[2] = static_cast<uint8_t>(v >> 16);
+  p[3] = static_cast<uint8_t>(v >> 24);
+}
+
 }  // namespace
 
 bool bulk_parse_start(const uint8_t* cbor, size_t len, BulkStart* out) {
@@ -82,6 +94,51 @@ size_t bulk_encode_ack(uint16_t id, uint32_t next, uint8_t* out,
   cbor::Writer w(out, out_cap);
   w.map(2).text("id").uint_v(id).text("next").uint_v(next);
   return w.ok() ? w.size() : 0;
+}
+
+bool bulk_parse_ack(const uint8_t* cbor, size_t len, uint16_t* id_out,
+                    uint32_t* next_out) {
+  if (!cbor || !id_out || !next_out) return false;
+  cbor::Value top{cbor, cbor + len};
+  if (cbor::type(top) != cbor::Type::Map) return false;
+  cbor::Value v;
+  uint64_t u;
+  if (!cbor::map_find(top, "id", &v) || !cbor::as_uint(v, &u) || u > 0xFFFF) {
+    return false;
+  }
+  *id_out = static_cast<uint16_t>(u);
+  if (!cbor::map_find(top, "next", &v) || !cbor::as_uint(v, &u) ||
+      u > 0xFFFFFFFF) {
+    return false;
+  }
+  *next_out = static_cast<uint32_t>(u);
+  return true;
+}
+
+size_t bulk_encode_start(uint16_t id, const char* kind, uint32_t size,
+                         const uint8_t sha256[32], uint32_t chunk,
+                         uint8_t* out, size_t out_cap) {
+  if (!out || !kind || !sha256) return 0;
+  cbor::Writer w(out, out_cap);
+  w.map(5)
+      .text("id").uint_v(id)
+      .text("kind").text(kind)
+      .text("size").uint_v(size)
+      .text("sha256").bytes(sha256, 32)
+      .text("chunk").uint_v(chunk);
+  return w.ok() ? w.size() : 0;
+}
+
+size_t bulk_encode_end(uint16_t id, uint8_t* out, size_t out_cap) {
+  if (!out) return 0;
+  cbor::Writer w(out, out_cap);
+  w.map(1).text("id").uint_v(id);
+  return w.ok() ? w.size() : 0;
+}
+
+void bulk_chunk_head(uint16_t id, uint32_t offset, uint8_t* out) {
+  write_le16(out, id);
+  write_le32(out + 2, offset);
 }
 
 void BulkReceiver::init(const Sink& sink) {

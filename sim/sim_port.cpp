@@ -25,6 +25,8 @@ bool battery_charging() { return false; }
 
 void vibrate(uint32_t ms) { std::printf("[sim] vibrate %ums\n", ms); }
 
+void click() {}  // sim は無音
+
 [[noreturn]] void restart() {
   std::printf("[sim] restart requested\n");
   std::exit(0);

@@ -3,6 +3,7 @@
 // 電池 = board::pmic、再起動 = esp_restart。
 #include "ui/port.hpp"
 
+#include "audio/audio.hpp"
 #include "board/board.hpp"
 #include "board/power_consts.h"
 #include "esp_heap_caps.h"
@@ -38,6 +39,8 @@ int battery_percent() { return board::pmic::battery_percent(); }
 bool battery_charging() { return board::pmic::is_charging(); }
 
 void vibrate(uint32_t ms) { board::haptics::pulse(ms); }
+
+void click() { audio::click(); }
 
 [[noreturn]] void restart() { esp_restart(); }
 

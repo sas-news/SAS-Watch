@@ -321,9 +321,71 @@ class FakeWatch(
                 }
                 memoId++
                 val id = memoId
+                memos[id] = FakeMemo(id, "text", 0, 0, text)
                 // 実機同様、保存後に EVT を返す
-                scheduler.schedule({ emit(Evt.MemoSaved(id)) }, 200, TimeUnit.MILLISECONDS)
+                scheduler.schedule(
+                    { emit(Evt.MemoSaved(id, "text", 0)) },
+                    200, TimeUnit.MILLISECONDS,
+                )
                 Res.okCbor(Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong()))))
+            }
+            "memo.list" -> {
+                // core: i>=0, 1<=n<=16、新しい順
+                val i = (p.value["i"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "memo.list")
+                val n = (p.value["n"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "memo.list")
+                if (i < 0 || n < 1 || n > 16) {
+                    return Res.errCbor("bad_request", "memo.list")
+                }
+                val newest = memos.values.toList().asReversed()
+                val slice = newest.drop(i).take(n).map { it.toCbor() }
+                Res.okCbor(
+                    Cbor.Cmap(
+                        mapOf(
+                            "total" to Cbor.Cint(newest.size.toLong()),
+                            "memos" to Cbor.Carray(slice),
+                        ),
+                    ),
+                )
+            }
+            "memo.get" -> {
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "memo.get")
+                val memo = memos[id]
+                    ?: return Res.errCbor("not_found", "memo.get")
+                Res.okCbor(memo.toCbor(withText = true))
+            }
+            "memo.delete" -> {
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "memo.delete")
+                if (memos.remove(id) == null) {
+                    return Res.errCbor("not_found", "memo.delete")
+                }
+                scheduler.schedule(
+                    { emit(Evt.MemoDeleted(id)) },
+                    200, TimeUnit.MILLISECONDS,
+                )
+                Res.okCbor()
+            }
+            "memo.audio.get" -> {
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "memo.audio.get")
+                val memo = memos[id]
+                if (memo == null || memo.kind != "voice" || memo.blob == null) {
+                    return Res.errCbor("not_found", "memo.audio.get")
+                }
+                val sha = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(memo.blob)
+                Res.okCbor(
+                    Cbor.Cmap(
+                        mapOf(
+                            "id" to Cbor.Cint(id.toLong()),
+                            "size" to Cbor.Cint(memo.blob.size.toLong()),
+                            "sha256" to Cbor.Cbytes(sha),
+                        ),
+                    ),
+                )
             }
             "notify.post" -> {
                 // core: app/title/body は text 必須
@@ -369,12 +431,50 @@ class FakeWatch(
     /** 時計側からのメディア操作を模倣する。 */
     fun simulateMediaCmd(cmd: MediaCmd) = emit(Evt.MediaCommand(cmd))
 
+    /** 時計側で音声メモを録ったふりをする (ADP1 の440Hzトーン)。 */
+    fun simulateVoiceMemo(sec: Int = 3) {
+        memoId++
+        val id = memoId
+        val rate = Adpcm.SAMPLE_RATE
+        val pcm = ShortArray(rate * sec) { i ->
+            (kotlin.math.sin(2.0 * Math.PI * 440.0 * i / rate) * 9000).toInt().toShort()
+        }
+        val blob = Adpcm.pcmToAdp1(pcm)
+        memos[id] = FakeMemo(id, "voice", sec, blob.size, "", blob)
+        emit(Evt.MemoSaved(id, "voice", sec))
+    }
+
+    /** FakeWatchConnection.fetchBulk が読む音声実体。 */
+    fun audioBlobFor(id: Int): ByteArray? = memos[id]?.blob
+
+    private class FakeMemo(
+        val id: Int,
+        val kind: String,
+        val sec: Int,
+        val size: Int,
+        val text: String,
+        val blob: ByteArray? = null,
+    ) {
+        fun toCbor(withText: Boolean = false): Cbor.Cmap {
+            val m = linkedMapOf(
+                "id" to Cbor.Cint(id.toLong()),
+                "kind" to Cbor.Ctext(kind),
+                "sec" to Cbor.Cint(sec.toLong()),
+                "size" to Cbor.Cint(size.toLong()),
+            )
+            if (withText) m["text"] = Cbor.Ctext(text)
+            return Cbor.Cmap(m)
+        }
+    }
+
+    private val memos = LinkedHashMap<Int, FakeMemo>()
+
     fun close() {
         scheduler.shutdownNow()
     }
 
     companion object {
         const val FW_VERSION = "0.1.0-fake"
-        val CAPS = listOf("timer", "stopwatch", "counter", "memo", "theme")
+        val CAPS = listOf("timer", "stopwatch", "counter", "memo", "theme", "audio")
     }
 }

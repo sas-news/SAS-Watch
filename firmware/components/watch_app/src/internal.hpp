@@ -24,7 +24,9 @@ watch::Clock* clock();
 watch::KeyValueStore* kv();
 watch::Settings& settings_mut();
 
-// ble_glue.cpp: app タスクのループで保留分 (接続状態/パスキー) を処理する。
+// ble_glue.cpp: BLE 有効時に EventBus → EVT notify を配線する (start 内で1回)。
+void ble_glue_init();
+// ble_glue.cpp: app タスクのループで保留分 (接続状態/パスキー/bulk送信) を処理する。
 void ble_glue_poll();
 
 }  // namespace watch_app

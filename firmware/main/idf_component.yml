@@ -13,5 +13,5 @@ dependencies:
   waveshare/qmi8658: "^2.0.1"
   waveshare/pcf85063a: "^2.0.0"
   espressif/esp_codec_dev: "~1.5"
+  joltwallet/littlefs: "~1.22"   # 音声メモ・テーマなど storage パーティションの VFS
   espressif/usb: "^1.4.1"
-  joltwallet/littlefs: "~=1.16.0"

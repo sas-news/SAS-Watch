@@ -58,6 +58,10 @@ typedef struct {
   // 転送中断/失敗時の掃除 (NULL 可)。
   void (*bulk_abort)(uint16_t id, void* ctx);
   void* bulk_ctx;
+
+  // 時計→スマホ方向の BULK で、Phone 側の BULK_ACK {id,next} が届いたとき。
+  // NimBLE タスクから呼ばれるので軽い処理だけにすること。
+  void (*on_bulk_ack)(uint16_t id, uint32_t next, void* ctx);
 } ble_link_config_t;
 
 // NimBLE を起動して advertising を始める。2回目以降は ESP_ERR_INVALID_STATE。
@@ -76,6 +80,16 @@ esp_err_t ble_link_send_event(const uint8_t* cbor, size_t len);
 // on_passkey で表示した確認に UI から答える。表示中でなければ
 // ESP_ERR_INVALID_STATE。
 esp_err_t ble_link_confirm_passkey(bool accept);
+
+// ---- 時計→スマホ方向の BULK 送信 (音声メモなど) ----
+// bulk characteristic が notify 購読済みなら true。
+bool ble_link_bulk_ready(void);
+// 1 つの BULK_* メッセージ (payload = CBOR または CHUNK 生バイト) を
+// bulk characteristic で notify する。frame_type は protocol の
+// 0x10 BULK_START / 0x11 BULK_CHUNK / 0x13 BULK_END (ACK は時計側は送らない)。
+// 未接続/未購読なら ESP_ERR_INVALID_STATE。
+esp_err_t ble_link_bulk_send(uint8_t frame_type, uint16_t msg_id,
+                             const uint8_t* payload, size_t len);
 
 #ifdef __cplusplus
 }
