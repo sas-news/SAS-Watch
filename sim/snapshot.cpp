@@ -281,22 +281,22 @@ int main(int argc, char** argv) {
   // ---- アラーム ----
   back_home();
   nav_to(watch::Route::Alarm);
-  ok &= save(out, "23_alarm");
+  ok &= save(out, "40_alarm");
 
   // 鳴動アラート: 今この分のアラームを登録すると次の tick で鳴る。
   watch::features::alarm_set(0, 18, 41, 0, true, fctx);
   pump(400);
-  ok &= save(out, "24_alarm_alert");
+  ok &= save(out, "41_alarm_alert");
   tap(205, 281);  // 止める (中央 +30 のボタン中心)
   pump(300);
 
   // ---- 通知一覧 ----
   nav_to(watch::Route::Notifications);
-  ok &= save(out, "25_notifications");
+  ok &= save(out, "42_notifications");
   // 先頭行をタップして詳細 (アプリ名・タイトル・本文の全体表示)。
   tap(205, 130);
   pump(200);
-  ok &= save(out, "26_notification_detail");
+  ok &= save(out, "43_notification_detail");
   tap(205, 290);  // 一覧に戻る
   pump(200);
 
@@ -304,13 +304,13 @@ int main(int argc, char** argv) {
   watch::features::notify_add("LINE", "兄", "今週末帰るよ");
   s_bus.publish({watch::EventType::NotificationPosted, 0});
   pump(300);
-  ok &= save(out, "27_notify_popup");
+  ok &= save(out, "44_notify_popup");
   pump(4500);  // トーストが消えるまで待つ
 
   // ---- 音楽操作 ----
   back_home();
   nav_to(watch::Route::Media);
-  ok &= save(out, "28_media");
+  ok &= save(out, "45_media");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }
