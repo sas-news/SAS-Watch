@@ -17,6 +17,9 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.connection.WatchLink
+import dev.sasnews.amoledwatch.protocol.BulkAck
+import dev.sasnews.amoledwatch.protocol.BulkChannel
+import dev.sasnews.amoledwatch.protocol.BulkCodec
 import dev.sasnews.amoledwatch.protocol.CborCodec
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.Frame
@@ -27,17 +30,22 @@ import dev.sasnews.amoledwatch.protocol.Reassembler
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.Res
 import dev.sasnews.amoledwatch.protocol.toCbor
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -62,6 +70,7 @@ class BleWatchConnection(
         private const val TAG = "BleWatchConnection"
         private const val REQ_TIMEOUT_MS = 5_000L
         private const val OP_TIMEOUT_MS = 10_000L
+        private const val BULK_OP_TIMEOUT_MS = 10_000L
         private const val BOND_TIMEOUT_MS = 60_000L
         private const val BACKOFF_MAX_MS = 30_000L
     }
@@ -75,6 +84,10 @@ class BleWatchConnection(
     /** BULK_* フレーム（将来の Asset/OTA 転送用に流しておく）。 */
     private val _bulkFrames = MutableSharedFlow<Frame>(extraBufferCapacity = 64)
     val bulkFrames: SharedFlow<Frame> = _bulkFrames
+
+    /** 届いた BULK_ACK（`{id,next}`）。BleBulkChannel が受け取る。 */
+    private val bulkAcks = Channel<BulkAck>(Channel.UNLIMITED)
+    override val bulk: BulkChannel = BleBulkChannel()
 
     @Volatile private var gatt: BluetoothGatt? = null
     @Volatile private var mtu: Int = 23
@@ -400,6 +413,9 @@ class BleWatchConnection(
             Log.w(TAG, "BULK reassembly: ${e.message}")
             return
         }
+        if (complete.type == Frame.TYPE_BULK_ACK) {
+            BulkCodec.decodeAck(complete.payload)?.let { bulkAcks.trySend(it) }
+        }
         _bulkFrames.tryEmit(complete)
     }
 
@@ -408,6 +424,91 @@ class BleWatchConnection(
         while (it.hasNext()) {
             it.next().value.complete(Res.Err("internal", reason))
             it.remove()
+        }
+    }
+
+    // ---------------- BULK ----------------
+
+    /**
+     * bulk 特性 (WRITE_NO_RESPONSE + notify) 経由の BulkChannel。
+     * BULK_ACK は bulk notify の `{id,next}`。BULK_END / BULK_START 失敗の RES は
+     * ctrl notify に同じ msg_id で返るので、既存の `pending` 機構で待つ。
+     * gatt/bulkChar は接続ごとに張り替わるので、呼び出し時に読む。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    inner class BleBulkChannel : BulkChannel {
+
+        override suspend fun start(id: Int, kind: String, size: Int, sha256: ByteArray, chunk: Int): BulkAck? {
+            val g = gatt ?: return null
+            val c = bulkChar ?: return null
+            val msgId = nextMsgId()
+            val deferred = CompletableDeferred<Res>()
+            pending[msgId] = deferred
+            try {
+                val payload = BulkCodec.encodeStart(id, kind, size, sha256, chunk)
+                for (f in Fragmenter.fragment(Frame.TYPE_BULK_START, msgId, payload, mtu)) {
+                    if (!writeRaw(g, c, f.encode(), BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)) {
+                        return null
+                    }
+                }
+                return withTimeoutOrNull(BULK_OP_TIMEOUT_MS) {
+                    // ACK (bulk notify) と RES err (ctrl notify) の先着。
+                    val waiter = async {
+                        var a: BulkAck
+                        do {
+                            a = bulkAcks.receive()
+                        } while (a.id != id)
+                        a
+                    }
+                    val winner = select<BulkAck?> {
+                        waiter.onAwait { it }
+                        deferred.onAwait { null }
+                    }
+                    waiter.cancel()
+                    winner
+                }
+            } finally {
+                pending.remove(msgId)
+            }
+        }
+
+        override suspend fun chunk(id: Int, offset: Long, data: ByteArray) {
+            val g = gatt ?: throw IOException("not connected")
+            val c = bulkChar ?: throw IOException("bulk characteristic not found")
+            val payload = BulkCodec.encodeChunk(id, offset, data)
+            // msg_id に転送 id を入れる（実機は CHUNK の msg_id を見ないが、ログ用に追跡しやすい）
+            for (f in Fragmenter.fragment(Frame.TYPE_BULK_CHUNK, id, payload, mtu)) {
+                if (!writeRaw(g, c, f.encode(), BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)) {
+                    throw IOException("bulk chunk write failed")
+                }
+            }
+        }
+
+        override suspend fun nextAck(timeoutMs: Long): BulkAck? =
+            if (timeoutMs <= 0) {
+                bulkAcks.tryReceive().getOrNull()
+            } else {
+                withTimeoutOrNull(timeoutMs) { bulkAcks.receive() }
+            }
+
+        override suspend fun end(id: Int): Res {
+            val g = gatt ?: return Res.Err("internal", "not connected")
+            val c = bulkChar ?: return Res.Err("internal", "bulk characteristic not found")
+            val msgId = nextMsgId()
+            val deferred = CompletableDeferred<Res>()
+            pending[msgId] = deferred
+            try {
+                for (f in Fragmenter.fragment(Frame.TYPE_BULK_END, msgId, BulkCodec.encodeEnd(id), mtu)) {
+                    if (!writeRaw(g, c, f.encode(), BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)) {
+                        return Res.Err("internal", "write failed")
+                    }
+                }
+                return withTimeout(BULK_OP_TIMEOUT_MS) { deferred.await() }
+            } catch (e: TimeoutCancellationException) {
+                return Res.Err("internal", "timeout")
+            } finally {
+                pending.remove(msgId)
+            }
         }
     }
 

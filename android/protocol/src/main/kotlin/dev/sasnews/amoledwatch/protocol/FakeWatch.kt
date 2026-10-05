@@ -1,5 +1,7 @@
 package dev.sasnews.amoledwatch.protocol
 
+import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -54,6 +56,152 @@ class FakeWatch(
         return Fragmenter.fragment(Frame.TYPE_RES, complete.msgId, CborCodec.encode(res), mtuSize)
             .map { it.encode() }
     }
+
+    // ---------------- BULK (kind: "theme" 等の受信側。core `BulkReceiver` と同じ規則) ----------------
+
+    private val bulkReassembler = Reassembler()
+    private var bulkActive = false
+    private var bulkId = 0
+    private var bulkKind = ""
+    private var bulkSize = 0
+    private var bulkExpectedSha = ByteArray(32)
+    private var bulkReceived = 0
+    private var bulkChunksSinceAck = 0
+    private var bulkSha = MessageDigest.getInstance("SHA-256")
+    private val bulkBuf = ByteArrayOutputStream()
+
+    /**
+     * bulk 特性への write を模倣。BULK_* の Frame バイト列 → 送出すべき Frame 列。
+     * ACK は BULK_ACK Frame、BULK_END/BULK_START 失敗時の RES は RES Frame
+     * （実機では ctrl notify。呼び出し側が振り分ける）。
+     * 途中フラグメントなら再構成を待って空リストを返す。
+     */
+    fun writeBulk(frameBytes: ByteArray, mtuSize: Int = 247): List<ByteArray> {
+        val frame = FrameCodec.decode(frameBytes)
+        if (frame.type != Frame.TYPE_BULK_START &&
+            frame.type != Frame.TYPE_BULK_CHUNK &&
+            frame.type != Frame.TYPE_BULK_END
+        ) {
+            return emptyList()
+        }
+        val complete = bulkReassembler.feed(frame) ?: return emptyList()
+        val out = ArrayList<ByteArray>()
+        when (complete.type) {
+            Frame.TYPE_BULK_START -> {
+                val s = parseBulkStart(complete.payload)
+                    ?: return resFrames(complete.msgId, Res.errCbor("bad_request", "BULK_START"), mtuSize)
+                // 同じ転送の再送なら受領位置を返して再開 (core `BulkReceiver::start`)
+                if (bulkActive && s.id == bulkId && s.size == bulkSize &&
+                    s.sha256.contentEquals(bulkExpectedSha)
+                ) {
+                    out += ackFrames(s.id, bulkReceived, mtuSize)
+                } else {
+                    bulkActive = true
+                    bulkId = s.id
+                    bulkKind = s.kind
+                    bulkSize = s.size
+                    bulkExpectedSha = s.sha256
+                    bulkReceived = 0
+                    bulkChunksSinceAck = 0
+                    bulkBuf.reset()
+                    bulkSha = MessageDigest.getInstance("SHA-256")
+                    out += ackFrames(s.id, 0, mtuSize)
+                }
+            }
+            Frame.TYPE_BULK_CHUNK -> {
+                val p = complete.payload
+                if (!bulkActive || p.size < 6) return emptyList()
+                val id = (p[0].toInt() and 0xFF) or ((p[1].toInt() and 0xFF) shl 8)
+                if (id != bulkId) return emptyList()
+                val offset = (p[2].toLong() and 0xFF) or ((p[3].toLong() and 0xFF) shl 8) or
+                    ((p[4].toLong() and 0xFF) shl 16) or ((p[5].toLong() and 0xFF) shl 24)
+                val data = p.copyOfRange(6, p.size)
+                // オフセット不整合・サイズ超過は現在位置を ACK で知らせて再開させる
+                if (offset != bulkReceived.toLong() || bulkReceived + data.size > bulkSize) {
+                    out += ackFrames(bulkId, bulkReceived, mtuSize)
+                } else {
+                    bulkBuf.write(data)
+                    bulkSha.update(data)
+                    bulkReceived += data.size
+                    if (++bulkChunksSinceAck >= BulkCodec.ACK_EVERY) {
+                        bulkChunksSinceAck = 0
+                        out += ackFrames(bulkId, bulkReceived, mtuSize)
+                    }
+                }
+            }
+            Frame.TYPE_BULK_END -> {
+                val id = parseBulkEnd(complete.payload)
+                if (id == null || !bulkActive || id != bulkId) {
+                    return resFrames(complete.msgId, Res.errCbor("bad_request", "BULK_END"), mtuSize)
+                }
+                val data = bulkBuf.toByteArray()
+                val hashOk = bulkReceived == bulkSize &&
+                    bulkSha.digest().contentEquals(bulkExpectedSha)
+                if (!hashOk) {
+                    abortBulk()
+                    return resFrames(complete.msgId, Res.errCbor("bad_request", "hash mismatch"), mtuSize)
+                }
+                // commit: kind="theme" は zip を検査し manifest の id をテーマ設定に入れる
+                if (bulkKind == "theme") {
+                    val info = try {
+                        ThemePackage.inspect(data)
+                    } catch (e: ThemePackage.Invalid) {
+                        abortBulk()
+                        return resFrames(complete.msgId, Res.errCbor("bad_request", e.message ?: "invalid theme"), mtuSize)
+                    }
+                    settings[SettingsKeys.THEME] = Cbor.Ctext(info.id)
+                }
+                bulkActive = false
+                return resFrames(complete.msgId, Res.okCbor(), mtuSize)
+            }
+        }
+        return out
+    }
+
+    private fun abortBulk() {
+        bulkActive = false
+        bulkReceived = 0
+        bulkBuf.reset()
+    }
+
+    private class BulkStartReq(val id: Int, val kind: String, val size: Int, val sha256: ByteArray)
+
+    /** core `bulk_parse_start` と同じ必須チェック: id<=0xFFFF / size / sha256(32B)。kind は省略可。 */
+    private fun parseBulkStart(payload: ByteArray): BulkStartReq? {
+        val m = try {
+            CborCodec.decode(payload) as? Cbor.Cmap
+        } catch (e: CborCodec.DecodeException) {
+            null
+        } ?: return null
+        val id = m.int("id", -1)
+        val size = m.int("size", -1)
+        if (id !in 0..Frame.MAX_MSG_ID || size !in 0..0xFFFFFFFFL) return null
+        val sha = (m.value["sha256"] as? Cbor.Cbytes)?.value?.takeIf { it.size == 32 } ?: return null
+        val kind = m.text("kind", "")
+        if (kind.toByteArray(Charsets.UTF_8).size > BulkCodec.MAX_KIND_LEN) return null
+        return BulkStartReq(id.toInt(), kind, size.toInt(), sha)
+    }
+
+    private fun parseBulkEnd(payload: ByteArray): Int? {
+        val m = try {
+            CborCodec.decode(payload) as? Cbor.Cmap
+        } catch (e: CborCodec.DecodeException) {
+            null
+        } ?: return null
+        val id = m.int("id", -1)
+        return if (id in 0..Frame.MAX_MSG_ID) id.toInt() else null
+    }
+
+    private fun ackFrames(id: Int, next: Int, mtuSize: Int): List<ByteArray> {
+        val payload = CborCodec.encode(
+            Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong()), "next" to Cbor.Cint(next.toLong()))),
+        )
+        // 実機同様、ACK の msg_id には転送 id を入れる (ble_link.cpp `send_bulk_ack`)
+        return Fragmenter.fragment(Frame.TYPE_BULK_ACK, id, payload, mtuSize).map { it.encode() }
+    }
+
+    private fun resFrames(msgId: Int, res: Cbor.Cmap, mtuSize: Int): List<ByteArray> =
+        Fragmenter.fragment(Frame.TYPE_RES, msgId, CborCodec.encode(res), mtuSize).map { it.encode() }
 
     /** core の bad_request に対応する内部エラー。RES として返すため FrameException とは分ける。 */
     private class BadReq(msg: String) : Exception(msg)
