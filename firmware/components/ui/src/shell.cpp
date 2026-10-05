@@ -342,6 +342,10 @@ void handle_event(const watch::Event& e) {
     rebuild_current();
     // アラート表示中なら画像差し替わりに合わせて閉じる。
     if (s_alert) hide_alert(nullptr);
+  } else if (e.type == watch::EventType::FaceChanged) {
+    // settings.face / clock_font を反映するため現在の画面を組み直す
+    // (Home なら文字盤が差し替わり、設定画面なら「使用中」が更新される)。
+    rebuild_current();
   }
   if (s_ops && s_ops->on_event && s_cur) s_ops->on_event(s_cur, e);
 }
@@ -406,6 +410,7 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::PowerStateChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::ThemeChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::OtaProgress, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::FaceChanged, bus_cb, nullptr);
   }
   // 設定されたテーマを最初の画面構築より先に適用する。
   if (s_ctx.settings) theme_apply(s_ctx.settings->theme);

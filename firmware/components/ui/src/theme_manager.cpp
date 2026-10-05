@@ -26,11 +26,14 @@ constexpr uint16_t kMaxDim[watch::kThemeImageSlots][2] = {
     {410, 502},  // home_bg
     {240, 360},  // stand
     {410, 320},  // timer_done
+    {240, 410},  // face_chara
 };
 constexpr uint32_t kManifestMax = 32 * 1024;
 
 // 画像 dsc (data はアリーナ内を指す)。slot 数ぶんの静的領域。
 lv_image_dsc_t s_img[watch::kThemeImageSlots];
+// manifest "bubble" で上書きした文言の保持領域。
+char s_bubble[5][48];
 
 const lv_font_t* font_for(uint8_t px, const lv_font_t* fallback) {
   switch (px) {
@@ -55,6 +58,12 @@ lv_color_t* color_at(Theme* t, int i) {
     case 7: return &t->accent;
     case 8: return &t->danger;
     case 9: return &t->ok;
+    case 10: return &t->accent2;
+    case 11: return &t->accent3;
+    case 12: return &t->accent4;
+    case 13: return &t->accent5;
+    case 14: return &t->bubble_bg;
+    case 15: return &t->bubble_text;
     default: return nullptr;
   }
 }
@@ -64,6 +73,7 @@ const lv_image_dsc_t** img_slot(Theme* t, int i) {
     case 0: return &t->img_home_bg;
     case 1: return &t->img_stand;
     case 2: return &t->img_timer_done;
+    case 3: return &t->img_face_chara;
     default: return nullptr;
   }
 }
@@ -86,7 +96,7 @@ bool load_file_theme(const char* id, Theme* out) {
 
   // 欠けた Token は standard で補完する。
   Theme t = *builtin_theme("standard");
-  for (int i = 0; i < 10; ++i) {
+  for (int i = 0; i < 16; ++i) {
     if (m.color_set & (1u << i)) {
       *color_at(&t, i) = lv_color_hex(m.color[i]);
     }
@@ -122,6 +132,13 @@ bool load_file_theme(const char* id, Theme* out) {
     s_img[s].reserved = nullptr;
     s_img[s].reserved_2 = nullptr;
     *img_slot(&t, s) = &s_img[s];
+  }
+  // ふきだし文言は manifest 指定分だけ差し替え (残りは standard の既定)。
+  for (int i = 0; i < 5; ++i) {
+    if (!(m.bubble_set & (1u << i))) continue;
+    std::strncpy(s_bubble[i], m.bubble[i], sizeof(s_bubble[i]) - 1);
+    s_bubble[i][sizeof(s_bubble[i]) - 1] = '\0';
+    t.bubble[i] = s_bubble[i];
   }
   *out = t;
   theme_set_info(m.id, m.name);

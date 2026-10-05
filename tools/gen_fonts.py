@@ -5,12 +5,16 @@ firmware/components/ui/src/fonts/ に LVGL フォントを生成する。
   - font_jp_20/26      : UI 文言用 (ASCII + かな + CJK句読点 + 全角記号
                           + UI ソース内で使われている漢字 + 予備の常用漢字)
   - font_digits_56/96  : 時刻・タイマー用 (0-9 : . - + のみ)
+  - font_fc_<fam>_<px> : 文字盤の時計数字用 (0-9 : のみ)。
+                          <fam> = oswald / bebas / orbitron / outfit / chakra
 
 使い方:
   python3 tools/gen_fonts.py --font /path/to/NotoSansJP.ttf
+  python3 tools/gen_fonts.py --faces          # 文字盤フォントだけ生成
 
 依存: lv_font_conv (npm i -g lv_font_conv)
-フォント: Noto Sans JP (OFL)。生成物と一緒に OFL.txt を同梱すること。
+フォント: Noto Sans JP + Google Fonts 5 種 (OFL、tools/fonts/face/)。
+          生成物と一緒に OFL.txt / OFL-face.txt を同梱すること。
 """
 
 import argparse
@@ -66,6 +70,35 @@ EXTRA_KANJI = (
 
 DIGIT_SYMBOLS = "0123456789:.-+"
 
+# 文字盤フォント (Google Fonts / OFL、tools/fonts/face/ に TTF を置く)。
+#   (生成シンボル名の family 部, サイズpx, TTF ファイル名)
+#   Oswald は bold 文字盤の「時=太/分=細」再現用に 150px で2ウェイト。
+FACE_FONT_TTF_DIR = REPO / "tools" / "fonts" / "face"
+FACE_FONT_SPECS = [
+    ("oswald",   150, "Oswald-600.ttf"),
+    ("oswald_l", 150, "Oswald-300.ttf"),
+    ("oswald",   112, "Oswald-600.ttf"),
+    ("oswald",    34, "Oswald-400.ttf"),
+    ("oswald",    18, "Oswald-600.ttf"),
+    ("bebas",    150, "BebasNeue-400.ttf"),
+    ("bebas",    112, "BebasNeue-400.ttf"),
+    ("bebas",     34, "BebasNeue-400.ttf"),
+    ("bebas",     18, "BebasNeue-400.ttf"),
+    ("orbitron", 150, "Orbitron-700.ttf"),
+    ("orbitron", 112, "Orbitron-700.ttf"),
+    ("orbitron",  34, "Orbitron-700.ttf"),
+    ("orbitron",  18, "Orbitron-700.ttf"),
+    ("outfit",   150, "Outfit-200.ttf"),
+    ("outfit",   112, "Outfit-200.ttf"),
+    ("outfit",    34, "Outfit-300.ttf"),
+    ("outfit",    18, "Outfit-300.ttf"),
+    ("chakra",   150, "ChakraPetch-500.ttf"),
+    ("chakra",   112, "ChakraPetch-500.ttf"),
+    ("chakra",    34, "ChakraPetch-500.ttf"),
+    ("chakra",    18, "ChakraPetch-500.ttf"),
+]
+FACE_FONT_SYMBOLS = "0123456789:"
+
 STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -90,45 +123,72 @@ def run(args: list[str]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--font", required=True, help="NotoSansJP.ttf のパス")
+    ap.add_argument("--font", help="NotoSansJP.ttf のパス (省略時は日本語系を生成しない)")
+    ap.add_argument("--faces", action="store_true",
+                    help="文字盤フォントを tools/fonts/face/ から生成する")
+    ap.add_argument("--face-ttf-dir", default=str(FACE_FONT_TTF_DIR),
+                    help="文字盤フォント TTF の場所")
     ap.add_argument("--out", default=str(FONT_OUT))
     ap.add_argument("--bpp", default="4")
     args = ap.parse_args()
 
+    if not args.font and not args.faces:
+        ap.error("--font か --faces のどちらかを指定して")
+
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    symbols = collect_ui_chars()
-    print(f"UI chars: {len(symbols)} codepoints (incl. EXTRA_KANJI)")
+    if args.font:
+        symbols = collect_ui_chars()
+        print(f"UI chars: {len(symbols)} codepoints (incl. EXTRA_KANJI)")
 
-    # 日本語フォント (範囲 + 文字列の和)
-    for size in (20, 26):
-        run([
-            "lv_font_conv",
-            "--font", args.font,
-            "--size", str(size),
-            "--bpp", args.bpp,
-            "--format", "lvgl",
-            "--lv-include", "lvgl.h",
-            "-r", BASE_RANGES,
-            "--symbols", symbols,
-            "--lv-font-name", f"font_jp_{size}",
-            "-o", str(out / f"font_jp_{size}.c"),
-        ])
+        # 日本語フォント (範囲 + 文字列の和)
+        for size in (20, 26):
+            run([
+                "lv_font_conv",
+                "--font", args.font,
+                "--size", str(size),
+                "--bpp", args.bpp,
+                "--format", "lvgl",
+                "--lv-include", "lvgl.h",
+                "-r", BASE_RANGES,
+                "--symbols", symbols,
+                "--lv-font-name", f"font_jp_{size}",
+                "-o", str(out / f"font_jp_{size}.c"),
+            ])
 
-    # 数字フォント
-    for size in (56, 96):
-        run([
-            "lv_font_conv",
-            "--font", args.font,
-            "--size", str(size),
-            "--bpp", args.bpp,
-            "--format", "lvgl",
-            "--lv-include", "lvgl.h",
-            "--symbols", DIGIT_SYMBOLS,
-            "--lv-font-name", f"font_digits_{size}",
-            "-o", str(out / f"font_digits_{size}.c"),
-        ])
+        # 数字フォント
+        for size in (56, 96):
+            run([
+                "lv_font_conv",
+                "--font", args.font,
+                "--size", str(size),
+                "--bpp", args.bpp,
+                "--format", "lvgl",
+                "--lv-include", "lvgl.h",
+                "--symbols", DIGIT_SYMBOLS,
+                "--lv-font-name", f"font_digits_{size}",
+                "-o", str(out / f"font_digits_{size}.c"),
+            ])
+
+    if args.faces:
+        ttf_dir = pathlib.Path(args.face_ttf_dir)
+        for fam, size, ttf in FACE_FONT_SPECS:
+            src = ttf_dir / ttf
+            if not src.exists():
+                sys.exit(f"missing TTF: {src}")
+            name = f"font_fc_{fam}_{size}"
+            run([
+                "lv_font_conv",
+                "--font", str(src),
+                "--size", str(size),
+                "--bpp", args.bpp,
+                "--format", "lvgl",
+                "--lv-include", "lvgl.h",
+                "--symbols", FACE_FONT_SYMBOLS,
+                "--lv-font-name", name,
+                "-o", str(out / f"{name}.c"),
+            ])
 
     print(f"done -> {out}")
     return 0

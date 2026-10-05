@@ -580,6 +580,8 @@ def main():
                     "audio.click": 1,
                     "raise_to_wake": 1,
                     "steps.goal": 8000,
+                    "face": "bold",
+                    "clock_font": "auto",
                 },
             },
         ),

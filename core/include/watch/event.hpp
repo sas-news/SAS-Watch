@@ -13,6 +13,7 @@ enum class EventType : uint16_t {
   SettingsChanged,       // arg0 = SettingKey のハッシュ (0 = 全体)
   BrightnessChanged,     // arg0 = 0-100
   ThemeChanged,          // arg0 = 0, theme id は Settings 参照
+  FaceChanged,           // arg0 = 0, face/clock_font は Settings 参照
   ClockTick,             // 秒が変わるごと (arg0 = epoch_s 下位)
   BatteryChanged,        // arg0 = 0-100
   ChargingChanged,       // arg0 = 0/1

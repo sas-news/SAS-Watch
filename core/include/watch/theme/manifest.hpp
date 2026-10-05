@@ -15,8 +15,9 @@ enum class ThemeImageSlot : uint8_t {
   HomeBg = 0,
   Stand,
   TimerDone,
+  FaceChara,  // 文字盤 chara_* 用の立ち絵 (透過、最大 240x410)
 };
-constexpr int kThemeImageSlots = 3;
+constexpr int kThemeImageSlots = 4;
 constexpr size_t kThemeImageNameMax = 24;  // "timer_done.bin" まで
 
 struct ThemeManifest {
@@ -27,7 +28,7 @@ struct ThemeManifest {
 
   // ---- tokens: 未指定キーは *_set ビットが 0 のまま (適用側は標準値で補完)。
   // 色は parse 済み 0xRRGGBB。順序は docs/theme-format.md の tokens 表。
-  uint32_t color[10] = {};
+  uint32_t color[16] = {};
   uint16_t color_set = 0;        // bit i = color[i] が指定された
   uint8_t radius_sm = 0;
   uint8_t radius_lg = 0;
@@ -41,6 +42,11 @@ struct ThemeManifest {
   // images[slot] = zip 内ファイル名 (指定時のみ)。
   char image[kThemeImageSlots][kThemeImageNameMax] = {};
   uint8_t image_set = 0;
+
+  // chara_bubble 文字盤のふきだし文言 (任意)。
+  // 0:朝 1:昼 2:夕 3:夜 4:歩数 ({n} は残り歩数に置換)。
+  char bubble[5][48] = {};
+  uint8_t bubble_set = 0;        // bit i = bubble[i] が指定された
 };
 
 enum class ThemeManifestError : uint8_t {

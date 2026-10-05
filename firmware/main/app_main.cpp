@@ -16,9 +16,11 @@
 #include "ota/ota.hpp"
 #include "platform_esp/platform_esp.hpp"
 #include "theme_store/theme_store.hpp"
+#include "ui/face_data.hpp"
 #include "ui/ui.hpp"
 #include "watch_app/watch_app.hpp"
 #include "watch/event.hpp"
+#include "watch/features/steps.hpp"
 
 static const char* TAG = "app";
 
@@ -94,6 +96,20 @@ extern "C" void app_main(void)
         ESP_LOGE(TAG, "watch_app start failed");
         return;
     }
+
+    // 文字盤の補助データ (ui/face_data.hpp)。歩数は steps Feature と
+    // settings.steps_goal から。通知・アラームは未実装 (フックなし)。
+    static const ui::face_data::Hooks kFaceData = {
+        []() -> int32_t {
+            return static_cast<int32_t>(watch::features::steps_today());
+        },
+        []() -> int32_t {
+            return static_cast<int32_t>(watch_app::settings().steps_goal);
+        },
+        nullptr,
+        nullptr,
+    };
+    ui::face_data::set_hooks(&kFaceData);
 
     // UI 組み立て (LVGL を触るのでロック内)。
     if (lvgl_port_lock(2000)) {

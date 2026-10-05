@@ -40,6 +40,8 @@ constexpr SettingKey kKeys[] = {
     WATCH_SSET_U32("audio.click", audio_click),
     WATCH_SSET_U32("raise_to_wake", raise_to_wake),
     WATCH_SSET_U32("steps.goal", steps_goal),
+    WATCH_SSET_STR("face", face),
+    WATCH_SSET_STR("clock_font", clock_font),
 };
 
 char* field_ptr(Settings& s, const SettingKey& k) {

@@ -33,6 +33,10 @@ struct Settings {
   // センサー (Phase 10)。腕上げ検出と歩数目標。
   uint32_t raise_to_wake = 1;  // 腕を上げて画面オン (0/1)
   uint32_t steps_goal = 8000;  // 1日の歩数目標
+  // 文字盤 (watch face)。face = 盤 id、clock_font = 時計数字フォント。
+  // 未知の値は適用側が既定 ("bold" / "auto") にフォールバックする。
+  char face[16] = "bold";
+  char clock_font[16] = "auto";
 };
 
 struct SettingKey {
