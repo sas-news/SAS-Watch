@@ -33,7 +33,9 @@ lv_obj_t* select_row(lv_obj_t* parent, const char* title, bool in_use,
   lv_obj_t* r = lv_obj_create(parent);
   lv_obj_add_flag(r, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_CLICKABLE |
                                               LV_OBJ_FLAG_EVENT_BUBBLE));
-  lv_obj_set_size(r, LV_PCT(100), in_use ? 76 : t.tap_min);
+  // 2行になる行は高さを内容に合わせる (固定高だと「使用中」が食われる)。
+  lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_min_height(r, t.tap_min, 0);
   lv_obj_set_style_radius(r, t.radius_sm, 0);
   lv_obj_set_style_bg_color(r, t.surface, 0);
   lv_obj_set_style_border_width(r, 0, 0);
