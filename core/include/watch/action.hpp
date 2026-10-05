@@ -1,0 +1,89 @@
+// action.hpp — 「やってほしいこと」。入力元 (Touch/Button/Imu/BLE/Voice) は問わない。
+// plan.md C章。malloc しない: 文字列は固定長バッファ。
+#pragma once
+
+#include <cstdint>
+#include <cstring>
+
+namespace watch {
+
+enum class ActionType : uint16_t {
+  None = 0,
+  // Navigation
+  Navigate,       // arg0 = Route
+  Back,
+  Home,
+  ScreenOff,      // 画面を消す要求 (Home で Back 相当)
+  PrimaryAction,  // 画面ごとの主アクション (Timer開始/停止 など)
+  Wake,           // 明示的な復帰要求 (処理はしない)
+  // Timer
+  TimerStart,     // arg0 = 秒 (0 = 前回/既定)
+  TimerStop,
+  TimerReset,
+  // Stopwatch
+  StopwatchToggle,
+  StopwatchLap,
+  StopwatchReset,
+  // Counter
+  CounterAdd,     // arg0 = 増減 (int32_t 解釈)
+  CounterReset,
+  // Memo
+  MemoCreate,       // text = 本文
+  MemoRecordStart,  // 録音開始 (firmware 側で Audio Lease + 録音)
+  MemoRecordStop,
+  // Agent (将来)
+  AgentSend,
+  AgentApprove,
+  AgentReject,
+  // Settings / System
+  SetBrightness,  // arg0 = 0-100
+  SetTheme,       // text = theme id
+  TimeSync,       // arg0/arg1 = epoch 秒 (low/high)
+  MediaCommand,   // arg0 = MediaCmd
+};
+
+enum class ActionSource : uint8_t {
+  System = 0,
+  Touch,
+  Button,
+  Imu,
+  Voice,
+  Phone,
+};
+
+// メディア操作 (時計→スマホ)。protocol-v1.md media.cmd と対応。
+enum class MediaCmd : uint8_t { PlayPause = 0, Next, Prev, VolUp, VolDown };
+
+// Action 本文の最大長。memo の 256 バイトを収められるサイズ。
+constexpr size_t kActionTextMax = 260;
+
+struct Action {
+  ActionType type = ActionType::None;
+  ActionSource source = ActionSource::System;
+  uint32_t arg0 = 0;  // 秒数・Route・delta など小さい値
+  int32_t arg1 = 0;   // 予備 (epoch 上位など)
+  // 文字列ペイロード。固定長なのでキュー越しにコピーしても安全。
+  char text[kActionTextMax] = {};
+
+  void set_text(const char* s) {
+    if (!s) {
+      text[0] = '\0';
+      return;
+    }
+    size_t n = std::strlen(s);
+    if (n >= kActionTextMax) n = kActionTextMax - 1;
+    std::memcpy(text, s, n);
+    text[n] = '\0';
+  }
+  void set_text(const char* s, size_t n) {
+    if (!s || n == 0) {
+      text[0] = '\0';
+      return;
+    }
+    if (n >= kActionTextMax) n = kActionTextMax - 1;
+    std::memcpy(text, s, n);
+    text[n] = '\0';
+  }
+};
+
+}  // namespace watch
