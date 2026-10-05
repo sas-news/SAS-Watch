@@ -282,14 +282,16 @@ bool init() {
 bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
   if (!kind || std::strcmp(kind, "theme") != 0) return false;
   if (size == 0 || size > kPkgMax) return false;
-  // 再開: 同じ .theme.bulk の続きなら append。
-  // (BulkReceiver が next_offset で再開位置を教えるので、ここでは
-  //  既存ファイルがあればそれを使い、なければ新規に作る)
-  if (!s_f) {
-    s_f = std::fopen(kBulkFile, "r+b");
-    if (!s_f) s_f = std::fopen(kBulkFile, "w+b");
-    if (!s_f) return false;
+  // begin は常に「新しい転送」。再開 (同じ id/size/sha256 の BULK_START 再送)
+  // は BulkReceiver 側が begin を呼ばず受信位置を返すので、ここに来た時点で
+  // 前の .theme.bulk は残ってるだけのゴミ → 必ず truncate して取り直す。
+  // (切れた転送は電話側が最初から送り直す)
+  if (s_f) {
+    std::fclose(s_f);
+    s_f = nullptr;
   }
+  s_f = std::fopen(kBulkFile, "w+b");
+  if (!s_f) return false;
   s_size = size;
   return true;
 }
