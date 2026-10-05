@@ -7,6 +7,7 @@
     <string name="tab_devices">デバイス</string>
     <string name="tab_settings">設定</string>
     <string name="tab_notify">通知・メディア</string>
+    <string name="tab_themes">テーマ</string>
 
     <!-- デバイス画面 -->
     <string name="perm_needed_title">Bluetooth の許可が必要です</string>
@@ -65,6 +66,28 @@
     <string name="settings_button_pwr_double">PWR 2回押し</string>
     <string name="settings_theme">テーマ</string>
     <string name="settings_raw_hint">設定値は時計の settings keys（protocol-v1.md）に対応しています。</string>
+
+    <!-- テーマ画面 -->
+    <string name="themes_not_connected">時計に接続するとテーマを切り替えたり送ったりできます。</string>
+    <string name="themes_builtin_title">内蔵テーマ</string>
+    <string name="themes_current">現在のテーマ: %1$s</string>
+    <string name="themes_unknown">（不明）</string>
+    <string name="themes_builtin_standard">標準（ダーク）</string>
+    <string name="themes_builtin_light">ライト</string>
+    <string name="themes_apply">このテーマを適用</string>
+    <string name="themes_sample_title">同梱サンプル</string>
+    <string name="themes_sample_body">%1$s（id=%2$s）— アプリ同梱のサンプルテーマです。</string>
+    <string name="themes_zip_title">テーマパッケージ（ZIP）</string>
+    <string name="themes_pick">ZIPを選ぶ</string>
+    <string name="themes_picked">選択中: %1$s（id=%2$s）</string>
+    <string name="themes_send">時計に送る</string>
+    <string name="themes_sending">送信中 %1$d%%</string>
+    <string name="themes_failed">転送に失敗しました（%1$s）</string>
+    <string name="themes_retry">再送</string>
+    <string name="themes_applied">テーマを適用しました</string>
+    <string name="themes_pick_error">読み込めませんでした: %1$s</string>
+    <string name="themes_pick_read_error">ファイルが開けませんでした</string>
+    <string name="themes_send_failed">時計が受け付けませんでした</string>
 
     <!-- 通知・メディア画面 -->
     <string name="notif_access_title">通知アクセス</string>

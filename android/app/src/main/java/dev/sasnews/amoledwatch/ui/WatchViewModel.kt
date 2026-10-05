@@ -3,9 +3,11 @@ package dev.sasnews.amoledwatch.ui
 import android.app.Application
 import android.bluetooth.BluetoothDevice
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.ble.BleScanner
 import dev.sasnews.amoledwatch.connection.LinkState
@@ -16,6 +18,8 @@ import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.MediaCmd
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
+import dev.sasnews.amoledwatch.protocol.ThemePackage
+import dev.sasnews.amoledwatch.ui.screens.ThemeTransferState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -132,6 +136,108 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     fun fakeMediaCmd(cmd: MediaCmd) = manager.simulateMediaCmd(cmd)
 
     fun consumeNotice() = manager.consumeNotice()
+
+    // ---------------- テーマ ----------------
+
+    private val _themeTransfer = MutableStateFlow<ThemeTransferState>(ThemeTransferState.Idle)
+    val themeTransfer: StateFlow<ThemeTransferState> = _themeTransfer
+
+    private val _bundledTheme = MutableStateFlow<ThemePackage.ThemePkgInfo?>(null)
+    val bundledTheme: StateFlow<ThemePackage.ThemePkgInfo?> = _bundledTheme
+    private var bundledBytes: ByteArray? = null
+    private var bundledLoaded = false
+
+    private val _pickedTheme = MutableStateFlow<ThemePackage.ThemePkgInfo?>(null)
+    val pickedTheme: StateFlow<ThemePackage.ThemePkgInfo?> = _pickedTheme
+    private var pickedBytes: ByteArray? = null
+
+    private val _themePickError = MutableStateFlow<String?>(null)
+    val themePickError: StateFlow<String?> = _themePickError
+
+    private var themeSendJob: Job? = null
+    private var lastThemeSend: Pair<ByteArray, String>? = null
+
+    /** assets/themes/mame.zip を一度だけ読む。 */
+    fun loadBundledTheme() {
+        if (bundledLoaded) return
+        bundledLoaded = true
+        val bytes = try {
+            watchApp.assets.open("themes/mame.zip").use { it.readBytes() }
+        } catch (e: Exception) {
+            return
+        }
+        bundledBytes = bytes
+        _bundledTheme.value = try {
+            ThemePackage.inspect(bytes)
+        } catch (e: ThemePackage.Invalid) {
+            null
+        }
+    }
+
+    /** 内蔵テーマ (standard/light) を settings.set で切替える。 */
+    fun applyBuiltinTheme(id: String) =
+        saveSettings(mapOf(SettingsKeys.THEME to Cbor.Ctext(id)))
+
+    /** 「ZIPを選ぶ」で選んだファイルを検査して保持する。 */
+    fun pickTheme(uri: Uri) {
+        _themePickError.value = null
+        _themeTransfer.value = ThemeTransferState.Idle
+        val bytes = try {
+            watchApp.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        } catch (e: Exception) {
+            null
+        }
+        if (bytes == null) {
+            pickedBytes = null
+            _pickedTheme.value = null
+            _themePickError.value = watchApp.getString(R.string.themes_pick_read_error)
+            return
+        }
+        try {
+            _pickedTheme.value = ThemePackage.inspect(bytes)
+            pickedBytes = bytes
+        } catch (e: ThemePackage.Invalid) {
+            pickedBytes = null
+            _pickedTheme.value = null
+            _themePickError.value = e.message
+        }
+    }
+
+    fun sendBundledTheme() {
+        val bytes = bundledBytes ?: return
+        val id = _bundledTheme.value?.id ?: return
+        sendThemeBytes(bytes, id)
+    }
+
+    fun sendPickedTheme() {
+        val bytes = pickedBytes ?: return
+        val id = _pickedTheme.value?.id ?: return
+        sendThemeBytes(bytes, id)
+    }
+
+    /** 直前の転送をもう一度試す（時計側が受領済みの分はスキップされる）。 */
+    fun retryThemeSend() {
+        val last = lastThemeSend ?: return
+        sendThemeBytes(last.first, last.second)
+    }
+
+    private fun sendThemeBytes(bytes: ByteArray, themeId: String) {
+        if (themeSendJob?.isActive == true) return
+        lastThemeSend = bytes to themeId
+        themeSendJob = viewModelScope.launch {
+            _themeTransfer.value = ThemeTransferState.Sending(0, bytes.size)
+            val ok = manager.sendTheme(bytes) { sent, total ->
+                _themeTransfer.value = ThemeTransferState.Sending(sent, total)
+            }
+            _themeTransfer.value = if (ok) {
+                // 実機の commit は「適用待ち」までなので settings.set で切替える
+                manager.setSetting(SettingsKeys.THEME, Cbor.Ctext(themeId))
+                ThemeTransferState.Applied
+            } else {
+                ThemeTransferState.Failed(watchApp.getString(R.string.themes_send_failed))
+            }
+        }
+    }
 
     // ---------------- 通知転送 ----------------
 

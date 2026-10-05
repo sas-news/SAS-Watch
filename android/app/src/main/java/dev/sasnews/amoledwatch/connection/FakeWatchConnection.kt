@@ -1,5 +1,8 @@
 package dev.sasnews.amoledwatch.connection
 
+import dev.sasnews.amoledwatch.protocol.BulkAck
+import dev.sasnews.amoledwatch.protocol.BulkChannel
+import dev.sasnews.amoledwatch.protocol.BulkCodec
 import dev.sasnews.amoledwatch.protocol.CborCodec
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.FakeWatch
@@ -40,6 +43,8 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
     private val msgIds = AtomicInteger(1)
     @Volatile private var closed = false
 
+    override val bulk: BulkChannel = FakeBulkChannel()
+
     init {
         fake.evtListener = { bytes ->
             val evt = runCatching {
@@ -71,6 +76,49 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
             res ?: Res.Err("internal", "no response")
         } catch (e: Exception) {
             Res.Err("internal", e.message ?: "request failed")
+        }
+    }
+
+    /**
+     * FakeWatch の bulk 特性を BulkChannel に見せる。
+     * `fake.writeBulk` は同期的に ACK/RES のフレーム列を返すので、
+     * それを再構成して ACK キュー / RES キューに振り分ける。
+     */
+    inner class FakeBulkChannel : BulkChannel {
+        private val bulkReassembler = Reassembler()
+        private val acks = ArrayDeque<BulkAck>()
+        private val ress = ArrayDeque<Res>()
+
+        private fun pump(type: Int, msgId: Int, payload: ByteArray) {
+            for (f in Fragmenter.fragment(type, msgId, payload, 247)) {
+                for (out in fake.writeBulk(f.encode(), 247)) {
+                    val c = bulkReassembler.feed(FrameCodec.decode(out)) ?: continue
+                    when (c.type) {
+                        Frame.TYPE_BULK_ACK -> BulkCodec.decodeAck(c.payload)?.let { acks.add(it) }
+                        Frame.TYPE_RES -> ress.add(Res.fromCbor(CborCodec.decode(c.payload)))
+                    }
+                }
+            }
+        }
+
+        override suspend fun start(id: Int, kind: String, size: Int, sha256: ByteArray, chunk: Int): BulkAck? {
+            if (closed) return null
+            pump(Frame.TYPE_BULK_START, nextMsgId(), BulkCodec.encodeStart(id, kind, size, sha256, chunk))
+            // START を拒否した場合は RES err が返る（ACK は来ない）
+            return acks.removeFirstOrNull()
+        }
+
+        override suspend fun chunk(id: Int, offset: Long, data: ByteArray) {
+            if (closed) throw java.io.IOException("closed")
+            pump(Frame.TYPE_BULK_CHUNK, id, BulkCodec.encodeChunk(id, offset, data))
+        }
+
+        override suspend fun nextAck(timeoutMs: Long): BulkAck? = acks.removeFirstOrNull()
+
+        override suspend fun end(id: Int): Res {
+            if (closed) return Res.Err("internal", "closed")
+            pump(Frame.TYPE_BULK_END, nextMsgId(), BulkCodec.encodeEnd(id))
+            return ress.removeFirstOrNull() ?: Res.Err("internal", "no res")
         }
     }
 

@@ -1,5 +1,6 @@
 package dev.sasnews.amoledwatch.connection
 
+import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.Res
@@ -25,6 +26,9 @@ interface WatchLink {
 
     /** REQ を送り、msg_id が一致する RES を待つ。タイムアウト 5 秒。 */
     suspend fun request(req: Req): Res
+
+    /** BULK 転送路（bulk 特性）。接続がこの経路を持たないときは null。 */
+    val bulk: BulkChannel?
 
     fun close()
 }
