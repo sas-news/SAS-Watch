@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.sasnews.amoledwatch.FirmwareRepo
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.ble.BleScanner
