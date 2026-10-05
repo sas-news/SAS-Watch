@@ -1,6 +1,7 @@
 // Timer Feature。終了時刻ベースなのでスリープ/再起動でずれない
 // (plan.md E章)。Deep Sleep からの復帰は epoch 秒で再計算する。
 #include "watch/features/timer.hpp"
+#include <cstring>
 
 namespace watch {
 namespace features {
@@ -98,10 +99,15 @@ void save(FeatureContext& ctx) {
 }
 
 void restore(FeatureContext& ctx) {
-  Persist p{};
+  // GCC13 の -Wdangling-pointer 対策: p のアドレスは KV に渡さない。
+  uint8_t raw[sizeof(Persist)] = {};
   size_t n = 0;
-  if (!ctx.storage.get(kKey, &p, sizeof(p), &n) || n < sizeof(p) ||
-      p.version != kPersistVersion) {
+  if (!ctx.storage.get(kKey, raw, sizeof(raw), &n) || n < sizeof(Persist)) {
+    return;
+  }
+  Persist p{};
+  std::memcpy(&p, raw, sizeof(p));
+  if (p.version != kPersistVersion) {
     return;
   }
   g_st.duration_s = p.duration_s > 0 ? static_cast<uint32_t>(p.duration_s)

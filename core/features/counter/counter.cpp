@@ -1,5 +1,6 @@
 // Counter Feature。+/-/リセットだけ。
 #include "watch/features/counter.hpp"
+#include <cstring>
 
 namespace watch {
 namespace features {
@@ -39,9 +40,11 @@ void save(FeatureContext& ctx) {
 }
 
 void restore(FeatureContext& ctx) {
-  int32_t v = 0;
+  uint8_t raw[sizeof(int32_t)] = {};
   size_t n = 0;
-  if (ctx.storage.get(kKey, &v, sizeof(v), &n) && n == sizeof(v)) {
+  if (ctx.storage.get(kKey, raw, sizeof(raw), &n) && n == sizeof(int32_t)) {
+    int32_t v;
+    std::memcpy(&v, raw, sizeof(v));
     g_value = v;
   }
 }

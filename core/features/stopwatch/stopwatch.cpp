@@ -1,5 +1,6 @@
 // Stopwatch Feature。ラップは最大20件 (溢れた分は捨てる)。
 #include "watch/features/stopwatch.hpp"
+#include <cstring>
 
 namespace watch {
 namespace features {
@@ -82,10 +83,15 @@ void save(FeatureContext& ctx) {
 }
 
 void restore(FeatureContext& ctx) {
-  Persist p{};
+  // GCC13 の -Wdangling-pointer 対策: p のアドレスは KV に渡さない。
+  uint8_t raw[sizeof(Persist)] = {};
   size_t n = 0;
-  if (!ctx.storage.get(kKey, &p, sizeof(p), &n) || n < sizeof(p) ||
-      p.version != kPersistVersion) {
+  if (!ctx.storage.get(kKey, raw, sizeof(raw), &n) || n < sizeof(Persist)) {
+    return;
+  }
+  Persist p{};
+  std::memcpy(&p, raw, sizeof(p));
+  if (p.version != kPersistVersion) {
     return;
   }
   g_st.acc_ms = p.acc_ms;
