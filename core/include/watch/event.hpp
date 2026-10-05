@@ -1,0 +1,36 @@
+// event.hpp — 「起きたこと」。Feature が出し、UI/BLE が購読する。
+// plan.md C章。
+#pragma once
+
+#include <cstdint>
+
+namespace watch {
+
+enum class EventType : uint16_t {
+  None = 0,
+  RouteChanged,          // arg0 = Route
+  PowerStateChanged,     // arg0 = PowerState
+  SettingsChanged,       // arg0 = SettingKey のハッシュ (0 = 全体)
+  BrightnessChanged,     // arg0 = 0-100
+  ThemeChanged,          // arg0 = 0, theme id は Settings 参照
+  ClockTick,             // 秒が変わるごと (arg0 = epoch_s 下位)
+  BatteryChanged,        // arg0 = 0-100
+  ChargingChanged,       // arg0 = 0/1
+  BleConnChanged,        // arg0 = 0/1
+  TimerStarted,          // arg0 = 秒
+  TimerStopped,
+  TimerFinished,
+  StopwatchChanged,      // arg0 = 0:stop 1:run 2:lap
+  CounterChanged,        // arg0 = 値 (uint32解釈)
+  MemoSaved,             // arg0 = memo id
+  NotificationPosted,    // 通知が来た (中身は NotificationStore 側)
+  MediaCmdRequested,     // arg0 = MediaCmd (時計→スマホ)
+  AgentStatusChanged,
+};
+
+struct Event {
+  EventType type = EventType::None;
+  uint32_t arg0 = 0;
+};
+
+}  // namespace watch
