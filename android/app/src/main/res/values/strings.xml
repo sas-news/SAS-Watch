@@ -9,6 +9,7 @@
     <string name="tab_notify">通知・メディア</string>
     <string name="tab_memo">メモ</string>
     <string name="tab_themes">テーマ</string>
+    <string name="tab_alarm">アラーム</string>
 
     <!-- デバイス画面 -->
     <string name="perm_needed_title">Bluetooth の許可が必要です</string>
@@ -123,6 +124,26 @@
     <string name="memo_refresh">再読み込み</string>
     <string name="memo_downloading">音声を取得しています…</string>
     <string name="memo_share_title">音声メモを共有</string>
+
+    <!-- アラーム画面 -->
+    <string name="alarm_list_title">アラーム (最大5件)</string>
+    <string name="alarm_list_empty">アラームはまだありません。</string>
+    <string name="alarm_loading">読み込み中…</string>
+    <string name="alarm_not_connected">時計に接続するとアラームが見られます。</string>
+    <string name="alarm_refresh">再読み込み</string>
+    <string name="alarm_add">追加</string>
+    <string name="alarm_add_title">新しいアラーム</string>
+    <string name="alarm_edit">編集</string>
+    <string name="alarm_edit_title">アラームを編集</string>
+    <string name="alarm_delete">削除</string>
+    <string name="alarm_save">保存</string>
+    <string name="alarm_cancel">キャンセル</string>
+    <string name="alarm_hour">時</string>
+    <string name="alarm_minute">分</string>
+    <string name="alarm_dow_hint">曜日を選ぶ (何も選ばないと毎日)</string>
+    <string name="alarm_enabled">ON</string>
+    <string name="alarm_disabled">OFF</string>
+    <string name="alarm_ringing_notice">アラームが鳴っています（id=%1$d）</string>
 
     <!-- Foreground Service 通知 -->
     <string name="fgs_channel_name">時計との接続</string>

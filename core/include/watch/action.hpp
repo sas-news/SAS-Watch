@@ -48,6 +48,14 @@ enum class ActionType : uint16_t {
   SetClockFont,   // text = 時計数字フォント id ("auto" など)
   TimeSync,       // arg0/arg1 = epoch 秒 (low/high)
   MediaCommand,   // arg0 = MediaCmd
+  // Alarm (鳴動中の操作 + 一覧の ON/OFF)
+  AlarmStop,      // 鳴動を止める
+  AlarmSnooze,    // 5分後にもう一度鳴らす
+  AlarmToggle,    // arg0 = alarm id。ON/OFF を切替
+  // Notifications
+  NotifyClearAll, // 通知一覧を全消し
+  // Settings / System (追加)
+  SetNotifyVibrate, // arg0 = 0/1 (通知受信時の振動)
   // Sensors (Phase 10)
   ImuSample,        // arg0 = x|y<<16, arg1 = z (int16 mg)。source=System で
                     // 投げること (測定は「操作」ではないので電源を蹴らない)

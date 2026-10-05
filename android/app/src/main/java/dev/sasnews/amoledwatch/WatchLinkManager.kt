@@ -7,6 +7,8 @@ import dev.sasnews.amoledwatch.connection.FakeWatchConnection
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.connection.WatchLink
 import dev.sasnews.amoledwatch.protocol.Adpcm
+import dev.sasnews.amoledwatch.protocol.AlarmEntry
+import dev.sasnews.amoledwatch.protocol.AlarmListResult
 import dev.sasnews.amoledwatch.protocol.BulkSender
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
@@ -87,6 +89,10 @@ class WatchLinkManager(private val app: WatchApp) {
     private val _memos = MutableStateFlow<List<MemoEntry>?>(null)
     val memos: StateFlow<List<MemoEntry>?> = _memos
 
+    /** アラーム一覧。未接続/未取得時は null。 */
+    private val _alarms = MutableStateFlow<List<AlarmEntry>?>(null)
+    val alarms: StateFlow<List<AlarmEntry>?> = _alarms
+
     /** hello の結果。 */
     private val _hello = MutableStateFlow<HelloResult?>(null)
     val hello: StateFlow<HelloResult?> = _hello
@@ -142,6 +148,7 @@ class WatchLinkManager(private val app: WatchApp) {
         _deviceInfo.value = null
         _settings.value = null
         _memos.value = null
+        _alarms.value = null
         _steps.value = null
         _link.value = l
         WatchService.start(app)
@@ -174,6 +181,7 @@ class WatchLinkManager(private val app: WatchApp) {
             refreshSettings()
             refreshSteps()
             refreshMemos()
+            refreshAlarms()
         }
     }
 
@@ -190,6 +198,10 @@ class WatchLinkManager(private val app: WatchApp) {
                 scope.launch { refreshMemos() }
             }
             is Evt.MemoDeleted -> scope.launch { refreshMemos() }
+            is Evt.AlarmRinging -> {
+                _notice.value = app.getString(R.string.alarm_ringing_notice, evt.id)
+                scope.launch { refreshAlarms() }
+            }
             is Evt.OtaProgress -> {
                 _otaStatus.value = OtaStatusInfo(
                     active = true,
@@ -280,6 +292,28 @@ class WatchLinkManager(private val app: WatchApp) {
     suspend fun memoDelete(id: Int) {
         val res = send(Req.MemoDelete(id))
         if (res is Res.Ok) refreshMemos()
+    }
+
+    // ---------------- アラーム ----------------
+
+    suspend fun refreshAlarms() {
+        val res = send(Req.AlarmList)
+        if (res is Res.Ok) _alarms.value = AlarmListResult.fromCbor(res.result)?.alarms
+    }
+
+    /** 新規/更新。id=0 で新規。失敗時はエラーコード文字列を返す。 */
+    suspend fun alarmSave(id: Int, hour: Int, min: Int, dow: Int, on: Boolean): String? {
+        val res = send(Req.AlarmSet(id, hour, min, dow, on))
+        if (res is Res.Ok) {
+            refreshAlarms()
+            return null
+        }
+        return (res as? Res.Err)?.code ?: "internal"
+    }
+
+    suspend fun alarmDelete(id: Int) {
+        val res = send(Req.AlarmDelete(id))
+        if (res is Res.Ok) refreshAlarms()
     }
 
     /** 音声メモの実体 (ADP1) をダウンロードして cache に書く。失敗なら null。 */

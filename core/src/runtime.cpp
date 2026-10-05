@@ -123,6 +123,13 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
         return true;
       }
       return false;
+    case ActionType::SetNotifyVibrate:
+      if (settings_set_u32(settings_, &ctx.storage, "notify.vibrate",
+                           a.arg0 ? 1 : 0)) {
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
     case ActionType::SetRaiseToWake:
       if (settings_set_u32(settings_, &ctx.storage, "raise_to_wake",
                            a.arg0 ? 1 : 0)) {

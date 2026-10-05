@@ -20,6 +20,8 @@
 #include "ui/ui.hpp"
 #include "watch_app/watch_app.hpp"
 #include "watch/event.hpp"
+#include "watch/features/alarm.hpp"
+#include "watch/features/notify.hpp"
 #include "watch/features/steps.hpp"
 
 static const char* TAG = "app";
@@ -98,7 +100,8 @@ extern "C" void app_main(void)
     }
 
     // 文字盤の補助データ (ui/face_data.hpp)。歩数は steps Feature と
-    // settings.steps_goal から。通知・アラームは未実装 (フックなし)。
+    // settings.steps_goal から。通知数は notify Feature、次のアラームは
+    // alarm_next_fire_epoch() を当日のローカル min-of-day に変換。
     static const ui::face_data::Hooks kFaceData = {
         []() -> int32_t {
             return static_cast<int32_t>(watch::features::steps_today());
@@ -106,8 +109,17 @@ extern "C" void app_main(void)
         []() -> int32_t {
             return static_cast<int32_t>(watch_app::settings().steps_goal);
         },
-        nullptr,
-        nullptr,
+        []() -> int32_t {
+            return static_cast<int32_t>(watch::features::notify_count());
+        },
+        []() -> int32_t {
+            const int64_t e = watch::features::alarm_next_fire_epoch();
+            if (e <= 0) return -1;
+            const int64_t local =
+                e + watch_app::settings().tz_offset_min * 60;
+            return static_cast<int32_t>(((local % 86400) + 86400) % 86400 /
+                                        60);
+        },
     };
     ui::face_data::set_hooks(&kFaceData);
 

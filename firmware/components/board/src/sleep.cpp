@@ -22,8 +22,11 @@ void arm_light_sleep_wake()
     gpio_wakeup_enable(pins::kButtonBoot, GPIO_INTR_LOW_LEVEL);
     // HIGH アクティブ: PWR ボタン
     gpio_wakeup_enable(pins::kButtonPwr, GPIO_INTR_HIGH_LEVEL);
+    // LOW アクティブ: RTC INT (アラーム発火)。deep sleep では使えない
+    // (RTC GPIO ではない) ので light sleep 専用。
+    gpio_wakeup_enable(pins::kRtcInt, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
-    ESP_LOGI(TAG, "light sleep wake: touch(GPIO38,LOW) boot(GPIO0,LOW) pwr(GPIO10,HIGH)");
+    ESP_LOGI(TAG, "light sleep wake: touch(GPIO38,LOW) boot(GPIO0,LOW) pwr(GPIO10,HIGH) rtc(GPIO39,LOW)");
 }
 
 void arm_light_sleep_imu()

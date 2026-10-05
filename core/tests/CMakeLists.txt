@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(watch_core_tests
     test_core.cpp
     test_features.cpp
+    test_apps.cpp
     test_protocol.cpp
     test_bulk.cpp
     test_theme.cpp

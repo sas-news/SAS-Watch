@@ -26,7 +26,11 @@ enum class EventType : uint16_t {
   MemoSaved,             // arg0 = memo id
   MemoDeleted,           // arg0 = memo id (一覧の再描画用)
   NotificationPosted,    // 通知が来た (中身は NotificationStore 側)
+  NotificationsCleared,  // 通知一覧を全消しした
   MediaCmdRequested,     // arg0 = MediaCmd (時計→スマホ)
+  MediaStateChanged,     // media.state を受け取って表示が変わった
+  AlarmRinging,          // arg0 = alarm id。鳴動開始 (繰り返し再通知も出る)
+  AlarmChanged,          // 一覧変更・鳴動停止・スヌーズ設定など表示更新用
   AgentStatusChanged,
   StepsChanged,          // arg0 = 今日の歩数
   RaiseDetected,         // 腕上げ判定 (firmware が画面ONに使う。arg0=0)

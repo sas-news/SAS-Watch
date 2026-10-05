@@ -22,6 +22,7 @@ lv_obj_t* s_bri = nullptr;
 lv_obj_t* s_off = nullptr;
 lv_obj_t* s_vol = nullptr;
 lv_obj_t* s_click_l = nullptr;
+lv_obj_t* s_vib_l = nullptr;
 lv_obj_t* s_raise_l = nullptr;
 bool s_updating = false;
 
@@ -142,7 +143,7 @@ lv_obj_t* build(lv_obj_t* scr) {
       nullptr);
 
   lv_obj_t* snd = ui::c::card(col);
-  ui::c::line(snd, "ボタンのクリック音");
+  ui::c::line(snd, "音と振動");
   s_click_l = ui::c::list_row(
       snd, "クリック音",
       st.audio_click ? "ON" : "OFF",
@@ -150,6 +151,15 @@ lv_obj_t* build(lv_obj_t* scr) {
         const watch::Settings& cur = *ui::ctx().settings;
         ui::emit(watch::ActionType::SetAudioClick,
                  cur.audio_click ? 0u : 1u);
+      },
+      nullptr);
+  s_vib_l = ui::c::list_row(
+      snd, "通知の振動",
+      st.notify_vibrate ? "ON" : "OFF",
+      [](lv_event_t*) {
+        const watch::Settings& cur = *ui::ctx().settings;
+        ui::emit(watch::ActionType::SetNotifyVibrate,
+                 cur.notify_vibrate ? 0u : 1u);
       },
       nullptr);
 
@@ -272,6 +282,10 @@ void on_event(lv_obj_t*, const watch::Event& e) {
     // list_row のサブラベルは child 1。
     lv_obj_t* sub = lv_obj_get_child(s_click_l, 1);
     if (sub) lv_label_set_text(sub, st.audio_click ? "ON" : "OFF");
+  }
+  if (s_vib_l) {
+    lv_obj_t* sub = lv_obj_get_child(s_vib_l, 1);
+    if (sub) lv_label_set_text(sub, st.notify_vibrate ? "ON" : "OFF");
   }
   if (s_raise_l) {
     lv_obj_t* sub = lv_obj_get_child(s_raise_l, 1);

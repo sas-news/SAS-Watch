@@ -28,6 +28,9 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/features/counter/counter.cpp
     ${WATCH_CORE_DIR}/features/steps/steps.cpp
     ${WATCH_CORE_DIR}/features/memo/memo.cpp
+    ${WATCH_CORE_DIR}/features/alarm/alarm.cpp
+    ${WATCH_CORE_DIR}/features/notify/notify.cpp
+    ${WATCH_CORE_DIR}/features/media/media.cpp
     ${WATCH_CORE_DIR}/features/registry.cpp
     ${WATCH_CORE_DIR}/protocol/crc16.cpp
     ${WATCH_CORE_DIR}/protocol/cbor.cpp

@@ -28,6 +28,7 @@ enum class Route : uint8_t {
   PowerMenu,
   Ota,      // ファーム更新 (Settings から)
   Confirm,  // 承認モーダル用
+  Alarm,
 };
 
 class Navigator {

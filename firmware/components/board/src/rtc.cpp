@@ -110,4 +110,39 @@ esp_err_t set_epoch(time_t t)
     return ESP_OK;
 }
 
+esp_err_t set_alarm_epoch(time_t t)
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    struct tm tm_utc;
+    gmtime_r(&t, &tm_utc);
+    // PCF85063A のアラームは sec/min/hour に一致 (day/weekday は無効)。
+    // 次回発火時刻を都度入れ直す運用なのでこれで十分。
+    const pcf85063a_datetime_t dt = {
+        .year = static_cast<uint16_t>(tm_utc.tm_year + 1900),
+        .month = static_cast<uint8_t>(tm_utc.tm_mon + 1),
+        .day = static_cast<uint8_t>(tm_utc.tm_mday),
+        .dotw = static_cast<uint8_t>(tm_utc.tm_wday),
+        .hour = static_cast<uint8_t>(tm_utc.tm_hour),
+        .min = static_cast<uint8_t>(tm_utc.tm_min),
+        .sec = static_cast<uint8_t>(tm_utc.tm_sec),
+    };
+    ESP_RETURN_ON_ERROR(pcf85063a_set_alarm(&s_rtc, dt), TAG, "rtc alarm write failed");
+    // AIE=1 + AF clear (発火後に INT が LOW のままだと light sleep が即起きる
+    // ので、再設定・解除のたびに呼んでクリアする) // TODO(hw): 実機で確認
+    return pcf85063a_enable_alarm(&s_rtc);
+}
+
+esp_err_t clear_alarm()
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // AIE=0 + AF=0。driver に disable 関数が無いので CTRL2 を直接書く
+    // TODO(hw): 実機で確認 (CTRL2 の他ビットを保持すべきか)
+    uint8_t buf[2] = { PCF85063A_RTC_CTRL_2_ADDR, 0x00 };
+    return pcf85063a_write_register(&s_rtc, buf, 2);
+}
+
 }  // namespace board::rtc

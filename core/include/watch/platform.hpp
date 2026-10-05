@@ -58,6 +58,7 @@ void log_write(LogLevel level, const char* tag, const char* message);
 enum class BeepKind : uint8_t {
   Click = 0,      // ボタンのクリック (settings の audio.click でON/OFF)
   TimerDone = 1,  // タイマー終了
+  Alarm = 2,      // アラーム鳴動
 };
 
 class AudioPort {

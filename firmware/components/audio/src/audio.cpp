@@ -207,6 +207,12 @@ const Tone kTonesClick[] = {{1900, 30}};
 const Tone kTonesTimer[] = {
     {880, 200}, {0, 120}, {880, 200}, {0, 120}, {880, 400},
 };
+// アラーム: 上昇3音。繰り返しは UI 側が ~5s ごとに beep を呼び直す。
+const Tone kTonesAlarm[] = {
+    {988, 120},  {0, 60},  {1319, 120}, {0, 60},
+    {1760, 200}, {0, 160}, {988, 120},  {0, 60},
+    {1319, 120}, {0, 60},  {1760, 300},
+};
 
 // PCM int16 を codec に流す。キャンセルしたら false。
 bool play_pcm(esp_codec_dev_handle_t spk, const int16_t* pcm, size_t n) {
@@ -314,6 +320,9 @@ void play_task(void*) {
         if (job.beep == watch::BeepKind::TimerDone) {
           tones = kTonesTimer;
           n = sizeof(kTonesTimer) / sizeof(kTonesTimer[0]);
+        } else if (job.beep == watch::BeepKind::Alarm) {
+          tones = kTonesAlarm;
+          n = sizeof(kTonesAlarm) / sizeof(kTonesAlarm[0]);
         }
         play_tones(spk, tones, n, job.vol);
       }
@@ -490,14 +499,18 @@ class EspAudio : public watch::AudioPort {
 EspAudio s_audio;
 
 void on_event(const watch::Event& e, void*) {
-  if (e.type == watch::EventType::TimerFinished) {
+  if (e.type == watch::EventType::TimerFinished ||
+      e.type == watch::EventType::AlarmRinging) {
+    const watch::BeepKind kind = e.type == watch::EventType::TimerFinished
+                                     ? watch::BeepKind::TimerDone
+                                     : watch::BeepKind::Alarm;
     const uint8_t vol = s_deps.settings
                             ? static_cast<uint8_t>(
                                   s_deps.settings->audio_volume > 100
                                       ? 100
                                       : s_deps.settings->audio_volume)
                             : 70;
-    s_audio.beep(watch::BeepKind::TimerDone, vol);
+    s_audio.beep(kind, vol);
   }
 }
 
@@ -525,6 +538,7 @@ watch::AudioPort* port() { return &s_audio; }
 
 void attach(watch::EventBus& bus) {
   bus.subscribe(watch::EventType::TimerFinished, on_event, nullptr);
+  bus.subscribe(watch::EventType::AlarmRinging, on_event, nullptr);
 }
 
 void click() {
