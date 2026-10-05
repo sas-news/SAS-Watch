@@ -1,0 +1,41 @@
+name: release
+
+# v* タグでファームをビルドし、firmware.bin と sha256 を GitHub Release に添付する。
+# Android アプリの「GitHub Releases から更新」が assets の
+# firmware.bin / firmware.bin.sha256 を参照する。
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware (ESP-IDF)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5
+          target: esp32s3
+          path: 'firmware'
+          # firmware.yml と同じ理由 (idf-component-manager 2.5 系に更新)。
+          command: 'pip install -q "idf-component-manager~=2.5" && idf.py build'
+
+      - name: Stage release files
+        run: |
+          cp firmware/build/sas_watch.bin firmware.bin
+          shasum -a 256 firmware.bin | cut -d' ' -f1 > firmware.bin.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            firmware.bin
+            firmware.bin.sha256
+          generate_release_notes: true
