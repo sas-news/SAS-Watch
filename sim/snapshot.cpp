@@ -258,6 +258,15 @@ int main(int argc, char** argv) {
   tap(205, 190);
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
+
+  // ファーム更新画面: 待機 → 進捗中。
+  back_home();
+  nav_to(watch::Route::Ota);
+  ok &= save(out, "21_ota_idle");
+  sim::set_ota_debug(2, 42, "", "0.2.0");
+  s_bus.publish({watch::EventType::OtaProgress, 42});
+  pump(300);
+  ok &= save(out, "22_ota_progress");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }
