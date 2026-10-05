@@ -408,6 +408,7 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::SettingsChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::PowerStateChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::ThemeChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::OtaProgress, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::FaceChanged, bus_cb, nullptr);
   }
   // 設定されたテーマを最初の画面構築より先に適用する。

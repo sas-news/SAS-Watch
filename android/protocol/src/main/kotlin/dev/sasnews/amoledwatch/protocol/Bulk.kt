@@ -33,8 +33,8 @@ interface BulkChannel {
 }
 
 object BulkCodec {
-    /** kind の最大長（core `BulkStart::kind` は char[8] = 終端込み 7 文字）。 */
-    const val MAX_KIND_LEN = 7
+    /** kind の最大長（core `kBulkKindMax` = 15。"firmware" まで入る）。 */
+    const val MAX_KIND_LEN = 15
     const val DEFAULT_CHUNK = 220
     const val ACK_EVERY = 8
 

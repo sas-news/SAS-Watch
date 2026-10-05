@@ -28,6 +28,7 @@ enum class EventType : uint16_t {
   NotificationPosted,    // 通知が来た (中身は NotificationStore 側)
   MediaCmdRequested,     // arg0 = MediaCmd (時計→スマホ)
   AgentStatusChanged,
+  OtaProgress,           // arg0 = 0-100 (状態詳細は firmware 側参照)
 };
 
 struct Event {

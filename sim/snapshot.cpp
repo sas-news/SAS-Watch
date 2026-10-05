@@ -218,10 +218,10 @@ int main(int argc, char** argv) {
   if (s_content) {
     lv_obj_scroll_to_y(s_content, 780, LV_ANIM_OFF);   // 文字盤カード
     pump(200);
-    ok &= save(out, "27_settings_faces");
+    ok &= save(out, "29_settings_faces");
     lv_obj_scroll_to_y(s_content, 1150, LV_ANIM_OFF);  // フォントカード
     pump(200);
-    ok &= save(out, "28_settings_fonts");
+    ok &= save(out, "30_settings_fonts");
   }
 
   nav_to(watch::Route::PowerMenu);
@@ -282,6 +282,15 @@ int main(int argc, char** argv) {
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
 
+  // ファーム更新画面: 待機 → 進捗中。
+  back_home();
+  nav_to(watch::Route::Ota);
+  ok &= save(out, "21_ota_idle");
+  sim::set_ota_debug(2, 42, "", "0.2.0");
+  s_bus.publish({watch::EventType::OtaProgress, 42});
+  pump(300);
+  ok &= save(out, "22_ota_progress");
+
   // ---- 文字盤 (settings.face) ----
   // standard テーマで4面 (01_home = bold と同じ見えになるが、
   // 文字盤名を揃えて残すため明示的に撮る)。
@@ -289,10 +298,10 @@ int main(int argc, char** argv) {
   ui::emit_text(watch::ActionType::SetTheme, "standard");
   pump(400);
   const char* kFaceShots[][2] = {
-      {"bold", "21_face_bold"},
-      {"analog", "22_face_analog"},
-      {"hud", "23_face_hud"},
-      {"minimal", "24_face_minimal"},
+      {"bold", "23_face_bold"},
+      {"analog", "24_face_analog"},
+      {"hud", "25_face_hud"},
+      {"minimal", "26_face_minimal"},
   };
   for (const auto& fs : kFaceShots) {
     ui::emit_text(watch::ActionType::SetFace, fs[0]);
@@ -304,10 +313,10 @@ int main(int argc, char** argv) {
   pump(500);
   ui::emit_text(watch::ActionType::SetFace, "chara_side");
   pump(300);
-  ok &= save(out, "25_face_chara_side");
+  ok &= save(out, "27_face_chara_side");
   ui::emit_text(watch::ActionType::SetFace, "chara_bubble");
   pump(300);
-  ok &= save(out, "26_face_chara_bubble");
+  ok &= save(out, "28_face_chara_bubble");
   // 元に戻す。
   ui::emit_text(watch::ActionType::SetFace, "bold");
   ui::emit_text(watch::ActionType::SetTheme, "standard");
