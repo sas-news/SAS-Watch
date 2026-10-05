@@ -64,3 +64,12 @@ CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_TXT_BREAK_CHARS=" ,.;:-_"
+
+# OTA: 新イメージの自己診断が通るまで旧イメージにロールバックできるようにする
+# (起動後に ota::mark_valid_if_pending で確定)。
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# HTTPS OTA (esp_https_ota) のサーバ証明は CA バンドルで検証する
+# (github.com 等)。通信先は dns 解決できる公開HTTPSのみ想定。
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
