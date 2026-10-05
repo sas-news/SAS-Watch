@@ -11,6 +11,7 @@ extern const ScreenOps kStopwatchScreen;
 extern const ScreenOps kCounterScreen;
 extern const ScreenOps kMemoScreen;
 extern const ScreenOps kSettingsScreen;
+extern const ScreenOps kOtaScreen;
 extern const ScreenOps kPowerMenuScreen;
 
 const ScreenOps* screen_ops(watch::Route r) {
@@ -23,6 +24,7 @@ const ScreenOps* screen_ops(watch::Route r) {
     case watch::Route::Counter: return &kCounterScreen;
     case watch::Route::Memo: return &kMemoScreen;
     case watch::Route::Settings: return &kSettingsScreen;
+    case watch::Route::Ota: return &kOtaScreen;
     case watch::Route::PowerMenu: return &kPowerMenuScreen;
     default: return nullptr;
   }

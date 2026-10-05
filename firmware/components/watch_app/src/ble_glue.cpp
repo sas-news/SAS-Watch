@@ -19,8 +19,10 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "ota/ota.hpp"
 #include "theme_store/theme_store.hpp"
 #include "ui/ui.hpp"
+#include "wifi/wifi.hpp"
 #include "watch/features/memo.hpp"
 #include "watch/protocol/bulk.hpp"
 #include "watch/protocol/dispatch.hpp"
@@ -216,6 +218,23 @@ void write_evt_id(watch::cbor::Writer& w, void* ctx) {
   w.map(1).text("id").uint_v(id);
 }
 
+// OtaProgress Event 発行時点の ota::status() スナップショット。
+ota::Status s_ota_snap;
+
+void write_evt_ota_progress(watch::cbor::Writer& w, void*) {
+  w.map(2)
+      .text("pct")
+      .uint_v(s_ota_snap.pct)
+      .text("stage")
+      .text(ota::stage_name(s_ota_snap.stage));
+}
+
+void write_evt_ota_result(watch::cbor::Writer& w, void*) {
+  const bool ok = s_ota_snap.stage == ota::Stage::Done ||
+                  s_ota_snap.stage == ota::Stage::Reboot;
+  w.map(2).text("ok").bool_v(ok).text("msg").text(s_ota_snap.msg);
+}
+
 void on_bus_evt(const watch::Event& e, void*) {
   if (!ble_link_is_connected()) return;
   uint8_t buf[160];
@@ -238,6 +257,19 @@ void on_bus_evt(const watch::Event& e, void*) {
       ok = watch::proto::encode_evt(
           &w, "memo.deleted", write_evt_id,
           reinterpret_cast<void*>(static_cast<uintptr_t>(e.arg0)));
+      break;
+    case watch::EventType::OtaProgress:
+      s_ota_snap = ota::status();
+      // 終端ステージでは ota.result、途中は ota.progress。
+      if (s_ota_snap.stage == ota::Stage::Done ||
+          s_ota_snap.stage == ota::Stage::Fail ||
+          s_ota_snap.stage == ota::Stage::Reboot) {
+        ok = watch::proto::encode_evt(&w, "ota.result",
+                                      write_evt_ota_result, nullptr);
+      } else {
+        ok = watch::proto::encode_evt(&w, "ota.progress",
+                                      write_evt_ota_progress, nullptr);
+      }
       break;
     default:
       break;
@@ -361,6 +393,33 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
       theme_store::set_pending_theme(settings_mut().theme);
     }
   };
+  svc.wifi_set = [](const char* ssid, const char* pass, void*) {
+    return wifi::set_credentials(ssid, pass);
+  };
+  svc.wifi_info = [](char* out, size_t cap, void*) {
+    return wifi::ssid(out, cap);
+  };
+  svc.ota_start = [](const char* url, const uint8_t sha[32], const char* ver,
+                     void*) {
+    return ota::start_https(url, sha, ver);
+  };
+  svc.ota_status = [](watch::cbor::Writer& w, void*) {
+    const ota::Status s = ota::status();
+    const bool active =
+        s.stage != ota::Stage::Idle && s.stage != ota::Stage::Fail;
+    w.map(5)
+        .text("active")
+        .bool_v(active)
+        .text("stage")
+        .text(ota::stage_name(s.stage))
+        .text("pct")
+        .uint_v(s.pct)
+        .text("msg")
+        .text(s.msg)
+        .text("version")
+        .text(s.version);
+    return true;
+  };
 
   watch::cbor::Writer w(res, res_cap);
   const watch::proto::DispatchError err =
@@ -384,16 +443,55 @@ void on_passkey(uint32_t passkey, void*) {
   wake_task();
 }
 
+// ---- BULK 受信の振り分け -----------------------------------------------------
+// kind は BULK_START でしか届かないので begin 時に路線を固定する。
+// "firmware" は ota (ファーム更新)、それ以外は theme_store (theme/asset/memo)。
+enum class BulkRoute : uint8_t { None, Theme, Firmware };
+BulkRoute s_bulk_route = BulkRoute::None;
+
+bool bulk_begin_tr(uint16_t id, const char* kind, uint32_t size, void*) {
+  const bool fw = std::strcmp(kind, "firmware") == 0;
+  const bool ok = fw ? ota::bulk_begin(id, size)
+                     : theme_store::bulk_begin(id, kind, size, nullptr);
+  s_bulk_route = ok ? (fw ? BulkRoute::Firmware : BulkRoute::Theme)
+                    : BulkRoute::None;
+  return ok;
+}
+
+bool bulk_write_tr(uint16_t id, uint32_t offset, const uint8_t* data,
+                   size_t len, void*) {
+  return s_bulk_route == BulkRoute::Firmware
+             ? ota::bulk_write(id, offset, data, len)
+             : theme_store::bulk_write(id, offset, data, len, nullptr);
+}
+
+bool bulk_commit_tr(uint16_t id, void*) {
+  const BulkRoute r = s_bulk_route;
+  s_bulk_route = BulkRoute::None;
+  return r == BulkRoute::Firmware ? ota::bulk_commit(id)
+                                  : theme_store::bulk_commit(id, nullptr);
+}
+
+void bulk_abort_tr(uint16_t id, void*) {
+  const BulkRoute r = s_bulk_route;
+  s_bulk_route = BulkRoute::None;
+  if (r == BulkRoute::Firmware) {
+    ota::bulk_abort(id);
+  } else {
+    theme_store::bulk_abort(id, nullptr);
+  }
+}
+
 ble_link_config_t s_cfg = {
     .dispatch_req = ble_dispatch,
     .dispatch_ctx = nullptr,
     .on_conn_state = on_conn_state,
     .on_passkey = on_passkey,
     .cb_ctx = nullptr,
-    .bulk_begin = theme_store::bulk_begin,
-    .bulk_write = theme_store::bulk_write,
-    .bulk_commit = theme_store::bulk_commit,
-    .bulk_abort = theme_store::bulk_abort,
+    .bulk_begin = bulk_begin_tr,
+    .bulk_write = bulk_write_tr,
+    .bulk_commit = bulk_commit_tr,
+    .bulk_abort = bulk_abort_tr,
     .bulk_ctx = nullptr,
     .on_bulk_ack = on_bulk_ack,
 };
@@ -409,6 +507,7 @@ void ble_glue_init() {
   bus().subscribe(watch::EventType::TimerFinished, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::MemoSaved, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::MemoDeleted, on_bus_evt, nullptr);
+  bus().subscribe(watch::EventType::OtaProgress, on_bus_evt, nullptr);
 }
 
 // app タスクのループで保留分を処理する。
