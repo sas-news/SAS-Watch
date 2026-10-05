@@ -30,6 +30,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.connection.LinkState
+import dev.sasnews.amoledwatch.protocol.ActionNames
+import dev.sasnews.amoledwatch.protocol.ActionSpec
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
 import dev.sasnews.amoledwatch.protocol.bool
@@ -113,11 +115,12 @@ private fun SettingsEditor(
         SettingsKeys.BUTTON_BOOT_DOUBLE to R.string.settings_button_boot_double,
         SettingsKeys.BUTTON_PWR_SHORT to R.string.settings_button_pwr_short,
         SettingsKeys.BUTTON_PWR_LONG to R.string.settings_button_pwr_long,
+        SettingsKeys.BUTTON_PWR_DOUBLE to R.string.settings_button_pwr_double,
     )
     var buttons by remember(settings) {
         mutableStateOf(
             buttonKeys.associate { (key, _) ->
-                key to (settings[key]?.text ?: SettingsKeys.BUTTON_ACTIONS.last())
+                key to (settings[key]?.text ?: "none")
             },
         )
     }
@@ -149,8 +152,8 @@ private fun SettingsEditor(
             buttonKeys.forEach { (key, labelRes) ->
                 ActionDropdown(
                     label = stringResource(labelRes),
-                    selected = buttons[key] ?: SettingsKeys.BUTTON_ACTIONS.last(),
-                    options = SettingsKeys.BUTTON_ACTIONS,
+                    selected = buttons[key] ?: "none",
+                    options = ActionNames.ALL,
                     onSelect = { buttons = buttons + (key to it) },
                 )
             }
@@ -200,13 +203,13 @@ private fun SliderRow(
 private fun ActionDropdown(
     label: String,
     selected: String,
-    options: List<String>,
+    options: List<ActionSpec>,
     onSelect: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selected,
+            value = ActionNames.label(selected),
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
@@ -218,9 +221,9 @@ private fun ActionDropdown(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { opt ->
                 DropdownMenuItem(
-                    text = { Text(opt) },
+                    text = { Text(opt.labelJa) },
                     onClick = {
-                        onSelect(opt)
+                        onSelect(opt.name)
                         expanded = false
                     },
                 )

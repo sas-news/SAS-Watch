@@ -29,26 +29,84 @@ offset size field
 REQ: `{ "m": <method string>, "p": <params map> }`
 RES: `{ "ok": true, "r": <result> }` または `{ "ok": false, "e": <error code string>, "msg": <string> }`
 
+method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp) と
+スマホ (android/protocol) はこの表通りの名前を送受信する。
+
 | method | params | result |
 |---|---|---|
 | `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme"]}` |
-| `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` | `{}` |
-| `device.info` | `{}` | `{battery:<0-100>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
-| `settings.get` | `{keys:[...]}` (空なら全部) | `{<key>:<value>,...}` |
+| `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
+| `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
+| `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
 | `settings.set` | `{<key>:<value>,...}` | `{}` |
-| `timer.start` | `{seconds:<int>}` | `{}` |
+| `timer.start` | `{seconds:<int>}` (1 以上) | `{}` |
 | `timer.stop` | `{}` | `{}` |
-| `memo.create` | `{text:<str>}` | `{id:<int>}` |
+| `memo.create` | `{text:<str>}` (空でない) | `{id:<int>}` |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
-| `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` | `{}` |
+| `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可) | `{}` |
 
-error code: `bad_request`, `unknown_method`, `unsupported_proto`, `busy`, `internal`。
+error code:
+
+| code | 意味 |
+|---|---|
+| `bad_request` | CBOR が壊れている / params の形や型が違う |
+| `unknown_method` | 表に無い method |
+| `unsupported_proto` | `hello` の proto が一致しない |
+| `busy` | 時計が処理できない状態 |
+| `internal` | 時計内部の失敗 |
 
 ### settings keys
-`brightness` (0-100), `dim_after_s`, `screen_off_after_s`, `button.boot.short`, `button.boot.long`, `button.boot.double`, `button.pwr.short`, `button.pwr.long` (値は Action 名文字列), `theme` (theme id 文字列)
+`settings.get` / `settings.set` で使うキーの一覧はこの表が唯一の正。
+`settings.get` の結果はこの表の順で返す（`keys` 指定時は要求した順）。
+
+| key | type | 既定 | 説明 |
+|---|---|---|---|
+| `brightness` | u32 | 50 | 画面の明るさ 0-100 |
+| `dim_after_s` | u32 | 8 | Active→Dim までの秒数 |
+| `screen_off_after_s` | u32 | 12 | Active→ScreenOff までの秒数 |
+| `deep_sleep_after_s` | u32 | 1800 | ScreenOff→DeepSleep までの秒数 |
+| `tz_offset_min` | i32 | 0 | UTC からのオフセット (分)。`time.set` でも記憶される |
+| `theme` | text | `standard` | theme id 文字列 |
+| `button.boot.short` | text | `primary` | BOOT 短押しの Action 名 |
+| `button.boot.long` | text | `nav.dev` | BOOT 長押しの Action 名 |
+| `button.boot.double` | text | `memo.record` | BOOT 2回押しの Action 名 |
+| `button.pwr.short` | text | `back` | PWR 短押しの Action 名 |
+| `button.pwr.long` | text | `power_menu` | PWR 長押しの Action 名 |
+| `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
+
+### Action 名 (button.* の値)
+`button.*` キーに設定できる Action 名はこの表が唯一の正
+(core `input_mapper.cpp` の `named_actions()` と一致)。
+表に無い名前を `settings.set` しても値自体は保存されるが、
+ボタン割り当てには反映されない（現在値のまま）。
+
+| Action 名 | 日本語ラベル | 動作 |
+|---|---|---|
+| `none` | なし | 何もしない |
+| `back` | 戻る | 1つ前の画面に戻る |
+| `home` | ホーム | ホーム画面へ |
+| `primary` | 主ボタン | 画面ごとの主アクション (開始/停止など) |
+| `screen_off` | 画面OFF | 画面を消す |
+| `wake` | 復帰 | スリープからの復帰要求 |
+| `power_menu` | 電源メニュー | 電源メニューを開く |
+| `nav.quick` | クイック設定 | クイック設定画面を開く |
+| `nav.notifications` | 通知 | 通知画面を開く |
+| `nav.more` | アプリ一覧 | アプリ一覧画面を開く |
+| `nav.dev` | 開発者 | 開発者画面を開く |
+| `nav.agent` | エージェント | エージェント画面を開く (将来) |
+| `nav.settings` | 設定 | 設定画面を開く |
+| `nav.media` | メディア | メディア画面を開く |
+| `memo.record` | メモ録音 | 音声メモの録音を開始 |
+| `timer.start` | タイマー開始 | タイマーを開始 |
+| `timer.stop` | タイマー停止 | タイマーを停止 |
+| `stopwatch.toggle` | ストップウォッチ | ストップウォッチの開始/停止 |
+| `counter.add` | カウンタ +1 | カウンタを +1 |
+| `counter.sub` | カウンタ -1 | カウンタを -1 |
 
 ## EVT (CBOR map)
 `{ "e": <event string>, "d": <data map> }`
+
+event の一覧はこの表が唯一の正。
 
 | event | data |
 |---|---|
@@ -57,6 +115,24 @@ error code: `bad_request`, `unknown_method`, `unsupported_proto`, `busy`, `inter
 | `memo.saved` | `{id}` |
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
 | `agent.request` | `{id, text}` (将来) |
+
+## CBOR 正規形
+両側の実装でバイト列を一致させるため、encode は次の正規形に従う。
+
+- 整数・長さは最短形式で書く (definite-length のみ。indefinite-length、
+  浮動小数点、タグは使わない)。
+- map のキーは本書の各表に書いた順（定義順）で送る。REQ は `m`,`p`、
+  RES は `ok`,`r` / `ok`,`e`,`msg`、EVT は `e`,`d` の順。
+- `settings.set` の params や `settings.get` の結果のように可変の map は、
+  settings keys 表の順が望ましい (要求キー指定時は要求した順)。
+  表に無いキーを含む場合の順序は任意。
+- 受信側は map のキー順に依存してはならない。
+
+## テストベクタ
+`docs/protocol-vectors/*.json` が encode/decode の共通期待値。
+core (GoogleTest) と android (JUnit) の両方がこのファイルを読んで
+結果一致を検査する。形式は `docs/protocol-vectors/README.md`、
+再生成は `tools/gen_protocol_vectors.py`。
 
 ## BULK (Asset / OTA)
 BULK_START payload (CBOR): `{id, kind:"theme"|"asset"|"ota", size, sha256:<bytes32>, chunk:<int>}`

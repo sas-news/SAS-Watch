@@ -65,6 +65,6 @@ Bluetooth の権限は `neverForLocation`（位置情報には使わない）で
 
 - CRC-16 のバイトオーダー（little endian と仮定）
 - フラグメントの MTU 計算（ATT ヘッダ 3 バイトを引いている）
-- ボタン割り当ての Action 名一覧（`SettingsKeys.BUTTON_ACTIONS`）
+- （Action 名一覧は protocol-v1.md の表で確定済み。`ActionNames.ALL` が時計側と一致）
 - ボンディングの流れ（createBond の Numeric Comparison）
 - 常駐通知を転送対象外にしている判断
