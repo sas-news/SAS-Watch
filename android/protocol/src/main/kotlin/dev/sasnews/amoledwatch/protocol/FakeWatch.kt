@@ -26,17 +26,8 @@ class FakeWatch(
     private var evtSeq = 0
     private val reqReassembler = Reassembler()
 
-    private val settings = linkedMapOf<String, Cbor>(
-        SettingsKeys.BRIGHTNESS to Cbor.Cint(70),
-        SettingsKeys.DIM_AFTER_S to Cbor.Cint(8),
-        SettingsKeys.SCREEN_OFF_AFTER_S to Cbor.Cint(12),
-        SettingsKeys.BUTTON_BOOT_SHORT to Cbor.Ctext("timer.toggle"),
-        SettingsKeys.BUTTON_BOOT_LONG to Cbor.Ctext("nav.dev"),
-        SettingsKeys.BUTTON_BOOT_DOUBLE to Cbor.Ctext("memo.record"),
-        SettingsKeys.BUTTON_PWR_SHORT to Cbor.Ctext("nav.back"),
-        SettingsKeys.BUTTON_PWR_LONG to Cbor.Ctext("power.menu"),
-        SettingsKeys.THEME to Cbor.Ctext("standard"),
-    )
+    /** core `settings.hpp` のデフォルト値と同じ。キー順 = 定義順（CBOR 正規形）。 */
+    private val settings = LinkedHashMap(SettingsKeys.DEFAULTS)
 
     private var battery = 87
     private var charging = false
@@ -55,23 +46,35 @@ class FakeWatch(
         val frame = FrameCodec.decode(data)
         if (frame.type != Frame.TYPE_REQ) throw FrameException("FakeWatch: not a REQ (type=${frame.typeName})")
         val complete = reqReassembler.feed(frame) ?: return emptyList()
-        val res = handle(parseReq(complete.payload))
+        val res = try {
+            handle(parseReq(complete.payload))
+        } catch (e: BadReq) {
+            Res.errCbor("bad_request", e.message ?: "bad_request")
+        }
         return Fragmenter.fragment(Frame.TYPE_RES, complete.msgId, CborCodec.encode(res), mtuSize)
             .map { it.encode() }
     }
 
+    /** core の bad_request に対応する内部エラー。RES として返すため FrameException とは分ける。 */
+    private class BadReq(msg: String) : Exception(msg)
+
     fun parseReq(payload: ByteArray): Pair<String, Cbor.Cmap> {
         val m = CborCodec.decode(payload) as? Cbor.Cmap
-            ?: throw FrameException("REQ payload is not a map")
-        return (m.text("m") ?: throw FrameException("REQ missing \"m\"")) to
-            (m.sub("p") ?: Cbor.Cmap(emptyMap()))
+            ?: throw BadReq("not a map")
+        val method = m.text("m") ?: throw BadReq("missing method")
+        val p = m.value["p"]?.let {
+            it as? Cbor.Cmap ?: throw BadReq("params is not a map")
+        } ?: Cbor.Cmap(emptyMap())
+        return method to p
     }
 
     private fun handle(req: Pair<String, Cbor.Cmap>): Cbor.Cmap {
         val (m, p) = req
         return when (m) {
             "hello" -> {
-                val proto = p.int("proto").toInt()
+                // core: proto 未指定は bad_request、不一致は unsupported_proto
+                val proto = (p.value["proto"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "hello")
                 if (proto != Req.PROTO_VERSION) {
                     Res.errCbor("unsupported_proto", "proto $proto は未対応（対応: ${Req.PROTO_VERSION}）。アプリを更新してください")
                 } else {
@@ -86,7 +89,15 @@ class FakeWatch(
                     )
                 }
             }
-            "time.set" -> Res.okCbor()
+            "time.set" -> {
+                // core: epoch 必須。tz_offset_min があれば設定に反映する。
+                (p.value["epoch"] as? Cbor.Cint)
+                    ?: return Res.errCbor("bad_request", "time.set")
+                (p.value["tz_offset_min"] as? Cbor.Cint)?.let {
+                    settings[SettingsKeys.TZ_OFFSET_MIN] = it
+                }
+                Res.okCbor()
+            }
             "device.info" -> Res.okCbor(
                 Cbor.Cmap(
                     mapOf(
@@ -99,16 +110,46 @@ class FakeWatch(
                 ),
             )
             "settings.get" -> {
-                val keys = p.textList("keys")
-                val picked = if (keys.isEmpty()) settings else settings.filterKeys { it in keys }
-                Res.okCbor(Cbor.Cmap(picked))
+                val keysV = p.value["keys"]
+                if (keysV == null) {
+                    // keys 無し → 全キー（定義順）
+                    Res.okCbor(Cbor.Cmap(settings))
+                } else {
+                    val arr = keysV as? Cbor.Carray
+                        ?: return Res.errCbor("bad_request", "settings.get")
+                    val picked = LinkedHashMap<String, Cbor>()
+                    for (k in arr.value) {
+                        // 要求順に返す。text でない要素は bad_request、知らないキーは飛ばす。
+                        val name = (k as? Cbor.Ctext)?.value
+                            ?: return Res.errCbor("bad_request", "settings.get")
+                        settings[name]?.let { picked[name] = it }
+                    }
+                    Res.okCbor(Cbor.Cmap(picked))
+                }
             }
             "settings.set" -> {
-                settings.putAll(p.value)
+                // core: 知らないキーは飛ばし、型が合わない値も飛ばす（RES は ok）。
+                for ((k, v) in p.value) {
+                    val def = SettingsKeys.DEFAULTS[k] ?: continue
+                    val ok = when (def) {
+                        // tz_offset_min だけ I32（負数可）。他の int キーは U32。
+                        is Cbor.Cint -> v is Cbor.Cint &&
+                            (k == SettingsKeys.TZ_OFFSET_MIN || v.value >= 0)
+                        is Cbor.Ctext -> v is Cbor.Ctext &&
+                            v.value.toByteArray(Charsets.UTF_8).size < 64
+                        else -> false
+                    }
+                    if (ok) settings[k] = v
+                }
                 Res.okCbor()
             }
             "timer.start" -> {
-                timerSeconds = p.int("seconds").toInt()
+                // core: seconds は正の int 必須
+                val sec = (p.value["seconds"] as? Cbor.Cint)?.value?.toInt()
+                if (sec == null || sec <= 0) {
+                    return Res.errCbor("bad_request", "timer.start")
+                }
+                timerSeconds = sec
                 timerTask?.cancel(false)
                 if (timerSeconds > 0) {
                     timerTask = scheduler.schedule(
@@ -125,6 +166,11 @@ class FakeWatch(
                 Res.okCbor()
             }
             "memo.create" -> {
+                // core: text は空でない text 必須
+                val text = (p.value["text"] as? Cbor.Ctext)?.value
+                if (text.isNullOrEmpty()) {
+                    return Res.errCbor("bad_request", "memo.create")
+                }
                 memoId++
                 val id = memoId
                 // 実機同様、保存後に EVT を返す
@@ -132,14 +178,30 @@ class FakeWatch(
                 Res.okCbor(Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong()))))
             }
             "notify.post" -> {
-                lastNotification = Triple(p.text("app"), p.text("title"), p.text("body"))
+                // core: app/title/body は text 必須
+                val app = (p.value["app"] as? Cbor.Ctext)?.value
+                val title = (p.value["title"] as? Cbor.Ctext)?.value
+                val body = (p.value["body"] as? Cbor.Ctext)?.value
+                if (app == null || title == null || body == null) {
+                    return Res.errCbor("bad_request", "notify.post")
+                }
+                lastNotification = Triple(app, title, body)
                 Res.okCbor()
             }
             "media.state" -> {
-                lastMedia = Triple(p.text("title"), p.text("artist"), p.bool("playing"))
+                // core: title/artist は text 必須、playing はあれば bool
+                val title = (p.value["title"] as? Cbor.Ctext)?.value
+                val artist = (p.value["artist"] as? Cbor.Ctext)?.value
+                val playingV = p.value["playing"]
+                if (title == null || artist == null ||
+                    (playingV != null && playingV !is Cbor.Cbool)
+                ) {
+                    return Res.errCbor("bad_request", "media.state")
+                }
+                lastMedia = Triple(title, artist, (playingV as? Cbor.Cbool)?.value ?: false)
                 Res.okCbor()
             }
-            else -> Res.errCbor("unknown_method", "unknown method: $m")
+            else -> Res.errCbor("unknown_method", "unknown method")
         }
     }
 
