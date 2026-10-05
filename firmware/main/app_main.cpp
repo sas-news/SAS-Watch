@@ -14,6 +14,7 @@
 #include "board/board.hpp"
 #include "diag/diag.hpp"
 #include "platform_esp/platform_esp.hpp"
+#include "theme_store/theme_store.hpp"
 #include "ui/ui.hpp"
 #include "watch_app/watch_app.hpp"
 #include "watch/event.hpp"
@@ -74,6 +75,11 @@ extern "C" void app_main(void)
     if (!s_kv.init()) {
         // NVS が読めなくても既定値で動く。エラーは init 内でログ済み。
         ESP_LOGW(TAG, "kv init failed; running with defaults");
+    }
+
+    // テーマ資産用 littlefs (/assets)。失敗しても内蔵テーマだけで動く。
+    if (!theme_store::init()) {
+        ESP_LOGW(TAG, "theme assets unavailable; builtin themes only");
     }
 
     // 表示・LVGLタスク・タッチを起こす。

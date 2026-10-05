@@ -6,6 +6,7 @@
 #include "audio/audio.hpp"
 #include "board/board.hpp"
 #include "board/power_consts.h"
+#include "esp_heap_caps.h"
 #include "esp_idf_version.h"
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
@@ -53,5 +54,47 @@ size_t device_info(char* buf, size_t cap) {
 }
 
 int power_off_hold_seconds() { return board::kPowerOffHoldSeconds; }
+
+// ---- テーマ資産 (littlefs "/assets/themes" + PSRAM アリーナ) ----
+
+// TODO(hw): 実機で確認 — PSRAM 8MB から 3MB をテーマ作業領域に割く。
+// zip 受信展開と画像アリーナで共用 (同時に使わないので問題ない)。
+constexpr uint32_t kThemeArenaSize = 3 * 1024 * 1024;
+uint8_t* s_arena = nullptr;
+uint32_t s_arena_used = 0;
+
+const char* theme_assets_root() { return "/assets/themes"; }
+
+void theme_assets_reset() {
+  if (!s_arena) {
+    // 動的確保は初期化時のみ (ui::create → theme_apply → ここ)。
+    s_arena = static_cast<uint8_t*>(
+        heap_caps_malloc(kThemeArenaSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  }
+  s_arena_used = 0;
+}
+
+bool theme_asset_load(const char* path, const uint8_t** out,
+                      uint32_t* out_len) {
+  if (!s_arena || !out || !out_len) return false;
+  FILE* f = std::fopen(path, "rb");
+  if (!f) return false;
+  std::fseek(f, 0, SEEK_END);
+  const long sz = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  if (sz < 0 || static_cast<uint64_t>(s_arena_used) + sz + 8 > kThemeArenaSize) {
+    std::fclose(f);
+    return false;
+  }
+  uint8_t* dst = s_arena + s_arena_used;
+  const size_t got = std::fread(dst, 1, static_cast<size_t>(sz), f);
+  std::fclose(f);
+  if (got != static_cast<size_t>(sz)) return false;
+  // 8B アラインで次の確保位置を進める。
+  s_arena_used += (static_cast<uint32_t>(sz) + 7u) & ~7u;
+  *out = dst;
+  *out_len = static_cast<uint32_t>(sz);
+  return true;
+}
 
 }  // namespace ui::port

@@ -47,4 +47,20 @@ void display_power(bool on);
 // バックライト輝度 0-100 (Dim/ScreenOff/復帰で使う)。
 void brightness_apply(int percent);
 
+// ---- テーマ資産 (docs/theme-format.md) ----
+// いずれも LVGL コンテキスト内 (port::lock 下 or LVGL タスク) で呼ぶ。
+
+// テーマ資産ディレクトリのルート (末尾 / 無し)。
+// firmware: "/assets/themes" (littlefs)、sim: "sim/themes" (CWD=repo root)。
+const char* theme_assets_root();
+
+// path を丸ごと読み、テーマ用アリーナに確保する。
+// 成功: *out=バッファ (アリーナ内), *out_len=バイト数。失敗: false。
+bool theme_asset_load(const char* path, const uint8_t** out,
+                      uint32_t* out_len);
+
+// theme_asset_load で確保した全バッファを解放する
+// (テーマ適用の直前に1度呼ぶ。アリーナ自体は初期化時に1度だけ確保)。
+void theme_assets_reset();
+
 }  // namespace ui::port

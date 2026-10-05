@@ -9,6 +9,7 @@ import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
+import dev.sasnews.amoledwatch.protocol.ThemePackage
 import dev.sasnews.amoledwatch.ui.screens.DevicesContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesUiState
 import dev.sasnews.amoledwatch.ui.screens.FoundUi
@@ -16,6 +17,10 @@ import dev.sasnews.amoledwatch.ui.screens.MemoContent
 import dev.sasnews.amoledwatch.ui.screens.MemoUi
 import dev.sasnews.amoledwatch.ui.screens.NotifyContent
 import dev.sasnews.amoledwatch.ui.screens.SettingsContent
+import dev.sasnews.amoledwatch.ui.screens.ThemeItemUi
+import dev.sasnews.amoledwatch.ui.screens.ThemeTransferState
+import dev.sasnews.amoledwatch.ui.screens.ThemesContent
+import dev.sasnews.amoledwatch.ui.screens.ThemesUiState
 import dev.sasnews.amoledwatch.ui.theme.AmoledWatchTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -158,6 +163,60 @@ class ScreenshotTest {
                     connected = true,
                     onLoad = {},
                     onSave = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun themes_screen() {
+        captureRoboImage(filePath = path("themes")) {
+            AmoledWatchTheme {
+                ThemesContent(
+                    state = ThemesUiState(
+                        connected = true,
+                        currentTheme = "standard",
+                        builtins = listOf(
+                            ThemeItemUi("standard", "標準（ダーク）", applied = true),
+                            ThemeItemUi("light", "ライト"),
+                        ),
+                        bundled = ThemePackage.ThemePkgInfo("mame", "まめ"),
+                        picked = null,
+                        pickError = null,
+                        transfer = ThemeTransferState.Idle,
+                    ),
+                    onApplyBuiltin = {},
+                    onSendBundled = {},
+                    onPickZip = {},
+                    onSendPicked = {},
+                    onRetry = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun themes_sending() {
+        captureRoboImage(filePath = path("themes_sending")) {
+            AmoledWatchTheme {
+                ThemesContent(
+                    state = ThemesUiState(
+                        connected = true,
+                        currentTheme = "standard",
+                        builtins = listOf(
+                            ThemeItemUi("standard", "標準（ダーク）", applied = true),
+                            ThemeItemUi("light", "ライト"),
+                        ),
+                        bundled = ThemePackage.ThemePkgInfo("mame", "まめ"),
+                        picked = ThemePackage.ThemePkgInfo("yoru", "よる"),
+                        pickError = null,
+                        transfer = ThemeTransferState.Sending(320_000, 622_000),
+                    ),
+                    onApplyBuiltin = {},
+                    onSendBundled = {},
+                    onPickZip = {},
+                    onSendPicked = {},
+                    onRetry = {},
                 )
             }
         }

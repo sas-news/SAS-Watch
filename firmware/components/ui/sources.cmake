@@ -1,6 +1,7 @@
 # ui の platform 非依存ソース一覧。sim/CMakeLists.txt も同じ物を使う。
 set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/theme.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/theme_manager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/components.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/shell.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/registry.cpp

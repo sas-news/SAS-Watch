@@ -7,6 +7,7 @@ import dev.sasnews.amoledwatch.connection.FakeWatchConnection
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.connection.WatchLink
 import dev.sasnews.amoledwatch.protocol.Adpcm
+import dev.sasnews.amoledwatch.protocol.BulkSender
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.Evt
@@ -21,6 +22,7 @@ import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.Res
 import java.io.File
 import dev.sasnews.amoledwatch.service.WatchService
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -34,11 +36,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 時計との通信の司令塔。
@@ -53,6 +57,8 @@ class WatchLinkManager(private val app: WatchApp) {
     companion object {
         private const val TAG = "WatchLinkManager"
         private const val LOG_LIMIT = 100
+        private const val THEME_MAX_ATTEMPTS = 3
+        private const val THEME_RECONNECT_WAIT_MS = 35_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -274,6 +280,45 @@ class WatchLinkManager(private val app: WatchApp) {
 
     suspend fun notifyPost(appPkg: String, title: String, body: String) =
         send(Req.NotifyPost(appPkg, title, body))
+
+    /**
+     * テーマパッケージを BULK (kind="theme") で送る。
+     * transferId は内容の sha256 先頭2バイト — 同じデータなら同じ id になるので、
+     * 切断後の再送は時計側の受領位置から再開する（protocol-v1.md BULK 章）。
+     * 内部エラー（切断・タイムアウト）は再接続を待ってリトライ、時計の明示的な
+     * 拒否（bad_request 等）はリトライしない。戻り値 = 転送成功か。
+     */
+    suspend fun sendTheme(bytes: ByteArray, onProgress: (Int, Int) -> Unit = { _, _ -> }): Boolean {
+        val sha = MessageDigest.getInstance("SHA-256").digest(bytes)
+        val transferId = (sha[0].toInt() and 0xFF) or ((sha[1].toInt() and 0xFF) shl 8)
+        var attempt = 0
+        while (attempt < THEME_MAX_ATTEMPTS) {
+            attempt++
+            val link = _link.value ?: return false
+            val ch = link.bulk ?: return false
+            val res = try {
+                BulkSender().send(ch, "theme", bytes, transferId, onProgress = onProgress)
+            } catch (e: Exception) {
+                Res.Err("internal", e.message ?: "send failed")
+            }
+            when (res) {
+                is Res.Ok -> {
+                    log("BULK theme 転送完了 (id=$transferId)")
+                    return true
+                }
+                is Res.Err -> {
+                    log("BULK theme 転送失敗 ($attempt/$THEME_MAX_ATTEMPTS): ${res.code} ${res.message}")
+                    if (res.code != "internal") return false
+                    // 切断系 → 再接続を待って同じ id で再送（再開）
+                    val reconnected = withTimeoutOrNull(THEME_RECONNECT_WAIT_MS) {
+                        link.state.first { it is LinkState.Connected }
+                    }
+                    if (reconnected == null && _link.value === link) return false
+                }
+            }
+        }
+        return false
+    }
 
     /** デモ用: 時計側からメディア操作が来たふりをする。 */
     fun simulateMediaCmd(cmd: MediaCmd) = fakeConnection()?.fake?.simulateMediaCmd(cmd)

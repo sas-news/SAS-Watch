@@ -1,5 +1,7 @@
 #include "watch/runtime.hpp"
 
+#include "watch/theme/manifest.hpp"
+
 namespace watch {
 
 bool ActionQueue::push(const Action& a) {
@@ -122,6 +124,9 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
       }
       return false;
     case ActionType::SetTheme:
+      // theme id は [a-z0-9-]{1,31} (docs/theme-format.md)。
+      // 実在するかは適用層が判定し、失敗時は standard にフォールバックする。
+      if (!theme_id_ok(a.text)) return false;
       if (settings_set_str(settings_, &ctx.storage, "theme", a.text)) {
         bus_.publish({EventType::ThemeChanged, 0});
         return true;

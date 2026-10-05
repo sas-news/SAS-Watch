@@ -209,8 +209,9 @@ int main(int argc, char** argv) {
   ui::request_passkey(483920);
   pump(300);
   ok &= save(out, "13_passkey");
-  ui::emit(watch::ActionType::Back);  // 閉じる動作はないのでタイマー待ちにせず tap で はい
-  tap(205, 371);  // 「はい」ボタン (CENTER +120)
+  // 「はい」ボタン (中央 +120 → y≈371) をタップして閉じる。
+  // 閉じ損なうと layer_top の全画面モーダルが残って以降の shot を覆う。
+  tap(205, 371);
   pump(200);
 
   // タイマー終了フルスクリーン通知。
@@ -221,19 +222,42 @@ int main(int argc, char** argv) {
   tap(205, 290);  // 止める
   pump(200);
 
+  // ---- テーマ切替 (docs/theme-format.md) ----
+  // 内蔵の明るめテーマ。
+  back_home();
+  ui::emit_text(watch::ActionType::SetTheme, "light");
+  pump(500);
+  ok &= save(out, "15_theme_light_home");
+  nav_to(watch::Route::Settings);
+  ok &= save(out, "16_theme_light_settings");
+
+  // サンプルキャラテーマ (sim/themes/mame。tools/build_themes.py で生成)。
+  back_home();
+  ui::emit_text(watch::ActionType::SetTheme, "mame");
+  pump(500);
+  ok &= save(out, "17_theme_mame_home");
+  s_bus.publish({watch::EventType::TimerFinished, 0});
+  pump(300);
+  ok &= save(out, "18_theme_mame_timer");
+  tap(205, 290);  // 止める
+  pump(200);
+
+  // 元に戻しておく。
+  ui::emit_text(watch::ActionType::SetTheme, "standard");
+  pump(400);
+
   // 音声メモ: 録音中の表示 → 確定 → 音声メモ詳細 (再生ボタン)。
   back_home();
   nav_to(watch::Route::Memo);
   ui::emit(watch::ActionType::MemoRecordStart);
   pump(2500);
-  ok &= save(out, "15_memo_recording");
+  ok &= save(out, "19_memo_recording");
   ui::emit(watch::ActionType::MemoRecordStop);
   pump(400);
   // 先頭行 (新しい音声メモ) を開く。
   tap(205, 190);
   pump(300);
-  ok &= save(out, "16_memo_voice_detail");
-
+  ok &= save(out, "20_memo_voice_detail");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

@@ -12,6 +12,7 @@ components/platform_esp/ platform 実装 (Clock=esp_timer, KV=NVS, Log=esp_log, 
 components/watch_core/   ../core を ESP-IDF コンポーネントとして取り込む
 components/ui/           LVGL UI (Theme→Component→Screen の3段。日本語フォント同梱)
 components/ble_link/     NimBLE GATT サーバ (CONFIG_SAS_BLE_LINK)
+components/theme_store/  /assets littlefs マウント + BULK kind="theme" 受信・展開
 components/board/        ボード層 (BSP依存部品: buttons/pmic/rtc/imu/haptics/sleep)
 components/diag/         起動時診断 (システム情報, I2Cスキャン)
 components/XPowersLib/   AXP2101ドライバ (公式サンプル 01_AXP2101 から vendor, MIT)

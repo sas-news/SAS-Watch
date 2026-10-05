@@ -32,4 +32,6 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/protocol/frame.cpp
     ${WATCH_CORE_DIR}/protocol/sha256.cpp
     ${WATCH_CORE_DIR}/protocol/bulk.cpp
-    ${WATCH_CORE_DIR}/protocol/dispatch.cpp)
+    ${WATCH_CORE_DIR}/protocol/dispatch.cpp
+    ${WATCH_CORE_DIR}/theme/manifest.cpp
+    ${WATCH_CORE_DIR}/theme/package.cpp)
