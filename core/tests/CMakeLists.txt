@@ -17,6 +17,7 @@ add_executable(watch_core_tests
     test_features.cpp
     test_protocol.cpp
     test_bulk.cpp
+    test_theme.cpp
     test_vectors.cpp)
 
 target_include_directories(watch_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
