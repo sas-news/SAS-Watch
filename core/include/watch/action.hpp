@@ -32,6 +32,8 @@ enum class ActionType : uint16_t {
   MemoDelete,       // arg0 = memo id (閲覧画面の削除)
   MemoRecordStart,  // 録音開始 (firmware 側で Audio Lease + 録音)
   MemoRecordStop,
+  MemoPlay,         // arg0 = 音声メモの id
+  MemoStopPlay,     // 再生中の音声メモを止める
   // Agent (将来)
   AgentSend,
   AgentApprove,
@@ -39,6 +41,8 @@ enum class ActionType : uint16_t {
   // Settings / System
   SetBrightness,  // arg0 = 0-100
   SetScreenOffAfter, // arg0 = 画面OFFまでの秒数 (5-600 にクランプ)
+  SetAudioVolume, // arg0 = 0-100 (クリック音・ビープ・メモ再生の音量)
+  SetAudioClick,  // arg0 = 0/1 (ボタンのクリック音 ON/OFF)
   SetTheme,       // text = theme id
   TimeSync,       // arg0/arg1 = epoch 秒 (low/high)
   MediaCommand,   // arg0 = MediaCmd

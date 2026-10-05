@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -42,6 +42,10 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `timer.start` | `{seconds:<int>}` (1 以上) | `{}` |
 | `timer.stop` | `{}` | `{}` |
 | `memo.create` | `{text:<str>}` (空でない) | `{id:<int>}` |
+| `memo.list` | `{i:<開始index>, n:<最大件数 (1-16)>}` | `{total:<int>, memos:[{id, kind:"text"\|"voice", sec:<voice秒>, size:<voice byte>}]}` 新しい順 |
+| `memo.get` | `{id:<int>}` | `{id, kind, sec, size, text:<text メモの本文>}` |
+| `memo.delete` | `{id:<int>}` | `{}` |
+| `memo.audio.get` | `{id:<int>}` | `{id, size, sha256:<bytes32>}` この直後に時計から BULK (kind=`"memo"`, id=メモid & 0xFFFF) が送られる |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
 | `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可) | `{}` |
 
@@ -54,6 +58,7 @@ error code:
 | `unsupported_proto` | `hello` の proto が一致しない |
 | `busy` | 時計が処理できない状態 |
 | `internal` | 時計内部の失敗 |
+| `not_found` | id で指定したものが無い |
 
 ### settings keys
 `settings.get` / `settings.set` で使うキーの一覧はこの表が唯一の正。
@@ -73,6 +78,8 @@ error code:
 | `button.pwr.short` | text | `back` | PWR 短押しの Action 名 |
 | `button.pwr.long` | text | `power_menu` | PWR 長押しの Action 名 |
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
+| `audio.volume` | u32 | 70 | クリック音・ビープ・メモ再生の音量 0-100 |
+| `audio.click` | u32 | 1 | ボタンのクリック音 ON/OFF (0/1) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正
@@ -112,7 +119,8 @@ event の一覧はこの表が唯一の正。
 |---|---|
 | `battery` | `{level, charging}` |
 | `timer.finished` | `{}` |
-| `memo.saved` | `{id}` |
+| `memo.saved` | `{id, kind:"text"|"voice", sec:<voice秒>}` |
+| `memo.deleted` | `{id}` |
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
 | `agent.request` | `{id, text}` (将来) |
 
@@ -134,9 +142,25 @@ core (GoogleTest) と android (JUnit) の両方がこのファイルを読んで
 結果一致を検査する。形式は `docs/protocol-vectors/README.md`、
 再生成は `tools/gen_protocol_vectors.py`。
 
-## BULK (Asset / OTA)
-BULK_START payload (CBOR): `{id, kind:"theme"|"asset"|"ota", size, sha256:<bytes32>, chunk:<int>}`
+## BULK (双方向: Asset / OTA / 音声メモ)
+BULK_START payload (CBOR): `{id, kind:"theme"|"asset"|"ota"|"memo", size, sha256:<bytes32>, chunk:<int>}`
 BULK_CHUNK payload: `transfer_id:u16 | offset:u32 | bytes...`
-BULK_ACK payload (CBOR): `{id, next:<offset>}`（8チャンクごと、または再開時）
-BULK_END payload (CBOR): `{id}` → Watch は sha256 を検証し RES で返す。
-切断後は Phone が `BULK_START` を同じ id で再送し、Watch は `BULK_ACK{next}` で再開位置を返す。
+BULK_ACK payload (CBOR): `{id, next:<offset>}`
+BULK_END payload (CBOR): `{id}`
+
+送信方向は2通り。どちらも「受信側が BULK_ACK を返す」のは同じ。
+
+- Phone → Watch (kind `"theme"|"asset"|"ota"`): bulk char に write-without-response。
+  Watch は8チャンクごとに `BULK_ACK{next}` を notify で返し、
+  `BULK_END` 受信後は sha256 を検証して最終 `BULK_ACK{next=size}` を返す
+  (RES-on-ctrl でも同じ結果を返してよい)。
+- Watch → Phone (kind `"memo"`): `memo.audio.get` の直後に時計が bulk char の
+  notify で BULK_START→CHUNK→END を送る。Phone は同じく8チャンクごとに
+  `BULK_ACK{next}` を bulk char へ write-without-response で返し、
+  `BULK_END` 受信・sha256 一致後に最終 `BULK_ACK{next=size}` を返す。
+  (Phone は ctrl に notify を送れないので RES ではなくこの ACK が完了の合図)
+
+切断後は送信側が `BULK_START` を同じ id で再送し、受信側は `BULK_ACK{next}`
+で再開位置を返す。
+`BULK_END` は送信側の「出し切った」の合図。受信側は sha256 を検証してから
+最終 `BULK_ACK{next=size}` を返す。

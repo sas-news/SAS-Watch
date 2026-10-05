@@ -61,7 +61,8 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     private fun describe(evt: Evt): String = when (evt) {
         is Evt.Battery -> "電池 ${evt.level}%（${if (evt.charging) "充電中" else "電池駆動"}）"
         is Evt.TimerFinished -> "タイマー終了"
-        is Evt.MemoSaved -> "メモ保存 id=${evt.id}"
+        is Evt.MemoSaved -> "メモ保存 id=${evt.id}（${evt.kind}）"
+        is Evt.MemoDeleted -> "メモ削除 id=${evt.id}"
         is Evt.MediaCommand -> "メディア操作: ${evt.cmd.wire}"
         is Evt.AgentRequest -> "Agent要求 id=${evt.id}: ${evt.text}"
         is Evt.Unknown -> "${evt.name}"
@@ -130,8 +131,89 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
 
     fun fakeBattery() = manager.simulateBattery()
     fun fakeMediaCmd(cmd: MediaCmd) = manager.simulateMediaCmd(cmd)
+    fun fakeVoiceMemo() = manager.simulateVoiceMemo()
 
     fun consumeNotice() = manager.consumeNotice()
+
+    // ---------------- メモ ----------------
+
+    val memos: StateFlow<List<dev.sasnews.amoledwatch.protocol.MemoEntry>?> =
+        manager.memos
+
+    /** テキストメモの本文キャッシュ (memo.list は本文を載せないので別途取る)。 */
+    private val _memoTexts = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val memoTexts: StateFlow<Map<Int, String>> = _memoTexts
+
+    /** 再生中の音声メモ id。 */
+    private val _playingMemoId = MutableStateFlow<Int?>(null)
+    val playingMemoId: StateFlow<Int?> = _playingMemoId
+
+    /** 音声の取得・変換中のメモ id。 */
+    private val _memoBusyId = MutableStateFlow<Int?>(null)
+    val memoBusyId: StateFlow<Int?> = _memoBusyId
+
+    private var player: android.media.MediaPlayer? = null
+    private var textFetchJob: Job? = null
+
+    init {
+        // 一覧が更新されたらテキストメモの本文を拾ってくる。
+        viewModelScope.launch {
+            manager.memos.collect { list ->
+                textFetchJob?.cancel()
+                if (list == null) {
+                    _memoTexts.value = emptyMap()
+                    return@collect
+                }
+                val missing = list.filter { it.kind == "text" && !_memoTexts.value.containsKey(it.id) }
+                if (missing.isEmpty()) return@collect
+                textFetchJob = viewModelScope.launch {
+                    for (m in missing) {
+                        manager.memoText(m.id)?.let { t ->
+                            _memoTexts.value = _memoTexts.value + (m.id to t)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun refreshMemos() = viewModelScope.launch { manager.refreshMemos() }
+
+    fun memoDelete(id: Int) = viewModelScope.launch { manager.memoDelete(id) }
+
+    /** 音声メモの再生トグル (未キャッシュなら時計から取って WAV にして鳴らす)。 */
+    fun memoPlayToggle(id: Int) {
+        if (_playingMemoId.value == id) {
+            player?.release()
+            player = null
+            _playingMemoId.value = null
+            return
+        }
+        viewModelScope.launch {
+            _memoBusyId.value = id
+            val wav = manager.memoWavFile(id)
+            _memoBusyId.value = null
+            if (wav == null) return@launch
+            player?.release()
+            player = android.media.MediaPlayer().apply {
+                setDataSource(wav.absolutePath)
+                prepare()
+                setOnCompletionListener { _playingMemoId.value = null }
+                start()
+            }
+            _playingMemoId.value = id
+        }
+    }
+
+    /** 音声メモを WAV にして共有 (成功したら onReady に File を渡す)。 */
+    fun memoShare(id: Int, onReady: (java.io.File) -> Unit) {
+        viewModelScope.launch {
+            _memoBusyId.value = id
+            val wav = manager.memoWavFile(id)
+            _memoBusyId.value = null
+            if (wav != null) onReady(wav)
+        }
+    }
 
     // ---------------- 通知転送 ----------------
 

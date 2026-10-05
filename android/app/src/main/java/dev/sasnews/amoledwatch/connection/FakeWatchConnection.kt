@@ -74,6 +74,13 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
         }
     }
 
+    /** FakeWatch は BULK フレームを経由せず実体をそのまま返す。 */
+    override suspend fun fetchBulk(id: Int, sha256: ByteArray, timeoutMs: Long): ByteArray? {
+        val blob = fake.audioBlobFor(id) ?: return null
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(blob)
+        return if (sha.contentEquals(sha256)) blob else null
+    }
+
     override fun close() {
         closed = true
         fake.close()

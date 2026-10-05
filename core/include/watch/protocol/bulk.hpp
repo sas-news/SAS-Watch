@@ -29,6 +29,24 @@ bool bulk_parse_end(const uint8_t* cbor, size_t len, uint16_t* id_out);
 // BULK_ACK payload {id, next} を CBOR で書く。戻り値は長さ (cap 不足なら 0)。
 size_t bulk_encode_ack(uint16_t id, uint32_t next, uint8_t* out, size_t out_cap);
 
+// BULK_ACK payload ({id, next}) を読む (送信側が受け取る方)。
+bool bulk_parse_ack(const uint8_t* cbor, size_t len, uint16_t* id_out,
+                    uint32_t* next_out);
+
+// ---------- 送信側 (時計→スマホ方向も同じ手順) ----------
+// BULK_START payload {id, kind, size, sha256, chunk} を CBOR で書く。
+// 戻り値は長さ (cap 不足なら 0)。
+size_t bulk_encode_start(uint16_t id, const char* kind, uint32_t size,
+                         const uint8_t sha256[32], uint32_t chunk,
+                         uint8_t* out, size_t out_cap);
+
+// BULK_END payload {id} を CBOR で書く。
+size_t bulk_encode_end(uint16_t id, uint8_t* out, size_t out_cap);
+
+// BULK_CHUNK payload の先頭 6 バイト (id:u16 | offset:u32) を書く。
+constexpr size_t kBulkChunkHead = 6;
+void bulk_chunk_head(uint16_t id, uint32_t offset, uint8_t* out);
+
 // BULK_ACK を送る間隔 (チャンク数)。protocol-v1.md の「8チャンクごと」。
 constexpr uint8_t kBulkAckEvery = 8;
 

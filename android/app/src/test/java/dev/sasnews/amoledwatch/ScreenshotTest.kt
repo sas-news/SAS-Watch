@@ -12,6 +12,8 @@ import dev.sasnews.amoledwatch.protocol.SettingsKeys
 import dev.sasnews.amoledwatch.ui.screens.DevicesContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesUiState
 import dev.sasnews.amoledwatch.ui.screens.FoundUi
+import dev.sasnews.amoledwatch.ui.screens.MemoContent
+import dev.sasnews.amoledwatch.ui.screens.MemoUi
 import dev.sasnews.amoledwatch.ui.screens.NotifyContent
 import dev.sasnews.amoledwatch.ui.screens.SettingsContent
 import dev.sasnews.amoledwatch.ui.theme.AmoledWatchTheme
@@ -61,6 +63,7 @@ class ScreenshotTest {
                     onMemoSend = {},
                     onFakeBattery = {},
                     onFakeMediaCmd = {},
+                    onFakeVoiceMemo = {},
                 )
             }
         }
@@ -97,6 +100,39 @@ class ScreenshotTest {
                     onMemoSend = {},
                     onFakeBattery = {},
                     onFakeMediaCmd = {},
+                    onFakeVoiceMemo = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun memo_screen() {
+        captureRoboImage(filePath = path("memo")) {
+            AmoledWatchTheme {
+                MemoContent(
+                    connected = true,
+                    memos = listOf(
+                        MemoUi(id = 12, kind = "voice", sec = 3, text = null),
+                        MemoUi(
+                            id = 11,
+                            kind = "text",
+                            sec = 0,
+                            text = "買い物: 牛乳・卵・パン",
+                        ),
+                        MemoUi(
+                            id = 10,
+                            kind = "text",
+                            sec = 0,
+                            text = "時計のアイデア: 音声メモをBLEで転送する",
+                        ),
+                    ),
+                    playingId = null,
+                    busyId = null,
+                    onRefresh = {},
+                    onPlay = {},
+                    onDelete = {},
+                    onShare = {},
                 )
             }
         }

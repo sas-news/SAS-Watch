@@ -27,6 +27,9 @@ struct Settings {
   char button_pwr_short[24] = "back";
   char button_pwr_long[24] = "power_menu";
   char button_pwr_double[24] = "none";
+  // 音 (Phase 9)。volume は再生/ビープ共通、click はボタン音のON/OFF。
+  uint32_t audio_volume = 70;  // 0-100
+  uint32_t audio_click = 1;    // 0/1
 };
 
 struct SettingKey {

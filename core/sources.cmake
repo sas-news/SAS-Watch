@@ -13,6 +13,7 @@ set(WATCH_CORE_INCLUDE_DIRS
 
 set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/src/platform.cpp
+    ${WATCH_CORE_DIR}/src/adpcm.cpp
     ${WATCH_CORE_DIR}/src/event_bus.cpp
     ${WATCH_CORE_DIR}/src/navigation.cpp
     ${WATCH_CORE_DIR}/src/power.cpp

@@ -3,12 +3,14 @@
 
 #include <cstring>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "watch/features/memo.hpp"
 #include "watch/features/timer.hpp"
 #include "watch/protocol/dispatch.hpp"
 #include "watch/protocol/frame.hpp"
+#include "watch/protocol/sha256.hpp"
 #include "fakes.hpp"
 
 using namespace watch;
@@ -253,15 +255,15 @@ struct SvcFixture {
   }
 
   // {"m":name,"p":{...}} をエンコードして dispatch する。
-  size_t req(const char* method, void (*write_p)(cbor::Writer&), uint8_t* out,
-             size_t cap) {
+  template <typename F>
+  size_t req(const char* method, F&& write_p, uint8_t* out, size_t cap) {
     uint8_t buf[512];
     cbor::Writer w(buf, sizeof(buf));
     w.map(2).text("m").text(method).text("p");
-    if (write_p) {
-      write_p(w);
-    } else {
+    if constexpr (std::is_same_v<std::decay_t<F>, std::nullptr_t>) {
       w.map(0);
+    } else {
+      write_p(w);
     }
     EXPECT_TRUE(w.ok());
     cbor::Writer ow(out, cap);
@@ -502,4 +504,217 @@ TEST(Dispatch, MediaStateCallsHandler) {
       },
       out, sizeof(out));
   EXPECT_EQ(f.media_title, "Song");
+}
+
+// ---------- Dispatch: memo.* (Phase 9) ----------
+
+namespace {
+
+struct SvcMemoFixture : SvcFixture {
+  test::FakeAudio audio;
+  uint32_t audio_sent = 0;
+
+  SvcMemoFixture() {
+    audio.set_clock(&clock);
+    fctx.audio = &audio;
+    fctx.settings = &settings;
+    svc.memo_count = [](void*) {
+      return static_cast<int32_t>(features::memo_count());
+    };
+    svc.memo_entry = [](uint32_t i, cbor::Writer& w, void*) {
+      const int32_t total = static_cast<int32_t>(features::memo_count());
+      features::MemoEntry e;
+      if (static_cast<int32_t>(i) >= total ||
+          !features::memo_at(total - 1 - static_cast<int32_t>(i), &e)) {
+        return false;
+      }
+      w.map(4)
+          .text("id").uint_v(e.id)
+          .text("kind").text(e.kind == features::MemoKind::Voice ? "voice" : "text")
+          .text("sec").uint_v(e.sec)
+          .text("size").uint_v(e.size);
+      return true;
+    };
+    svc.memo_get = [](uint32_t id, cbor::Writer& w, void*) {
+      features::MemoEntry e;
+      if (!features::memo_find(id, &e)) return false;
+      w.map(5)
+          .text("id").uint_v(e.id)
+          .text("kind").text(e.kind == features::MemoKind::Voice ? "voice" : "text")
+          .text("sec").uint_v(e.sec)
+          .text("size").uint_v(e.size)
+          .text("text").text(e.text);
+      return true;
+    };
+    svc.memo_delete = [](uint32_t id, void* c) {
+      return features::memo_delete(id, static_cast<SvcMemoFixture*>(c)->fctx)
+                 ? 1
+                 : 0;
+    };
+    svc.memo_audio_info = [](uint32_t id, uint32_t* size, uint8_t sha[32],
+                             void* c) {
+      auto* f = static_cast<SvcMemoFixture*>(c);
+      features::MemoEntry e;
+      if (!features::memo_find(id, &e) ||
+          e.kind != features::MemoKind::Voice ||
+          !f->audio.memo_audio_size(id, size)) {
+        return false;
+      }
+      proto::Sha256 h;
+      uint8_t buf[256];
+      uint32_t off = 0;
+      for (;;) {
+        size_t len = sizeof(buf);
+        if (!f->audio.memo_audio_read(id, off, buf, &len)) return false;
+        if (len == 0) break;
+        h.update(buf, len);
+        off += len;
+      }
+      h.finish(sha);
+      return true;
+    };
+    svc.memo_audio_send = [](uint32_t id, void* c) {
+      static_cast<SvcMemoFixture*>(c)->audio_sent = id;
+      return true;
+    };
+  }
+
+  // 音声メモを 1 件録音→確定する。id を返す。
+  uint32_t record_voice(uint32_t sec) {
+    Action a{};
+    a.type = ActionType::MemoRecordStart;
+    features::kMemo.handle(a, fctx);
+    audio.rec_elapsed_s = sec;
+    features::kMemo.handle(a, fctx);
+    const auto* ev = rec.last_of(EventType::MemoSaved);
+    return ev ? ev->arg0 : 0;
+  }
+};
+
+// res の r 内 key を取る補助。
+bool res_r_find(const uint8_t* res, size_t n, const char* key, cbor::Value* out) {
+  cbor::Value top{res, res + n}, r;
+  return cbor::map_find(top, "r", &r) && cbor::map_find(r, key, out);
+}
+
+}  // namespace
+
+TEST(DispatchMemo, ListEmpty) {
+  SvcMemoFixture f;
+  uint8_t out[512];
+  const size_t n = f.req("memo.list", nullptr, out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  cbor::Value v;
+  ASSERT_TRUE(res_r_find(out, n, "total", &v));
+  int64_t total = -1;
+  ASSERT_TRUE(cbor::as_int(v, &total));
+  EXPECT_EQ(total, 0);
+}
+
+TEST(DispatchMemo, ListAndGet) {
+  SvcMemoFixture f;
+  features::memo_create("ichi", 4, f.fctx);
+  const uint32_t vid = f.record_voice(7);
+  ASSERT_GT(vid, 0u);
+
+  uint8_t out[512];
+  const size_t n = f.req(
+      "memo.list",
+      [](cbor::Writer& w) {
+        w.map(2).text("i").uint_v(0).text("n").uint_v(8);
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  cbor::Value v, arr, e0;
+  ASSERT_TRUE(res_r_find(out, n, "total", &v));
+  int64_t total = -1;
+  ASSERT_TRUE(cbor::as_int(v, &total));
+  EXPECT_EQ(total, 2);
+  ASSERT_TRUE(res_r_find(out, n, "memos", &arr));
+  ASSERT_TRUE(cbor::array_at(arr, 0, &e0));
+  // 新しい順: 0 番目は直前に保存した音声メモ。
+  cbor::Value kind, sec;
+  ASSERT_TRUE(cbor::map_find(e0, "kind", &kind));
+  const char* ks = nullptr;
+  size_t kn = 0;
+  ASSERT_TRUE(cbor::as_text(kind, &ks, &kn));
+  EXPECT_EQ(std::string(ks, kn), "voice");
+  ASSERT_TRUE(cbor::map_find(e0, "sec", &sec));
+  int64_t s = -1;
+  ASSERT_TRUE(cbor::as_int(sec, &s));
+  EXPECT_EQ(s, 7);
+
+  // memo.get でテキストメモの本文が取れる。
+  const size_t gn = f.req(
+      "memo.get",
+      [](cbor::Writer& w) { w.map(1).text("id").uint_v(1); },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, gn));
+  cbor::Value t;
+  ASSERT_TRUE(res_r_find(out, gn, "text", &t));
+  const char* ts = nullptr;
+  size_t tn = 0;
+  ASSERT_TRUE(cbor::as_text(t, &ts, &tn));
+  EXPECT_EQ(std::string(ts, tn), "ichi");
+}
+
+TEST(DispatchMemo, DeleteAndNotFound) {
+  SvcMemoFixture f;
+  const int32_t id = features::memo_create("x", 1, f.fctx);
+  ASSERT_GT(id, 0);
+  uint8_t out[512];
+  const size_t n = f.req(
+      "memo.delete",
+      [id](cbor::Writer& w) {
+        w.map(1).text("id").uint_v(static_cast<uint32_t>(id));
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  const size_t n2 = f.req(
+      "memo.delete",
+      [id](cbor::Writer& w) {
+        w.map(1).text("id").uint_v(static_cast<uint32_t>(id));
+      },
+      out, sizeof(out));
+  const char* code = nullptr;
+  size_t cn = 0;
+  ASSERT_TRUE(f.res_err_code(out, n2, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "not_found");
+}
+
+TEST(DispatchMemo, AudioGetReportsAndStartsSend) {
+  SvcMemoFixture f;
+  const uint32_t id = f.record_voice(3);
+  ASSERT_GT(id, 0u);
+  uint8_t out[512];
+  const size_t n = f.req(
+      "memo.audio.get",
+      [id](cbor::Writer& w) { w.map(1).text("id").uint_v(id); },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  cbor::Value v;
+  ASSERT_TRUE(res_r_find(out, n, "size", &v));
+  int64_t size = -1;
+  ASSERT_TRUE(cbor::as_int(v, &size));
+  EXPECT_EQ(size, static_cast<int64_t>(test::FakeAudio::kFileHeader +
+                                       3 * test::FakeAudio::kBytesPerSec));
+  ASSERT_TRUE(res_r_find(out, n, "sha256", &v));
+  const uint8_t* sha = nullptr;
+  size_t shn = 0;
+  ASSERT_TRUE(cbor::as_bytes(v, &sha, &shn));
+  EXPECT_EQ(shn, 32u);
+  EXPECT_EQ(f.audio_sent, id);
+
+  // 音声でないメモは not_found。
+  const int32_t tid = features::memo_create("y", 1, f.fctx);
+  const size_t n2 = f.req(
+      "memo.audio.get",
+      [tid](cbor::Writer& w) {
+        w.map(1).text("id").uint_v(static_cast<uint32_t>(tid));
+      },
+      out, sizeof(out));
+  const char* code = nullptr;
+  size_t cn = 0;
+  ASSERT_TRUE(f.res_err_code(out, n2, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "not_found");
 }

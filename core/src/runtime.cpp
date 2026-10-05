@@ -107,6 +107,20 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
       }
       return false;
     }
+    case ActionType::SetAudioVolume:
+      if (settings_set_u32(settings_, &ctx.storage, "audio.volume",
+                           a.arg0 > 100 ? 100 : a.arg0)) {
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
+    case ActionType::SetAudioClick:
+      if (settings_set_u32(settings_, &ctx.storage, "audio.click",
+                           a.arg0 ? 1 : 0)) {
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
     case ActionType::SetTheme:
       if (settings_set_str(settings_, &ctx.storage, "theme", a.text)) {
         bus_.publish({EventType::ThemeChanged, 0});

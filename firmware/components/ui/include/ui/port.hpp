@@ -27,6 +27,10 @@ bool battery_charging();
 // バイブ。振動なしの環境では何もしない。
 void vibrate(uint32_t ms);
 
+// ボタン/行タップのクリック音 (audio.click 設定が ON なら鳴る)。
+// 音が出ない環境では何もしない。
+void click();
+
 // デバイス再起動 (power menu)。
 [[noreturn]] void restart();
 

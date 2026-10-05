@@ -37,6 +37,22 @@ struct Services {
   // memo id (>=0) か -1。
   int32_t (*memo_create)(const char* text, size_t len, void* ctx) = nullptr;
 
+  // ---- memo.list / memo.get / memo.delete / memo.audio.get (Phase 9) ----
+  // memo.list: 総件数。無ければ負。
+  int32_t (*memo_count)(void* ctx) = nullptr;
+  // memo.list: 新しい順に i 番目のエントリを {id,kind,sec,size} で w に書く。
+  // 範囲外/失敗は false。
+  bool (*memo_entry)(uint32_t i, cbor::Writer& w, void* ctx) = nullptr;
+  // memo.get: id のエントリを {id,kind,sec,size,text?} で w に書く。
+  bool (*memo_get)(uint32_t id, cbor::Writer& w, void* ctx) = nullptr;
+  // memo.delete: 1=消えた / 0=無い / -1=内部エラー。
+  int32_t (*memo_delete)(uint32_t id, void* ctx) = nullptr;
+  // memo.audio.get: 音声メモの {size, sha256} を返す。voice でなければ false。
+  bool (*memo_audio_info)(uint32_t id, uint32_t* size, uint8_t sha256[32],
+                          void* ctx) = nullptr;
+  // memo.audio.get: RES のあとに BULK push 転送を開始する。失敗は false。
+  bool (*memo_audio_send)(uint32_t id, void* ctx) = nullptr;
+
   // 任意の通知 (未設定でも RES ok を返す)
   void (*notify_posted)(const char* app, const char* title, const char* body,
                         void* ctx) = nullptr;
@@ -55,6 +71,7 @@ enum class DispatchError : uint8_t {
   UnsupportedProto,
   Busy,
   Internal,
+  NotFound,        // id が無い (memo.delete など)
 };
 
 // REQ ペイロードを処理して RES ペイロード (CBOR) を out に書く。

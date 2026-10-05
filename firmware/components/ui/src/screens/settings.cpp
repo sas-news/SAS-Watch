@@ -9,6 +9,8 @@ namespace {
 
 lv_obj_t* s_bri = nullptr;
 lv_obj_t* s_off = nullptr;
+lv_obj_t* s_vol = nullptr;
+lv_obj_t* s_click_l = nullptr;
 bool s_updating = false;
 
 const char* action_jp(const char* name) {
@@ -54,6 +56,28 @@ lv_obj_t* build(lv_obj_t* scr) {
       },
       nullptr));
 
+  s_vol = ui::c::slider_of(ui::c::slider_row(
+      col, "音量", 0, 100, static_cast<int32_t>(st.audio_volume),
+      [](lv_event_t* e) {
+        if (s_updating) return;
+        lv_obj_t* s = lv_event_get_target_obj(e);
+        ui::emit(watch::ActionType::SetAudioVolume,
+                 static_cast<uint32_t>(lv_slider_get_value(s)));
+      },
+      nullptr));
+
+  lv_obj_t* snd = ui::c::card(col);
+  ui::c::line(snd, "ボタンのクリック音");
+  s_click_l = ui::c::list_row(
+      snd, "クリック音",
+      st.audio_click ? "ON" : "OFF",
+      [](lv_event_t*) {
+        const watch::Settings& cur = *ui::ctx().settings;
+        ui::emit(watch::ActionType::SetAudioClick,
+                 cur.audio_click ? 0u : 1u);
+      },
+      nullptr);
+
   lv_obj_t* btn = ui::c::card(col);
   ui::c::line(btn, "ボタン割り当て");
   ui::c::list_row(btn, "BOOT 短押し", action_jp(st.button_boot_short), nullptr,
@@ -88,6 +112,14 @@ void on_event(lv_obj_t*, const watch::Event& e) {
   if (s_off)
     lv_slider_set_value(s_off, static_cast<int32_t>(st.screen_off_after_s),
                         LV_ANIM_OFF);
+  if (s_vol)
+    lv_slider_set_value(s_vol, static_cast<int32_t>(st.audio_volume),
+                        LV_ANIM_OFF);
+  if (s_click_l) {
+    // list_row のサブラベルは child 1。
+    lv_obj_t* sub = lv_obj_get_child(s_click_l, 1);
+    if (sub) lv_label_set_text(sub, st.audio_click ? "ON" : "OFF");
+  }
   s_updating = false;
 }
 

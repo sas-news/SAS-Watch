@@ -96,6 +96,7 @@ fun DevicesScreen(
         onMemoSend = vm::memoSend,
         onFakeBattery = vm::fakeBattery,
         onFakeMediaCmd = vm::fakeMediaCmd,
+        onFakeVoiceMemo = vm::fakeVoiceMemo,
         modifier = modifier,
     )
 }
@@ -114,6 +115,7 @@ fun DevicesContent(
     onMemoSend: (String) -> Unit,
     onFakeBattery: () -> Unit,
     onFakeMediaCmd: (MediaCmd) -> Unit,
+    onFakeVoiceMemo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -138,7 +140,7 @@ fun DevicesContent(
             TimerCard(onTimerStart, onTimerStop)
             MemoCard(onMemoSend)
             if (state.isFake) {
-                FakeDemoCard(onFakeBattery, onFakeMediaCmd)
+                FakeDemoCard(onFakeBattery, onFakeMediaCmd, onFakeVoiceMemo)
             }
             EventsCard(state.events)
         }
@@ -317,7 +319,11 @@ private fun MemoCard(onSend: (String) -> Unit) {
 }
 
 @Composable
-private fun FakeDemoCard(onBattery: () -> Unit, onMediaCmd: (MediaCmd) -> Unit) {
+private fun FakeDemoCard(
+    onBattery: () -> Unit,
+    onMediaCmd: (MediaCmd) -> Unit,
+    onVoiceMemo: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.fake_demo_title), style = MaterialTheme.typography.titleMedium)
@@ -329,6 +335,12 @@ private fun FakeDemoCard(onBattery: () -> Unit, onMediaCmd: (MediaCmd) -> Unit) 
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.fake_demo_media))
+            }
+            OutlinedButton(
+                onClick = onVoiceMemo,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.fake_demo_voice_memo))
             }
         }
     }

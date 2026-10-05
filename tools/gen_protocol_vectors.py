@@ -369,7 +369,7 @@ def main():
             "RES 成功形 {ok:true, r:...}",
             "RES",
             1,
-            {"ok": True, "r": {"proto": 1, "fw": "0.1.0", "caps": ["timer", "stopwatch", "counter", "memo", "theme"]}},
+            {"ok": True, "r": {"proto": 1, "fw": "0.1.0", "caps": ["timer", "stopwatch", "counter", "memo", "theme", "audio"]}},
         ),
         frame_case(
             "res_error",
@@ -387,10 +387,47 @@ def main():
         ),
         frame_case(
             "evt_memo_saved",
-            "memo.saved EVT",
+            "memo.saved EVT (音声メモ)",
             "EVT",
             13,
-            {"e": "memo.saved", "d": {"id": 1}},
+            {"e": "memo.saved", "d": {"id": 1, "kind": "voice", "sec": 8}},
+        ),
+        frame_case(
+            "evt_memo_deleted",
+            "memo.deleted EVT",
+            "EVT",
+            14,
+            {"e": "memo.deleted", "d": {"id": 1}},
+        ),
+        frame_case(
+            "req_memo_list",
+            "memo.list REQ",
+            "REQ",
+            15,
+            {"m": "memo.list", "p": {"i": 0, "n": 16}},
+        ),
+        frame_case(
+            "req_memo_audio_get",
+            "memo.audio.get REQ (音声メモ取得。直後に時計から BULK kind=\"memo\")",
+            "REQ",
+            16,
+            {"m": "memo.audio.get", "p": {"id": 2}},
+        ),
+        frame_case(
+            "res_memo_list",
+            "memo.list RES (新しい順、text/voice 混在)",
+            "RES",
+            15,
+            {
+                "ok": True,
+                "r": {
+                    "total": 2,
+                    "memos": [
+                        {"id": 2, "kind": "voice", "sec": 8, "size": 64016},
+                        {"id": 1, "kind": "text", "sec": 0, "size": 0},
+                    ],
+                },
+            },
         ),
         frame_case(
             "req_notify_post_fragmented",
@@ -454,6 +491,8 @@ def main():
                     "button.pwr.short": "back",
                     "button.pwr.long": "power_menu",
                     "button.pwr.double": "none",
+                    "audio.volume": 70,
+                    "audio.click": 1,
                 },
             },
         ),

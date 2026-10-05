@@ -191,6 +191,62 @@ class FakeWatchTest {
     }
 
     @Test
+    fun `memo list voice memo and delete`() {
+        val watch = FakeWatch()
+        val events = ArrayList<Evt>()
+        watch.evtListener = { events.add(Evt.fromCbor(CborCodec.decode(FrameCodec.decode(it).payload))!!) }
+
+        watch.write(
+            Frame(Frame.TYPE_REQ, 10, CborCodec.encode(Req.MemoCreate("牛乳を買う").toCbor())).encode(),
+        )
+        watch.simulateVoiceMemo(2)
+
+        val listBytes = watch.write(
+            Frame(Frame.TYPE_REQ, 11, CborCodec.encode(Req.MemoList().toCbor())).encode(),
+        )
+        val listRes = Res.fromCbor(CborCodec.decode(FrameCodec.decode(listBytes.single()).payload))
+        assertTrue(listRes is Res.Ok)
+        val list = MemoListResult.fromCbor((listRes as Res.Ok).result)
+        assertNotNull(list)
+        assertEquals(2, list!!.memos.size)
+        // 新しい順: 音声メモが先
+        assertEquals("voice", list.memos[0].kind)
+        assertEquals(2, list.memos[0].sec)
+        assertEquals("text", list.memos[1].kind)
+
+        val voiceId = list.memos[0].id
+        val audioBytes = watch.write(
+            Frame(Frame.TYPE_REQ, 12, CborCodec.encode(Req.MemoAudioGet(voiceId).toCbor())).encode(),
+        )
+        val audioRes = Res.fromCbor(CborCodec.decode(FrameCodec.decode(audioBytes.single()).payload))
+        assertTrue(audioRes is Res.Ok)
+        val info = MemoAudioInfo.fromCbor((audioRes as Res.Ok).result)
+        assertNotNull(info)
+        assertEquals(32, info!!.sha256.size)
+        assertTrue(info.size > 16)
+        // デコーダが実体を受け取れるか
+        assertNotNull(Adpcm.decodePcm(watch.audioBlobFor(voiceId)!!))
+
+        val delBytes = watch.write(
+            Frame(Frame.TYPE_REQ, 13, CborCodec.encode(Req.MemoDelete(voiceId).toCbor())).encode(),
+        )
+        assertTrue(
+            Res.fromCbor(CborCodec.decode(FrameCodec.decode(delBytes.single()).payload))
+                is Res.Ok,
+        )
+        // 消した後の audio.get は not_found
+        val nfBytes = watch.write(
+            Frame(Frame.TYPE_REQ, 14, CborCodec.encode(Req.MemoAudioGet(voiceId).toCbor())).encode(),
+        )
+        val nf = Res.fromCbor(CborCodec.decode(FrameCodec.decode(nfBytes.single()).payload))
+        assertTrue(nf is Res.Err)
+        assertEquals("not_found", (nf as Res.Err).code)
+
+        assertTrue(events.any { it is Evt.MemoSaved && it.kind == "voice" })
+        watch.close()
+    }
+
+    @Test
     fun `unsupported proto returns error`() {
         val watch = FakeWatch()
         val resBytes = watch.write(

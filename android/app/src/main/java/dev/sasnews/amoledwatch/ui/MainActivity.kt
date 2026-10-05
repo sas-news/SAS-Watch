@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.ui.screens.DevicesScreen
+import dev.sasnews.amoledwatch.ui.screens.MemoScreen
 import dev.sasnews.amoledwatch.ui.screens.NotifyScreen
 import dev.sasnews.amoledwatch.ui.screens.SettingsScreen
 import dev.sasnews.amoledwatch.ui.theme.AmoledWatchTheme
@@ -60,7 +61,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { DEVICES, SETTINGS, NOTIFY }
+enum class Tab { DEVICES, MEMO, SETTINGS, NOTIFY }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,6 +116,12 @@ fun App(vm: WatchViewModel) {
                     icon = {},
                 )
                 NavigationBarItem(
+                    selected = tab == Tab.MEMO.ordinal,
+                    onClick = { tab = Tab.MEMO.ordinal },
+                    label = { Text(stringResource(R.string.tab_memo)) },
+                    icon = {},
+                )
+                NavigationBarItem(
                     selected = tab == Tab.SETTINGS.ordinal,
                     onClick = { tab = Tab.SETTINGS.ordinal },
                     label = { Text(stringResource(R.string.tab_settings)) },
@@ -135,6 +142,12 @@ fun App(vm: WatchViewModel) {
                 vm = vm,
                 permissionsGranted = permissionsGranted,
                 onRequestPermissions = { permLauncher.launch(required) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+            Tab.MEMO -> MemoScreen(
+                vm = vm,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),

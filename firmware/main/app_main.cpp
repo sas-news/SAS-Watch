@@ -91,7 +91,7 @@ extern "C" void app_main(void)
     // UI 組み立て (LVGL を触るのでロック内)。
     if (lvgl_port_lock(2000)) {
         ui::create({&watch_app::bus(), &watch_app::navigator(),
-                    &watch_app::settings()});
+                    &watch_app::settings(), watch_app::fctx()});
         lvgl_port_unlock();
     } else {
         ESP_LOGE(TAG, "lvgl lock timeout; UI not created");

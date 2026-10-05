@@ -31,5 +31,7 @@ class SimClock : public watch::Clock {
 SimClock& clock();
 watch::KeyValueStore& kv();
 watch::Log& log();
+// 録音/再生のメモリ実装 (メモ画面のスナップショット用)。
+watch::AudioPort& audio();
 
 }  // namespace sim

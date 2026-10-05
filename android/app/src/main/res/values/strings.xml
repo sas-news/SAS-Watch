@@ -7,6 +7,7 @@
     <string name="tab_devices">デバイス</string>
     <string name="tab_settings">設定</string>
     <string name="tab_notify">通知・メディア</string>
+    <string name="tab_memo">メモ</string>
 
     <!-- デバイス画面 -->
     <string name="perm_needed_title">Bluetooth の許可が必要です</string>
@@ -46,6 +47,7 @@
     <string name="fake_demo_title">仮想時計のデモ操作</string>
     <string name="fake_demo_battery">電池イベントを発生</string>
     <string name="fake_demo_media">メディア操作イベントを発生</string>
+    <string name="fake_demo_voice_memo">音声メモを録ったことにする</string>
     <string name="request_error">送信に失敗しました: %1$s</string>
     <string name="memo_sent">メモを送信しました（id=%1$d）</string>
 
@@ -78,6 +80,20 @@
     <string name="media_now_playing">再生中: %1$s / %2$s</string>
     <string name="media_idle">再生中のメディアはありません。</string>
     <string name="media_no_access">通知アクセスが許可されると動作します。</string>
+
+    <!-- メモ画面 -->
+    <string name="memo_list_title">時計のメモ</string>
+    <string name="memo_list_empty">メモはまだありません。</string>
+    <string name="memo_not_connected">時計に接続するとメモが見られます。</string>
+    <string name="memo_kind_voice">音声メモ %1$d 秒</string>
+    <string name="memo_kind_text">テキストメモ</string>
+    <string name="memo_play">再生</string>
+    <string name="memo_stop">停止</string>
+    <string name="memo_share">共有</string>
+    <string name="memo_delete">削除</string>
+    <string name="memo_refresh">再読み込み</string>
+    <string name="memo_downloading">音声を取得しています…</string>
+    <string name="memo_share_title">音声メモを共有</string>
 
     <!-- Foreground Service 通知 -->
     <string name="fgs_channel_name">時計との接続</string>

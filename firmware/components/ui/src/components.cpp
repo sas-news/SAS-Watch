@@ -1,9 +1,15 @@
 #include "components.hpp"
 
+#include "ui/port.hpp"
+
 namespace ui::c {
 
 static constexpr lv_coord_t kW = 410;
 static constexpr lv_coord_t kPad = 12;
+
+// CLICKED は画面ルートまでバブルするので、ルートの cb 1つで
+// 全ボタン/行タップのクリック音を拾える。
+static void on_any_click(lv_event_t*) { ui::port::click(); }
 
 static void bubble(lv_obj_t* o) {
   lv_obj_add_flag(o, LV_OBJ_FLAG_EVENT_BUBBLE);
@@ -17,6 +23,7 @@ static void clickable(lv_obj_t* o) {
 
 lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   const Theme& t = theme();
+  lv_obj_add_event_cb(scr, on_any_click, LV_EVENT_CLICKED, nullptr);
   lv_obj_t* h = lv_obj_create(scr);
   bubble(h);
   lv_obj_set_size(h, kW - 2 * kPad, t.tap_min);

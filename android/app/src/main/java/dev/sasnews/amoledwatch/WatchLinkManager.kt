@@ -6,14 +6,20 @@ import dev.sasnews.amoledwatch.ble.BleWatchConnection
 import dev.sasnews.amoledwatch.connection.FakeWatchConnection
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.connection.WatchLink
+import dev.sasnews.amoledwatch.protocol.Adpcm
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.MediaCmd
+import dev.sasnews.amoledwatch.protocol.MemoAudioInfo
+import dev.sasnews.amoledwatch.protocol.MemoEntry
+import dev.sasnews.amoledwatch.protocol.MemoInfo
+import dev.sasnews.amoledwatch.protocol.MemoListResult
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.Res
+import java.io.File
 import dev.sasnews.amoledwatch.service.WatchService
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,6 +74,10 @@ class WatchLinkManager(private val app: WatchApp) {
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log
 
+    /** メモ一覧 (memo.list)。null は未取得。 */
+    private val _memos = MutableStateFlow<List<MemoEntry>?>(null)
+    val memos: StateFlow<List<MemoEntry>?> = _memos
+
     /** hello の結果。 */
     private val _hello = MutableStateFlow<HelloResult?>(null)
     val hello: StateFlow<HelloResult?> = _hello
@@ -114,6 +124,7 @@ class WatchLinkManager(private val app: WatchApp) {
         _hello.value = null
         _deviceInfo.value = null
         _settings.value = null
+        _memos.value = null
         _link.value = l
         WatchService.start(app)
         scope.launch {
@@ -143,6 +154,7 @@ class WatchLinkManager(private val app: WatchApp) {
             send(Req.TimeSet(epoch, tzMin))
             refreshDeviceInfo()
             refreshSettings()
+            refreshMemos()
         }
     }
 
@@ -154,7 +166,11 @@ class WatchLinkManager(private val app: WatchApp) {
             is Evt.Battery -> _deviceInfo.value = _deviceInfo.value?.copy(battery = evt.level, charging = evt.charging)
             is Evt.MediaCommand -> app.mediaBridge.handle(evt.cmd)
             is Evt.TimerFinished -> _notice.value = "タイマーが終了しました"
-            is Evt.MemoSaved -> _notice.value = "メモが保存されました（id=${evt.id}）"
+            is Evt.MemoSaved -> {
+                _notice.value = "メモが保存されました（id=${evt.id}）"
+                scope.launch { refreshMemos() }
+            }
+            is Evt.MemoDeleted -> scope.launch { refreshMemos() }
             is Evt.AgentRequest -> {}
             is Evt.Unknown -> {}
         }
@@ -206,6 +222,53 @@ class WatchLinkManager(private val app: WatchApp) {
         }
     }
 
+    // ---------------- メモ ----------------
+
+    suspend fun refreshMemos() {
+        val res = send(Req.MemoList(0, 16))
+        if (res is Res.Ok) _memos.value = MemoListResult.fromCbor(res.result)?.memos
+    }
+
+    /** テキストメモの本文を取る (一覧では本文を載せない)。 */
+    suspend fun memoText(id: Int): String? {
+        val res = send(Req.MemoGet(id))
+        return if (res is Res.Ok) MemoInfo.fromCbor(res.result)?.text else null
+    }
+
+    suspend fun memoDelete(id: Int) {
+        val res = send(Req.MemoDelete(id))
+        if (res is Res.Ok) refreshMemos()
+    }
+
+    /** 音声メモの実体 (ADP1) をダウンロードして cache に書く。失敗なら null。 */
+    private suspend fun memoAudioFile(id: Int): File? {
+        val l = _link.value ?: return null
+        val res = send(Req.MemoAudioGet(id))
+        if (res !is Res.Ok) return null
+        val info = MemoAudioInfo.fromCbor(res.result) ?: return null
+        val bytes = l.fetchBulk(info.id, info.sha256) ?: run {
+            _notice.value = "音声の転送に失敗しました"
+            return null
+        }
+        val dir = File(app.cacheDir, "memo_audio").apply { mkdirs() }
+        val f = File(dir, "memo_${info.id}.adp")
+        f.writeBytes(bytes)
+        return f
+    }
+
+    /** 音声メモを WAV に変換して共有用ファイルとして返す。 */
+    suspend fun memoWavFile(id: Int): File? {
+        val adp = memoAudioFile(id) ?: return null
+        val wav = Adpcm.adp1ToWav(adp.readBytes()) ?: run {
+            _notice.value = "音声の形式が壊れています"
+            return null
+        }
+        val dir = File(app.cacheDir, "share").apply { mkdirs() }
+        val out = File(dir, "memo_${id}.wav")
+        out.writeBytes(wav)
+        return out
+    }
+
     suspend fun mediaState(title: String, artist: String, playing: Boolean) =
         send(Req.MediaState(title, artist, playing))
 
@@ -214,6 +277,9 @@ class WatchLinkManager(private val app: WatchApp) {
 
     /** デモ用: 時計側からメディア操作が来たふりをする。 */
     fun simulateMediaCmd(cmd: MediaCmd) = fakeConnection()?.fake?.simulateMediaCmd(cmd)
+
+    /** 仮想時計に音声メモを録ったふりをさせる (デバッグ画面から)。 */
+    fun simulateVoiceMemo() = fakeConnection()?.fake?.simulateVoiceMemo()
 
     fun simulateBattery() {
         val level = (40..95).random()

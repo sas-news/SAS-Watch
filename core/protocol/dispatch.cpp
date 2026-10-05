@@ -3,6 +3,7 @@
 // {"ok":false,"e":<code>,"msg":<string>} (protocol-v1.md)。
 #include "watch/protocol/dispatch.hpp"
 
+#include <cstdint>
 #include <cstring>
 
 #include "watch/event.hpp"
@@ -23,6 +24,8 @@ const char* err_code(DispatchError e) {
       return "unsupported_proto";
     case DispatchError::Busy:
       return "busy";
+    case DispatchError::NotFound:
+      return "not_found";
     default:
       return "internal";
   }
@@ -66,12 +69,13 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(5)
+      .array(6)
       .text("timer")
       .text("stopwatch")
       .text("counter")
       .text("memo")
-      .text("theme");
+      .text("theme")
+      .text("audio");
   return DispatchError::Ok;
 }
 
@@ -307,6 +311,80 @@ DispatchError h_memo_create(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+DispatchError h_memo_list(const cbor::Value& params, Services& svc,
+                          cbor::Writer* r) {
+  if (!svc.memo_count || !svc.memo_entry) return DispatchError::Internal;
+  int64_t i = 0, n = 16;
+  param_int(params, "i", &i);
+  param_int(params, "n", &n);
+  if (i < 0 || n <= 0 || n > 16 || i > INT32_MAX) {
+    return DispatchError::BadRequest;
+  }
+  const int32_t total = svc.memo_count(svc.ctx);
+  const int32_t remain = total - static_cast<int32_t>(i);
+  const size_t cnt = remain <= 0 ? 0
+                                 : (remain < n ? static_cast<size_t>(remain)
+                                               : static_cast<size_t>(n));
+  r->map(2).text("total").int_v(total).text("memos").array(cnt);
+  for (size_t k = 0; k < cnt; ++k) {
+    if (!svc.memo_entry(static_cast<uint32_t>(i) + k, *r, svc.ctx)) {
+      return DispatchError::Internal;
+    }
+  }
+  return DispatchError::Ok;
+}
+
+DispatchError h_memo_get(const cbor::Value& params, Services& svc,
+                         cbor::Writer* r) {
+  if (!svc.memo_get) return DispatchError::Internal;
+  int64_t id = -1;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT32_MAX) {
+    return DispatchError::BadRequest;
+  }
+  if (!svc.memo_get(static_cast<uint32_t>(id), *r, svc.ctx)) {
+    return DispatchError::NotFound;
+  }
+  return DispatchError::Ok;
+}
+
+DispatchError h_memo_delete(const cbor::Value& params, Services& svc,
+                            cbor::Writer* r) {
+  if (!svc.memo_delete) return DispatchError::Internal;
+  int64_t id = -1;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT32_MAX) {
+    return DispatchError::BadRequest;
+  }
+  const int32_t res = svc.memo_delete(static_cast<uint32_t>(id), svc.ctx);
+  if (res == 0) return DispatchError::NotFound;
+  if (res < 0) return DispatchError::Internal;
+  r->map(0);
+  return DispatchError::Ok;
+}
+
+DispatchError h_memo_audio_get(const cbor::Value& params, Services& svc,
+                               cbor::Writer* r) {
+  if (!svc.memo_audio_info || !svc.memo_audio_send) {
+    return DispatchError::Internal;
+  }
+  int64_t id = -1;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT32_MAX) {
+    return DispatchError::BadRequest;
+  }
+  uint32_t size = 0;
+  uint8_t sha[32] = {};
+  if (!svc.memo_audio_info(static_cast<uint32_t>(id), &size, sha, svc.ctx)) {
+    return DispatchError::NotFound;
+  }
+  r->map(3)
+      .text("id").uint_v(static_cast<uint32_t>(id))
+      .text("size").uint_v(size)
+      .text("sha256").bytes(sha, sizeof(sha));
+  if (!svc.memo_audio_send(static_cast<uint32_t>(id), svc.ctx)) {
+    return DispatchError::Busy;
+  }
+  return DispatchError::Ok;
+}
+
 DispatchError h_notify_post(const cbor::Value& params, Services& svc,
                             cbor::Writer* r) {
   const char *app = nullptr, *title = nullptr, *body = nullptr;
@@ -375,6 +453,8 @@ constexpr Handler kHandlers[] = {
     {"device.info", h_device_info}, {"settings.get", h_settings_get},
     {"settings.set", h_settings_set}, {"timer.start", h_timer_start},
     {"timer.stop", h_timer_stop},     {"memo.create", h_memo_create},
+    {"memo.list", h_memo_list},       {"memo.get", h_memo_get},
+    {"memo.delete", h_memo_delete},   {"memo.audio.get", h_memo_audio_get},
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
 };
 
