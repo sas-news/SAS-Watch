@@ -235,7 +235,7 @@ lv_obj_t* rect(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_coord_t w,
 }
 
 void set_label_i(lv_obj_t* l, int32_t v) {
-  char buf[12];
+  char buf[16];
   if (v < 0) {
     lv_label_set_text(l, "--");
     return;

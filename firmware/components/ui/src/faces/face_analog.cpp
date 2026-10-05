@@ -119,7 +119,7 @@ void tick_time() {
   if (n.min_of_day == s.last_min) return;
   s.last_min = n.min_of_day;
   s.cur = n;
-  char buf[4];
+  char buf[16];
   std::snprintf(buf, sizeof(buf), "%d", n.mday);
   lv_label_set_text(s.date_l, buf);
   lv_obj_invalidate(s.dial);  // 針だけでなく盤面をまとめて再描画

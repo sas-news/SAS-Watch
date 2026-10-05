@@ -58,8 +58,9 @@ void refresh_data() {
       std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(d.steps));
       set_ring(1, d.steps_goal > 0 ? (d.steps * 100) / d.steps_goal : 0, buf);
     } else {
-      std::snprintf(buf, sizeof(buf), "%d.%dk",
-                    static_cast<int>(d.steps / 1000),
+      // k 表記は 999.9k で頭打ち (buf と -Wformat-truncation 対策)。
+      const int32_t k = d.steps / 1000;
+      std::snprintf(buf, sizeof(buf), "%d.%dk", static_cast<int>(k > 999 ? 999 : k),
                     static_cast<int>((d.steps % 1000) / 100));
       set_ring(1, d.steps_goal > 0 ? (d.steps * 100) / d.steps_goal : 0, buf);
     }
@@ -77,7 +78,7 @@ void tick_time() {
   const Now n = ui::face::now();
   if (n.min_of_day == s.last_min) return;
   s.last_min = n.min_of_day;
-  char buf[8];
+  char buf[32];
   std::snprintf(buf, sizeof(buf), "%02d", n.hour);
   lv_label_set_text(s.hour, buf);
   std::snprintf(buf, sizeof(buf), "%02d", n.min);

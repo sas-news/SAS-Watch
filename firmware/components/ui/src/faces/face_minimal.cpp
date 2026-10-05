@@ -107,7 +107,7 @@ void refresh_data() {
   }
   if (d.next_alarm_min != s.last_alarm) {
     s.last_alarm = d.next_alarm_min;
-    char buf[40];
+    char buf[64];
     if (d.next_alarm_min >= 0) {
       std::snprintf(buf, sizeof(buf), "次の予定　%02d:%02d アラーム",
                     static_cast<int>(d.next_alarm_min / 60),

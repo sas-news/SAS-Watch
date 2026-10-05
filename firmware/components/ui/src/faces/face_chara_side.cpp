@@ -59,7 +59,7 @@ void tick_time() {
   const Now n = ui::face::now();
   if (n.min_of_day == s.last_min) return;
   s.last_min = n.min_of_day;
-  char buf[24];
+  char buf[32];
   if (s.has_img) {
     std::snprintf(buf, sizeof(buf), "%02d", n.hour);
     lv_label_set_text(s.hour, buf);

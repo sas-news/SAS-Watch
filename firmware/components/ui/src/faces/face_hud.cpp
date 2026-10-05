@@ -76,7 +76,8 @@ void refresh_data() {
     set_bar(s.batt_fill, batt < 0 ? 0 : batt);
     char buf[8];
     if (batt < 0) std::snprintf(buf, sizeof(buf), "--%%");
-    else std::snprintf(buf, sizeof(buf), "%d%%", static_cast<int>(batt));
+    else std::snprintf(buf, sizeof(buf), "%d%%",
+                       static_cast<int>(batt > 100 ? 100 : batt));
     lv_label_set_text(s.batt_v, buf);
   }
   if (d.steps != s.last_steps) {
@@ -85,7 +86,7 @@ void refresh_data() {
             (d.steps >= 0 && d.steps_goal > 0)
                 ? static_cast<int32_t>(d.steps * 100 / d.steps_goal)
                 : 0);
-    char buf[12];
+    char buf[16];
     ui::face::fmt_steps(buf, sizeof(buf), d.steps);
     lv_label_set_text(s.steps_v, buf);
   }
@@ -95,7 +96,7 @@ void tick_time() {
   const Now n = ui::face::now();
   if (n.min_of_day == s.last_min) return;
   s.last_min = n.min_of_day;
-  char buf[24];
+  char buf[40];
   ui::face::fmt_hm(buf, sizeof(buf), n);
   lv_label_set_text(s.time, buf);
   std::snprintf(buf, sizeof(buf), "%s %d.%02d", ui::face::wd_en(n.wday),
