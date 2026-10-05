@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "kind": "cbor",
+  "cases": [
+    {
+      "name": "uint_small",
+      "description": "0..23 の正の整数は1バイト",
+      "value": 0,
+      "hex": "00"
+    },
+    {
+      "name": "uint_small",
+      "description": "0..23 の正の整数は1バイト",
+      "value": 1,
+      "hex": "01"
+    },
+    {
+      "name": "uint_small",
+      "description": "0..23 の正の整数は1バイト",
+      "value": 23,
+      "hex": "17"
+    },
+    {
+      "name": "uint_24",
+      "description": "正の整数 24 の最短形式",
+      "value": 24,
+      "hex": "1818"
+    },
+    {
+      "name": "uint_255",
+      "description": "正の整数 255 の最短形式",
+      "value": 255,
+      "hex": "18ff"
+    },
+    {
+      "name": "uint_256",
+      "description": "正の整数 256 の最短形式",
+      "value": 256,
+      "hex": "190100"
+    },
+    {
+      "name": "uint_65535",
+      "description": "正の整数 65535 の最短形式",
+      "value": 65535,
+      "hex": "19ffff"
+    },
+    {
+      "name": "uint_65536",
+      "description": "正の整数 65536 の最短形式",
+      "value": 65536,
+      "hex": "1a00010000"
+    },
+    {
+      "name": "uint_4294967295",
+      "description": "正の整数 4294967295 の最短形式",
+      "value": 4294967295,
+      "hex": "1affffffff"
+    },
+    {
+      "name": "uint_4294967296",
+      "description": "正の整数 4294967296 の最短形式",
+      "value": 4294967296,
+      "hex": "1b0000000100000000"
+    },
+    {
+      "name": "nint_1",
+      "description": "負の整数 -1 の最短形式",
+      "value": -1,
+      "hex": "20"
+    },
+    {
+      "name": "nint_24",
+      "description": "負の整数 -24 の最短形式",
+      "value": -24,
+      "hex": "37"
+    },
+    {
+      "name": "nint_25",
+      "description": "負の整数 -25 の最短形式",
+      "value": -25,
+      "hex": "3818"
+    },
+    {
+      "name": "nint_255",
+      "description": "負の整数 -255 の最短形式",
+      "value": -255,
+      "hex": "38fe"
+    },
+    {
+      "name": "nint_256",
+      "description": "負の整数 -256 の最短形式",
+      "value": -256,
+      "hex": "38ff"
+    },
+    {
+      "name": "nint_1000",
+      "description": "負の整数 -1000 の最短形式",
+      "value": -1000,
+      "hex": "3903e7"
+    },
+    {
+      "name": "nint_65537",
+      "description": "負の整数 -65537 の最短形式",
+      "value": -65537,
+      "hex": "3a00010000"
+    },
+    {
+      "name": "bool_true",
+      "description": "true は 0xF5",
+      "value": true,
+      "hex": "f5"
+    },
+    {
+      "name": "bool_false",
+      "description": "false は 0xF4",
+      "value": false,
+      "hex": "f4"
+    },
+    {
+      "name": "null",
+      "description": "null は 0xF6",
+      "value": null,
+      "hex": "f6"
+    },
+    {
+      "name": "text_ascii",
+      "description": "ASCII テキスト",
+      "value": "hello",
+      "hex": "6568656c6c6f"
+    },
+    {
+      "name": "text_ja",
+      "description": "日本語 UTF-8 テキスト",
+      "value": "通知テスト",
+      "hex": "6fe9809ae79fa5e38386e382b9e38388"
+    },
+    {
+      "name": "text_empty",
+      "description": "空文字列",
+      "value": "",
+      "hex": "60"
+    },
+    {
+      "name": "bytes",
+      "description": "byte string (sha256 等)",
+      "value": {
+        "$bytes": "000102030405060708090a0b0c0d0e0f"
+      },
+      "hex": "50000102030405060708090a0b0c0d0e0f"
+    },
+    {
+      "name": "array",
+      "description": "配列 (混在型)",
+      "value": [
+        1,
+        "two",
+        true,
+        null
+      ],
+      "hex": "84016374776ff5f6"
+    },
+    {
+      "name": "map_simple",
+      "description": "フラットな map (キーは定義順)",
+      "value": {
+        "m": "hello",
+        "p": {
+          "proto": 1
+        }
+      },
+      "hex": "a2616d6568656c6c6f6170a16570726f746f01"
+    },
+    {
+      "name": "map_nested",
+      "description": "ネストした map/array/bytes",
+      "value": {
+        "id": 7,
+        "kind": "theme",
+        "sha256": {
+          "$bytes": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "meta": {
+          "tags": [
+            "a",
+            "b"
+          ],
+          "enabled": false
+        }
+      },
+      "hex": "a462696407646b696e64657468656d65667368613235365820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa646d657461a26474616773826161616267656e61626c6564f4"
+    },
+    {
+      "name": "map_empty",
+      "description": "空 map",
+      "value": {},
+      "hex": "a0"
+    }
+  ]
+}
