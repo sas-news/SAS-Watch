@@ -29,4 +29,6 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/protocol/crc16.cpp
     ${WATCH_CORE_DIR}/protocol/cbor.cpp
     ${WATCH_CORE_DIR}/protocol/frame.cpp
+    ${WATCH_CORE_DIR}/protocol/sha256.cpp
+    ${WATCH_CORE_DIR}/protocol/bulk.cpp
     ${WATCH_CORE_DIR}/protocol/dispatch.cpp)
