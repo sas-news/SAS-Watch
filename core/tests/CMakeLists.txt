@@ -15,7 +15,8 @@ FetchContent_MakeAvailable(googletest)
 add_executable(watch_core_tests
     test_core.cpp
     test_features.cpp
-    test_protocol.cpp)
+    test_protocol.cpp
+    test_bulk.cpp)
 
 target_include_directories(watch_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(watch_core_tests PRIVATE watch_core GTest::gtest_main)
