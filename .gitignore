@@ -1,0 +1,13 @@
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock.bak
+host/build*/
+*.pyc
+.idea/
+.vscode/
+android/.gradle/
+android/**/build/
+android/local.properties
+.cxx/
