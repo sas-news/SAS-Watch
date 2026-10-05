@@ -30,6 +30,14 @@ const uint8_t* theme_package_data(const uint8_t* zip, size_t n,
 const ThemePackageEntry* theme_package_find(const ThemePackageEntry* list,
                                             int count, const char* name);
 
+// エントリ名ルール ([a-z0-9._-] / ディレクトリ不可 / ".." 不可)。
+// ストリーミング展開側 (firmware) も同じルールを使う。
+bool theme_package_name_ok(const char* s, size_t n);
+
+// EOCD (0x06054b50) を末尾から探す。見つかればその位置。
+// コメント付き zip にも対応するため末尾から遡る。
+const uint8_t* theme_package_eocd(const uint8_t* zip, size_t n);
+
 // CRC32 (IEEE 802.3, zip と同じ)。
 uint32_t theme_crc32(const uint8_t* p, size_t n);
 

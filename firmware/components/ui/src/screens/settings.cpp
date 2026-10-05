@@ -1,4 +1,7 @@
-// settings.cpp — 設定: 明るさ、画面OFFまでの秒数、ボタン割り当て、端末情報。
+// settings.cpp — 設定: 明るさ、画面OFFまでの秒数、テーマ、ボタン割り当て、端末情報。
+#include <cstdio>
+#include <cstring>
+
 #include "../components.hpp"
 #include "../theme.hpp"
 #include "screens.hpp"
@@ -53,6 +56,29 @@ lv_obj_t* build(lv_obj_t* scr) {
                  static_cast<uint32_t>(lv_slider_get_value(s)));
       },
       nullptr));
+
+  // テーマ: 内蔵 2 種は時計から切替可。BLE で入れた file テーマは
+  // 適用中だけ表示する (選び直すにはスマホから送る)。
+  lv_obj_t* tc = ui::c::card(col);
+  ui::c::line(tc, "テーマ");
+  const char* cur = ui::theme_id();
+  const bool is_standard = std::strcmp(cur, "standard") == 0;
+  const bool is_light = std::strcmp(cur, "light") == 0;
+  ui::c::list_row(tc, "標準 (ダーク)", is_standard ? "使用中" : nullptr,
+                  [](lv_event_t*) {
+                    ui::emit_text(watch::ActionType::SetTheme, "standard");
+                  },
+                  nullptr);
+  ui::c::list_row(tc, "明るい", is_light ? "使用中" : nullptr,
+                  [](lv_event_t*) {
+                    ui::emit_text(watch::ActionType::SetTheme, "light");
+                  },
+                  nullptr);
+  if (!is_standard && !is_light) {
+    char lbl[80];
+    std::snprintf(lbl, sizeof(lbl), "%s", ui::theme_name());
+    ui::c::list_row(tc, lbl, "使用中", nullptr, nullptr);
+  }
 
   lv_obj_t* btn = ui::c::card(col);
   ui::c::line(btn, "ボタン割り当て");

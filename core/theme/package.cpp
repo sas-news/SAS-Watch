@@ -15,7 +15,9 @@ uint32_t le32(const uint8_t* p) {
                                (static_cast<uint32_t>(p[3]) << 24));
 }
 
-bool entry_name_ok(const char* s, size_t n) {
+}  // namespace
+
+bool theme_package_name_ok(const char* s, size_t n) {
   if (n == 0 || n >= 48) return false;
   // ディレクトリ ("dir/"), 親参照 (".."), 絶対パスを弾く。
   for (size_t i = 0; i < n; ++i) {
@@ -28,22 +30,21 @@ bool entry_name_ok(const char* s, size_t n) {
   return true;
 }
 
-}  // namespace
+const uint8_t* theme_package_eocd(const uint8_t* zip, size_t n) {
+  if (!zip || n < 22) return nullptr;
+  const size_t window = n < 66000 ? n - 22 : 66000 - 22;
+  for (size_t i = 0; i <= window; ++i) {
+    const uint8_t* p = zip + (n - 22) - i;
+    if (le32(p) == 0x06054b50u) return p;
+  }
+  return nullptr;
+}
 
 int theme_package_list(const uint8_t* zip, size_t n, ThemePackageEntry* out,
                        int cap) {
   if (!zip || n < 22 || !out || cap < 1) return -1;
 
-  // EOCD (0x06054b50) を末尾から探す (コメント最大 64KB + 22)。
-  const size_t window = n < 66000 ? n - 22 : 66000 - 22;
-  const uint8_t* eocd = nullptr;
-  for (size_t i = 0; i <= window; ++i) {
-    const uint8_t* p = zip + (n - 22) - i;
-    if (le32(p) == 0x06054b50u) {
-      eocd = p;
-      break;
-    }
-  }
+  const uint8_t* eocd = theme_package_eocd(zip, n);
   if (!eocd) return -1;
 
   const uint16_t entries = le16(eocd + 10);
@@ -67,7 +68,8 @@ int theme_package_list(const uint8_t* zip, size_t n, ThemePackageEntry* out,
     const uint32_t lho = le32(p + 42);
     if (method != 0 || csize != usize) return -1;  // stored のみ
     if (p + 46 + namelen > cd_end) return -1;
-    if (!entry_name_ok(reinterpret_cast<const char*>(p + 46), namelen)) {
+    if (!theme_package_name_ok(reinterpret_cast<const char*>(p + 46),
+                               namelen)) {
       return -1;
     }
     // local header 範囲チェック (データ本体は data() で再検査)。

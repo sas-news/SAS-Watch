@@ -4,8 +4,7 @@
 //   - on_conn_state  : pending に書いて app タスクで Event 化 (bus.publish は
 //                      app タスク内から呼ぶ前提なのでここでは出さない)。
 //   - on_passkey     : pending に書いて app タスクで ui::request_passkey。
-//   - bulk_*         : 保存先はまだ無い (Phase 8 のテーマ/アセット/OTA)。
-//                      NULL のまま = ble_link が検証のみ行う。
+//   - bulk_*         : theme_store が littlefs に受けて展開・適用待ち登録。
 #include "internal.hpp"
 
 #if CONFIG_SAS_BLE_LINK
@@ -18,6 +17,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "theme_store/theme_store.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/memo.hpp"
 #include "watch/protocol/dispatch.hpp"
@@ -73,6 +73,12 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
         text, len, *static_cast<watch::FeatureContext*>(c));
   };
   svc.ctx = fctx();
+  // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。
+  svc.setting_changed = [](const char* key, void*) {
+    if (std::strcmp(key, "theme") == 0) {
+      theme_store::set_pending_theme(settings_mut().theme);
+    }
+  };
 
   watch::cbor::Writer w(res, res_cap);
   const watch::proto::DispatchError err =
@@ -102,10 +108,10 @@ ble_link_config_t s_cfg = {
     .on_conn_state = on_conn_state,
     .on_passkey = on_passkey,
     .cb_ctx = nullptr,
-    .bulk_begin = nullptr,
-    .bulk_write = nullptr,
-    .bulk_commit = nullptr,
-    .bulk_abort = nullptr,
+    .bulk_begin = theme_store::bulk_begin,
+    .bulk_write = theme_store::bulk_write,
+    .bulk_commit = theme_store::bulk_commit,
+    .bulk_abort = theme_store::bulk_abort,
     .bulk_ctx = nullptr,
 };
 
@@ -128,6 +134,16 @@ void ble_glue_poll() {
   if (key >= 0) {
     s_pending_key = -1;
     ui::request_passkey(static_cast<uint32_t>(key));
+  }
+  // テーマ適用待ち (BULK 受信 or settings.set) → SetTheme Action で適用。
+  // 画面OFF中でも効くよう source=System (外部入力は dispatch で捨てられる)。
+  char theme_id[32];
+  if (theme_store::take_pending_theme(theme_id, sizeof(theme_id))) {
+    watch::Action a{};
+    a.type = watch::ActionType::SetTheme;
+    a.source = watch::ActionSource::System;
+    a.set_text(theme_id);
+    push_action(a);
   }
 }
 

@@ -21,6 +21,8 @@ struct Home {
   lv_obj_t* ble_l = nullptr;
   lv_obj_t* timer_chip = nullptr;
   lv_obj_t* timer_l = nullptr;
+  lv_obj_t* bg_img = nullptr;    // テーマ画像スロット (docs/theme-format.md)
+  lv_obj_t* stand_img = nullptr;
 };
 Home s;
 
@@ -86,6 +88,23 @@ void tick_timer_chip() {
 lv_obj_t* build(lv_obj_t* scr) {
   const ui::Theme& t = ui::theme();
   lv_obj_set_style_bg_color(scr, t.bg, 0);
+
+  // テーマ画像スロット: 背景帯 (下端) → 立ち絵 (右下) の順に敷く。
+  // ラベルより先に作って背面に置く。ジェスチャーは親にバブルさせる。
+  s.bg_img = nullptr;
+  s.stand_img = nullptr;
+  if (t.img_home_bg) {
+    s.bg_img = lv_image_create(scr);
+    lv_image_set_src(s.bg_img, t.img_home_bg);
+    lv_obj_align(s.bg_img, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_flag(s.bg_img, LV_OBJ_FLAG_EVENT_BUBBLE);
+  }
+  if (t.img_stand) {
+    s.stand_img = lv_image_create(scr);
+    lv_image_set_src(s.stand_img, t.img_stand);
+    lv_obj_align(s.stand_img, LV_ALIGN_BOTTOM_RIGHT, -4, -64);
+    lv_obj_add_flag(s.stand_img, LV_OBJ_FLAG_EVENT_BUBBLE);
+  }
 
   // 時刻
   s.time_l = lv_label_create(scr);
