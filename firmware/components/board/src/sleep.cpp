@@ -26,6 +26,25 @@ void arm_light_sleep_wake()
     ESP_LOGI(TAG, "light sleep wake: touch(GPIO38,LOW) boot(GPIO0,LOW) pwr(GPIO10,HIGH)");
 }
 
+void arm_light_sleep_imu()
+{
+    // INT1(GPIO21) は HIGH アクティブ想定。
+    // TODO(hw): 実機で極性を確認 (逆なら GPIO_INTR_LOW_LEVEL)
+    gpio_wakeup_enable(pins::kImuInt1, GPIO_INTR_HIGH_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+}
+
+void disarm_light_sleep_imu()
+{
+    gpio_wakeup_disable(pins::kImuInt1);
+}
+
+bool woke_by_imu()
+{
+    return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO &&
+           (esp_sleep_get_gpio_wakeup_status() & (1ULL << pins::kImuInt1)) != 0;
+}
+
 void enter_deep_sleep(uint64_t wake_after_us)
 {
     // BOOT(GPIO0, LOW) — ext0 (単一 RTC GPIO)

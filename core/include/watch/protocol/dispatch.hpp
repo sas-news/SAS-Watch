@@ -61,6 +61,9 @@ struct Services {
   // settings.* が1キー変わるごとに呼ぶ (反映用)
   void (*setting_changed)(const char* key, void* ctx) = nullptr;
 
+  // steps.get 用: 今日の歩数。
+  uint32_t (*steps_today)(void* ctx) = nullptr;
+
   void* ctx = nullptr;
 };
 

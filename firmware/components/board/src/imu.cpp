@@ -19,6 +19,16 @@ static const char* TAG = "board.imu";
 static qmi8658_dev_t s_imu;
 static bool s_ready = false;
 
+// 通常時の加速度計設定。常時動かすので low-power ODR にする
+// (歩数/腕上げには ~20Hz で十分)。TODO(hw): 実機で検出精度を確認、
+// 取りこぼしが多ければ QMI8658_ACCEL_ODR_125HZ へ。
+static void apply_normal_config()
+{
+    qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_4G);
+    qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_LOWPOWER_21HZ);
+    qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL);
+}
+
 esp_err_t init()
 {
     esp_err_t ret = qmi8658_init(&s_imu, bsp_i2c_get_handle(), pins::kI2cAddrImu);
@@ -30,9 +40,7 @@ esp_err_t init()
     qmi8658_get_who_am_i(&s_imu, &who);
 
     // 時計用途: 加速度計だけ有効化 (ジャイロは使うときに開く)
-    qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_4G);
-    qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_125HZ);
-    qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL);
+    apply_normal_config();
 
     s_ready = true;
     ESP_LOGI(TAG, "QMI8658 ok (who_am_i=0x%02X)", who);
@@ -55,6 +63,21 @@ esp_err_t arm_wake_on_motion()
     // threshold は plan.md Q 章の例値。INT1(GPIO21)の極性は board.md【要実機】
     // TODO(hw): 実機で閾値と極性を確認
     return qmi8658_enable_wake_on_motion(&s_imu, 0x40);
+}
+
+esp_err_t disarm_wake_on_motion()
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // disable はセンサーを止めて設定も 2G/LP のまま残すので、
+    // ポーリング用の通常設定に戻す。
+    esp_err_t ret = qmi8658_disable_wake_on_motion(&s_imu);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    apply_normal_config();
+    return ESP_OK;
 }
 
 }  // namespace board::imu

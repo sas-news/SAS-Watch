@@ -58,7 +58,11 @@ void enter_deep_sleep() {
   const int64_t now = s_clock->now_ms();
   const uint64_t us = dl > now ? static_cast<uint64_t>(dl - now) * 1000 : 0;
   // 起床: BOOT(ext0) / PWR+IMU(ext1) / 次の期限でタイマー。
-  board::imu::arm_wake_on_motion();
+  // raise_to_wake が OFF なら WoM はかけない (INT1 は出ないので
+  // ext1 側はそのままでよい)。
+  if (s_settings.raise_to_wake) {
+    board::imu::arm_wake_on_motion();
+  }
   board::pmic::panel_power(false);  // ALDO2 OFF // TODO(hw): 復帰時間
   board::sleep::enter_deep_sleep(us);
 }
@@ -176,6 +180,8 @@ bool start(const Deps& deps) {
     ESP_LOGE(TAG, "xTaskCreate failed");
     return false;
   }
+  // IMU 常時サービス (歩数 + raise-to-wake)。app タスクの後で起こす。
+  imu_service_start();
   s_started = true;
   return true;
 }

@@ -99,6 +99,22 @@ void tap(int x, int y) {
   pump(80);
 }
 
+// 歩行っぽい ImuSample を n サンプル流す (50ms 間隔想定)。
+// 大きさが 1400/600mg を 5 サンプルごとに振動 → 約 1 歩/10 サンプル。
+void feed_walk(int n) {
+  for (int i = 0; i < n; ++i) {
+    watch::Action a{};
+    a.type = watch::ActionType::ImuSample;
+    a.source = watch::ActionSource::System;  // 計測は電源を蹴らない
+    const int16_t z =
+        static_cast<int16_t>(-1000 + ((i % 10 < 5) ? -400 : 400));
+    a.arg0 = 0;
+    a.arg1 = static_cast<uint16_t>(z);
+    s_rt.queue().push(a);
+    pump(50);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -258,6 +274,16 @@ int main(int argc, char** argv) {
   tap(205, 190);
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
+
+  // 歩数: 歩行っぽい加速度を流してから歩数画面を開く。
+  // (ImuSample は電源を蹴らないので、途中で PowerState は ScreenOff へ
+  //  進んでいる。先に Wake で起こしてから遷移する。)
+  back_home();
+  feed_walk(24000);  // ~2400 歩 (目標 8000 の ~30%)
+  ui::emit(watch::ActionType::Wake);
+  pump(200);
+  nav_to(watch::Route::Steps);
+  ok &= save(out, "21_steps");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

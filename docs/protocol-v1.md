@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","steps"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -48,6 +48,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `memo.audio.get` | `{id:<int>}` | `{id, size, sha256:<bytes32>}` この直後に時計から BULK (kind=`"memo"`, id=メモid & 0xFFFF) が送られる |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
 | `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可) | `{}` |
+| `steps.get` | `{}` | `{steps:<今日の歩数>, goal:<steps.goal の値>}` |
 
 error code:
 
@@ -80,6 +81,8 @@ error code:
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
 | `audio.volume` | u32 | 70 | クリック音・ビープ・メモ再生の音量 0-100 |
 | `audio.click` | u32 | 1 | ボタンのクリック音 ON/OFF (0/1) |
+| `raise_to_wake` | u32 | 1 | 腕を上げて画面オン (0/1) |
+| `steps.goal` | u32 | 8000 | 歩数目標 (歩数画面の達成率・steps.get の goal) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正
@@ -103,6 +106,7 @@ error code:
 | `nav.agent` | エージェント | エージェント画面を開く (将来) |
 | `nav.settings` | 設定 | 設定画面を開く |
 | `nav.media` | メディア | メディア画面を開く |
+| `nav.steps` | 歩数 | 歩数画面を開く |
 | `memo.record` | メモ録音 | 音声メモの録音を開始 |
 | `timer.start` | タイマー開始 | タイマーを開始 |
 | `timer.stop` | タイマー停止 | タイマーを停止 |

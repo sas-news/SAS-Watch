@@ -56,6 +56,8 @@ namespace imu {
     // wake-on-motion を ARM して GPIO21 (INT1) で復帰可能にする準備。
     // 実際の deep sleep wake 設定は sleep::arm_deep_sleep_wake() で行う。
     esp_err_t arm_wake_on_motion();
+    // WoM を解除し、加速度計を通常設定 (init 時と同じ range/ODR) に戻す。
+    esp_err_t disarm_wake_on_motion();
 }
 
 namespace haptics {
@@ -66,6 +68,12 @@ namespace haptics {
 namespace sleep {
     // light sleep 用 GPIO wake: GPIO38(タッチ INT, LOW) / GPIO0(BOOT, LOW) / GPIO10(PWR, HIGH)
     void arm_light_sleep_wake();
+    // IMU INT1(GPIO21, HIGH) を light sleep wake に追加/除外する。
+    // raise_to_wake 切替で使う (arm_light_sleep_wake とは別管理)。
+    void arm_light_sleep_imu();
+    void disarm_light_sleep_imu();
+    // 直近の light sleep 起床原因が IMU INT1(GPIO21) なら true。
+    bool woke_by_imu();
     // deep sleep wake: BOOT=ext0(GPIO0 LOW), PWR/IMU=ext1(GPIO10|GPIO21 ANY_HIGH),
     // wake_after_us > 0 なら timer wake も有効化。戻らない。
     void enter_deep_sleep(uint64_t wake_after_us) __attribute__((noreturn));

@@ -11,6 +11,7 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/timer.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/stopwatch.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/counter.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/screens/steps.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/memo.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/settings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/powermenu.cpp

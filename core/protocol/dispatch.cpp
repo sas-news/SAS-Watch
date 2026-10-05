@@ -69,13 +69,14 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(6)
+      .array(7)
       .text("timer")
       .text("stopwatch")
       .text("counter")
       .text("memo")
       .text("theme")
-      .text("audio");
+      .text("audio")
+      .text("steps");
   return DispatchError::Ok;
 }
 
@@ -443,6 +444,17 @@ DispatchError h_media_state(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// steps.get — 今日の歩数と目標。
+DispatchError h_steps_get(const cbor::Value&, Services& svc, cbor::Writer* r) {
+  if (!svc.steps_today || !svc.settings) return DispatchError::Internal;
+  r->map(2)
+      .text("steps")
+      .uint_v(svc.steps_today(svc.ctx))
+      .text("goal")
+      .uint_v(svc.settings->steps_goal);
+  return DispatchError::Ok;
+}
+
 struct Handler {
   const char* name;
   DispatchError (*fn)(const cbor::Value&, Services&, cbor::Writer*);
@@ -456,6 +468,7 @@ constexpr Handler kHandlers[] = {
     {"memo.list", h_memo_list},       {"memo.get", h_memo_get},
     {"memo.delete", h_memo_delete},   {"memo.audio.get", h_memo_audio_get},
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
+    {"steps.get", h_steps_get},
 };
 
 }  // namespace

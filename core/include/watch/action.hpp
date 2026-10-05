@@ -46,6 +46,10 @@ enum class ActionType : uint16_t {
   SetTheme,       // text = theme id
   TimeSync,       // arg0/arg1 = epoch 秒 (low/high)
   MediaCommand,   // arg0 = MediaCmd
+  // Sensors (Phase 10)
+  ImuSample,        // arg0 = x|y<<16, arg1 = z (int16 mg)。source=System で
+                    // 投げること (測定は「操作」ではないので電源を蹴らない)
+  SetRaiseToWake,   // arg0 = 0/1 (腕を上げて画面オン)
 };
 
 enum class ActionSource : uint8_t {

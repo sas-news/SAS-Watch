@@ -20,6 +20,7 @@ import dev.sasnews.amoledwatch.protocol.MemoListResult
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.Res
+import dev.sasnews.amoledwatch.protocol.StepsInfo
 import java.io.File
 import dev.sasnews.amoledwatch.service.WatchService
 import java.security.MessageDigest
@@ -96,6 +97,10 @@ class WatchLinkManager(private val app: WatchApp) {
     private val _settings = MutableStateFlow<Map<String, Cbor>?>(null)
     val settings: StateFlow<Map<String, Cbor>?> = _settings
 
+    /** steps.get で読んだ今日の歩数。null は未取得。 */
+    private val _steps = MutableStateFlow<StepsInfo?>(null)
+    val steps: StateFlow<StepsInfo?> = _steps
+
     /** 画面に出す一時メッセージ（エラー/成功）。 */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice
@@ -131,6 +136,7 @@ class WatchLinkManager(private val app: WatchApp) {
         _deviceInfo.value = null
         _settings.value = null
         _memos.value = null
+        _steps.value = null
         _link.value = l
         WatchService.start(app)
         scope.launch {
@@ -160,6 +166,7 @@ class WatchLinkManager(private val app: WatchApp) {
             send(Req.TimeSet(epoch, tzMin))
             refreshDeviceInfo()
             refreshSettings()
+            refreshSteps()
             refreshMemos()
         }
     }
@@ -206,6 +213,11 @@ class WatchLinkManager(private val app: WatchApp) {
     suspend fun refreshSettings() {
         val res = send(Req.SettingsGet())
         if (res is Res.Ok) _settings.value = (res.result as? Cbor.Cmap)?.value
+    }
+
+    suspend fun refreshSteps() {
+        val res = send(Req.StepsGet)
+        if (res is Res.Ok) _steps.value = StepsInfo.fromCbor(res.result)
     }
 
     suspend fun setSetting(key: String, value: Cbor) {
