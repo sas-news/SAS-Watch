@@ -41,8 +41,12 @@ void disarm_light_sleep_imu()
 
 bool woke_by_imu()
 {
+    // esp_sleep_get_gpio_wakeup_status() は IDF v5.5 に無い。
+    // WoM の INT1 は STATUS1 読取まで保持されるレベル出力（QMI8658C DS §6.1）
+    // なので起床時にピンが HIGH なら IMU 起因とみなす。
+    // TODO(hw): 実機で確認（短いパルスなら取りこぼす可能性あり）
     return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO &&
-           (esp_sleep_get_gpio_wakeup_status() & (1ULL << pins::kImuInt1)) != 0;
+           gpio_get_level(pins::kImuInt1) == 1;
 }
 
 void enter_deep_sleep(uint64_t wake_after_us)
