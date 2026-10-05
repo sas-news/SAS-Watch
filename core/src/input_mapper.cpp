@@ -27,6 +27,7 @@ constexpr NamedAction kNamed[] = {
     {"nav.settings", ActionType::Navigate,
      static_cast<uint32_t>(Route::Settings)},
     {"nav.media", ActionType::Navigate, static_cast<uint32_t>(Route::Media)},
+    {"nav.alarm", ActionType::Navigate, static_cast<uint32_t>(Route::Alarm)},
     {"nav.steps", ActionType::Navigate, static_cast<uint32_t>(Route::Steps)},
     {"nav.ota", ActionType::Navigate, static_cast<uint32_t>(Route::Ota)},
     {"memo.record", ActionType::MemoRecordStart, 0},

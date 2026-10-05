@@ -124,6 +124,34 @@ sealed interface Req {
         )
     }
 
+    /** アラーム一覧。{alarms:[{id,hour,min,dow,on}]} が返る。 */
+    data object AlarmList : Req {
+        override val method get() = "alarm.list"
+        override fun params() = Cbor.Cmap(emptyMap())
+    }
+
+    /**
+     * アラームの追加/更新。id=0 で新規 (RES の id が採番)。
+     * hour:0-23, min:0-59, dow:曜日bit (bit0=日..bit6=土, 0=毎日), on:有効。
+     */
+    data class AlarmSet(val id: Int, val hour: Int, val min: Int, val dow: Int, val on: Boolean) : Req {
+        override val method get() = "alarm.set"
+        override fun params() = Cbor.Cmap(
+            mapOf(
+                "id" to Cbor.Cint(id.toLong()),
+                "hour" to Cbor.Cint(hour.toLong()),
+                "min" to Cbor.Cint(min.toLong()),
+                "dow" to Cbor.Cint(dow.toLong()),
+                "on" to Cbor.Cbool(on),
+            ),
+        )
+    }
+
+    data class AlarmDelete(val id: Int) : Req {
+        override val method get() = "alarm.delete"
+        override fun params() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
+    }
+
     /** 今日の歩数と目標を返す。 */
     data object StepsGet : Req {
         override val method get() = "steps.get"
@@ -223,6 +251,12 @@ sealed interface Evt {
         override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
     }
 
+    /** アラーム鳴動開始 (id = 鳴ったアラーム)。 */
+    data class AlarmRinging(val id: Int) : Evt {
+        override val name get() = "alarm.ringing"
+        override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
+    }
+
     /** 時計→スマホへの音楽操作。 */
     data class MediaCommand(val cmd: MediaCmd) : Evt {
         override val name get() = "media.cmd"
@@ -268,6 +302,7 @@ sealed interface Evt {
                     d.int("sec").toInt(),
                 )
                 "memo.deleted" -> MemoDeleted(d.int("id").toInt())
+                "alarm.ringing" -> AlarmRinging(d.int("id").toInt())
                 "media.cmd" -> MediaCommand(MediaCmd.of(d.text("cmd")) ?: return Unknown(name, d))
                 "ota.progress" -> OtaProgress(d.int("pct").toInt(), d.text("stage"))
                 "ota.result" -> OtaResult(d.bool("ok"), d.text("msg"))
@@ -296,6 +331,7 @@ object SettingsKeys {
     const val BUTTON_PWR_DOUBLE = "button.pwr.double"
     const val AUDIO_VOLUME = "audio.volume"
     const val AUDIO_CLICK = "audio.click"
+    const val NOTIFY_VIBRATE = "notify.vibrate"
     const val RAISE_TO_WAKE = "raise_to_wake"
     const val STEPS_GOAL = "steps.goal"
     const val FACE = "face"
@@ -310,7 +346,7 @@ object SettingsKeys {
         TZ_OFFSET_MIN, THEME,
         BUTTON_BOOT_SHORT, BUTTON_BOOT_LONG, BUTTON_BOOT_DOUBLE,
         BUTTON_PWR_SHORT, BUTTON_PWR_LONG, BUTTON_PWR_DOUBLE,
-        AUDIO_VOLUME, AUDIO_CLICK,
+        AUDIO_VOLUME, AUDIO_CLICK, NOTIFY_VIBRATE,
         RAISE_TO_WAKE, STEPS_GOAL,
         FACE, CLOCK_FONT,
         AGENT_Q1, AGENT_Q2, AGENT_Q3,
@@ -332,6 +368,7 @@ object SettingsKeys {
         BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
         AUDIO_VOLUME to Cbor.Cint(70),
         AUDIO_CLICK to Cbor.Cint(1),
+        NOTIFY_VIBRATE to Cbor.Cint(1),
         RAISE_TO_WAKE to Cbor.Cint(1),
         STEPS_GOAL to Cbor.Cint(8000),
         FACE to Cbor.Ctext("bold"),
@@ -394,6 +431,7 @@ object ActionNames {
         ActionSpec("nav.agent", "エージェント"),
         ActionSpec("nav.settings", "設定"),
         ActionSpec("nav.media", "メディア"),
+        ActionSpec("nav.alarm", "アラーム"),
         ActionSpec("nav.steps", "歩数"),
         ActionSpec("nav.ota", "ファーム更新"),
         ActionSpec("memo.record", "メモ録音"),
@@ -497,6 +535,51 @@ data class MemoInfo(
                 size = m.int("size"),
                 text = m.text("text"),
             )
+        }
+    }
+}
+
+// ---------- アラーム (alarm.list / alarm.set / alarm.delete) ----------
+
+/** alarm.list の alarms[] の1件。dow: bit0=日..bit6=土, 0=毎日。 */
+data class AlarmEntry(
+    val id: Int,
+    val hour: Int,
+    val min: Int,
+    val dow: Int,
+    val on: Boolean,
+) {
+    companion object {
+        fun fromCbor(v: Cbor): AlarmEntry? {
+            val m = v as? Cbor.Cmap ?: return null
+            return AlarmEntry(
+                id = m.int("id").toInt(),
+                hour = m.int("hour").toInt(),
+                min = m.int("min").toInt(),
+                dow = m.int("dow").toInt(),
+                on = m.bool("on"),
+            )
+        }
+    }
+}
+
+/** alarm.list の RES を展開する。 */
+data class AlarmListResult(val alarms: List<AlarmEntry>) {
+    companion object {
+        fun fromCbor(v: Cbor): AlarmListResult? {
+            val m = v as? Cbor.Cmap ?: return null
+            val arr = m.value["alarms"] as? Cbor.Carray ?: return null
+            return AlarmListResult(arr.value.mapNotNull { AlarmEntry.fromCbor(it) })
+        }
+    }
+}
+
+/** alarm.set の RES を展開する ({id:N})。 */
+data class AlarmSetResult(val id: Int) {
+    companion object {
+        fun fromCbor(v: Cbor): AlarmSetResult? {
+            val m = v as? Cbor.Cmap ?: return null
+            return AlarmSetResult(m.int("id").toInt())
         }
     }
 }

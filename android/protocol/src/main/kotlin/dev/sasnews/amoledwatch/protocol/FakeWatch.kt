@@ -467,6 +467,52 @@ class FakeWatch(
                 lastMedia = Triple(title, artist, (playingV as? Cbor.Cbool)?.value ?: false)
                 Res.okCbor()
             }
+            "alarm.list" -> {
+                Res.okCbor(
+                    Cbor.Cmap(
+                        mapOf(
+                            "alarms" to Cbor.Carray(
+                                alarms.values.sortedBy { it.id }.map { it.toCbor() },
+                            ),
+                        ),
+                    ),
+                )
+            }
+            "alarm.set" -> {
+                // core: id=0 または省略で新規。hour 0-23, min 0-59, dow 0-0x7F, on 省略時 true。
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt() ?: 0
+                val hour = (p.value["hour"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "alarm.set")
+                val min = (p.value["min"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "alarm.set")
+                val dow = (p.value["dow"] as? Cbor.Cint)?.value?.toInt() ?: 0
+                val on = (p.value["on"] as? Cbor.Cbool)?.value ?: true
+                if (hour !in 0..23 || min !in 0..59 || dow < 0 || dow > 0x7F || id < 0) {
+                    return Res.errCbor("bad_request", "alarm.set")
+                }
+                val newId: Int
+                if (id == 0) {
+                    if (alarms.size >= MAX_ALARMS) {
+                        return Res.errCbor("busy", "alarm.set")
+                    }
+                    newId = ++alarmIdSeq
+                    alarms[newId] = FakeAlarm(newId, hour, min, dow, on)
+                } else {
+                    val cur = alarms[id]
+                        ?: return Res.errCbor("not_found", "alarm.set")
+                    newId = id
+                    alarms[id] = cur.copy(hour = hour, min = min, dow = dow, on = on)
+                }
+                Res.okCbor(Cbor.Cmap(mapOf("id" to Cbor.Cint(newId.toLong()))))
+            }
+            "alarm.delete" -> {
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
+                    ?: return Res.errCbor("bad_request", "alarm.delete")
+                if (alarms.remove(id) == null) {
+                    return Res.errCbor("not_found", "alarm.delete")
+                }
+                Res.okCbor()
+            }
             "steps.get" -> Res.okCbor(
                 Cbor.Cmap(
                     mapOf(
@@ -560,6 +606,27 @@ class FakeWatch(
     /** FakeWatchConnection.fetchBulk が読む音声実体。 */
     fun audioBlobFor(id: Int): ByteArray? = memos[id]?.blob
 
+    private data class FakeAlarm(
+        val id: Int,
+        val hour: Int,
+        val min: Int,
+        val dow: Int,
+        val on: Boolean,
+    ) {
+        fun toCbor(): Cbor.Cmap = Cbor.Cmap(
+            linkedMapOf(
+                "id" to Cbor.Cint(id.toLong()),
+                "hour" to Cbor.Cint(hour.toLong()),
+                "min" to Cbor.Cint(min.toLong()),
+                "dow" to Cbor.Cint(dow.toLong()),
+                "on" to Cbor.Cbool(on),
+            ),
+        )
+    }
+
+    private val alarms = LinkedHashMap<Int, FakeAlarm>()
+    private var alarmIdSeq = 0
+
     /** agent.reply REQ で受け取った最後の返答 (id, text)。 */
     var lastAgentReply: Pair<Int, String>? = null
         private set
@@ -643,9 +710,11 @@ class FakeWatch(
 
     companion object {
         const val FW_VERSION = "0.1.0-fake"
+        const val MAX_ALARMS = 5
         val CAPS = listOf(
             "timer", "stopwatch", "counter", "memo", "theme", "audio",
-            "wifi", "ota", "steps", "agent",
+            "alarm", "notify", "media", "wifi", "ota", "steps",
+            "agent",
         )
     }
 }

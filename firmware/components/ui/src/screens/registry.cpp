@@ -14,6 +14,9 @@ extern const ScreenOps kMemoScreen;
 extern const ScreenOps kSettingsScreen;
 extern const ScreenOps kOtaScreen;
 extern const ScreenOps kPowerMenuScreen;
+extern const ScreenOps kAlarmScreen;
+extern const ScreenOps kNotificationsScreen;
+extern const ScreenOps kMediaScreen;
 extern const ScreenOps kAgentScreen;
 
 const ScreenOps* screen_ops(watch::Route r) {
@@ -29,6 +32,9 @@ const ScreenOps* screen_ops(watch::Route r) {
     case watch::Route::Settings: return &kSettingsScreen;
     case watch::Route::Ota: return &kOtaScreen;
     case watch::Route::PowerMenu: return &kPowerMenuScreen;
+    case watch::Route::Alarm: return &kAlarmScreen;
+    case watch::Route::Notifications: return &kNotificationsScreen;
+    case watch::Route::Media: return &kMediaScreen;
     case watch::Route::Agent: return &kAgentScreen;
     default: return nullptr;
   }

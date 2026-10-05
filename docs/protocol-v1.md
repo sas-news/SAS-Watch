@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","wifi","ota","steps","agent"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media","wifi","ota","steps","agent"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -48,6 +48,9 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `memo.audio.get` | `{id:<int>}` | `{id, size, sha256:<bytes32>}` この直後に時計から BULK (kind=`"memo"`, id=メモid & 0xFFFF) が送られる |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
 | `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可) | `{}` |
+| `alarm.list` | `{}` | `{alarms:[{id:<int>, hour:<0-23>, min:<0-59>, dow:<曜日bit bit0=日..bit6=土, 0=毎日>, on:<bool>}]}` (最大5件) |
+| `alarm.set` | `{hour, min}` + 省略可 `{id:<int>, dow:<int>, on:<bool>}` | `{id:<int>}` | `id` 省略/0 で新規 (満杯なら `busy`)、既存 id で更新 (`not_found`)。`dow` 0-0x7F 省略時 0、`on` 省略時 true |
+| `alarm.delete` | `{id:<int>}` | `{}` | 無い id は `not_found` |
 | `agent.reply` | `{id:<int>, text:<str>}` | `{}` | AI の返答。id は直前の `agent.request` / BULK kind=`"agent_audio"` の id と同じ。text は最大960バイト (UTF-8)。適用できない id でも `ok` |
 | `wifi.set` | `{ssid:<1-32文字>, pass:<0または8-63文字>}` | `{}` |
 | `wifi.status` | `{}` | `{configured:<bool>, ssid:<str>}` |
@@ -97,6 +100,7 @@ error code:
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
 | `audio.volume` | u32 | 70 | クリック音・ビープ・メモ再生の音量 0-100 |
 | `audio.click` | u32 | 1 | ボタンのクリック音 ON/OFF (0/1) |
+| `notify.vibrate` | u32 | 1 | 通知受信時の振動 ON/OFF (0/1) |
 | `raise_to_wake` | u32 | 1 | 腕を上げて画面オン (0/1) |
 | `steps.goal` | u32 | 8000 | 歩数目標 (歩数画面の達成率・steps.get の goal) |
 | `face` | text | `bold` | 文字盤 id (`bold`/`analog`/`hud`/`minimal`/`chara_side`/`chara_bubble`) |
@@ -127,6 +131,7 @@ error code:
 | `nav.agent` | エージェント | AI (エージェント) 画面を開く |
 | `nav.settings` | 設定 | 設定画面を開く |
 | `nav.media` | メディア | メディア画面を開く |
+| `nav.alarm` | アラーム | アラーム画面を開く |
 | `nav.steps` | 歩数 | 歩数画面を開く |
 | `nav.ota` | ファーム更新 | ファーム更新画面を開く |
 | `memo.record` | メモ録音 | 音声メモの録音を開始 |
@@ -148,6 +153,7 @@ event の一覧はこの表が唯一の正。
 | `memo.saved` | `{id, kind:"text"|"voice", sec:<voice秒>}` |
 | `memo.deleted` | `{id}` |
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
+| `alarm.ringing` | `{id}` (鳴動中のアラーム id) |
 | `agent.request` | `{id, text}` AI の定型質問。id は返答の `agent.reply` の id と同じ |
 | `ota.progress` | `{pct:<0-100>, stage:<str>}` OTA 進捗 (wifi/download/verify) |
 | `ota.result` | `{ok:<bool>, msg:<str>}` OTA 終了 (ok=true なら直後に再起動) |

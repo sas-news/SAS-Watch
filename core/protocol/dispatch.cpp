@@ -69,13 +69,16 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(10)
+      .array(13)
       .text("timer")
       .text("stopwatch")
       .text("counter")
       .text("memo")
       .text("theme")
       .text("audio")
+      .text("alarm")
+      .text("notify")
+      .text("media")
       .text("wifi")
       .text("ota")
       .text("steps")
@@ -513,6 +516,68 @@ DispatchError h_notify_post(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// ---- alarm.* ----
+// params: alarm.set {id?(0=新規),hour:0-23,min:0-59,dow?(0=毎日),on?}
+//         alarm.list {} → {alarms:[{id,hour,min,dow,on}]}
+//         alarm.delete {id} → {}
+DispatchError h_alarm_list(const cbor::Value&, Services& svc,
+                           cbor::Writer* r) {
+  if (!svc.alarm_count || !svc.alarm_entry) return DispatchError::Internal;
+  const int32_t total = svc.alarm_count(svc.ctx);
+  if (total < 0) return DispatchError::Internal;
+  r->map(1).text("alarms").array(static_cast<size_t>(total));
+  for (int32_t i = 0; i < total; ++i) {
+    if (!svc.alarm_entry(static_cast<uint32_t>(i), *r, svc.ctx)) {
+      return DispatchError::Internal;
+    }
+  }
+  return DispatchError::Ok;
+}
+
+DispatchError h_alarm_set(const cbor::Value& params, Services& svc,
+                          cbor::Writer* r) {
+  if (!svc.alarm_set) return DispatchError::Internal;
+  int64_t id = 0, hour = 0, min = 0, dow = 0;
+  bool on = true;
+  param_int(params, "id", &id);  // 省略時 0 = 新規
+  if (!param_int(params, "hour", &hour) || !param_int(params, "min", &min)) {
+    return DispatchError::BadRequest;
+  }
+  param_int(params, "dow", &dow);
+  cbor::Value pv;
+  if (cbor::map_find(params, "on", &pv)) {
+    if (!cbor::as_bool(pv, &on)) return DispatchError::BadRequest;
+  }
+  if (id < 0 || id > UINT32_MAX || hour < 0 || hour > 23 || min < 0 ||
+      min > 59 || dow < 0 || dow > 0x7F) {
+    return DispatchError::BadRequest;
+  }
+  const int32_t res =
+      svc.alarm_set(static_cast<uint32_t>(id), static_cast<uint8_t>(hour),
+                    static_cast<uint8_t>(min), static_cast<uint8_t>(dow), on,
+                    svc.ctx);
+  if (res == -1) return DispatchError::BadRequest;
+  if (res == -2) return DispatchError::Busy;
+  if (res == -3) return DispatchError::NotFound;
+  if (res < 0) return DispatchError::Internal;
+  r->map(1).text("id").int_v(res);
+  return DispatchError::Ok;
+}
+
+DispatchError h_alarm_delete(const cbor::Value& params, Services& svc,
+                             cbor::Writer* r) {
+  if (!svc.alarm_delete) return DispatchError::Internal;
+  int64_t id = -1;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT32_MAX) {
+    return DispatchError::BadRequest;
+  }
+  const int32_t res = svc.alarm_delete(static_cast<uint32_t>(id), svc.ctx);
+  if (res == 0) return DispatchError::NotFound;
+  if (res < 0) return DispatchError::Internal;
+  r->map(0);
+  return DispatchError::Ok;
+}
+
 DispatchError h_media_state(const cbor::Value& params, Services& svc,
                             cbor::Writer* r) {
   const char *title = nullptr, *artist = nullptr;
@@ -568,6 +633,8 @@ constexpr Handler kHandlers[] = {
     {"memo.list", h_memo_list},       {"memo.get", h_memo_get},
     {"memo.delete", h_memo_delete},   {"memo.audio.get", h_memo_audio_get},
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
+    {"alarm.list", h_alarm_list},    {"alarm.set", h_alarm_set},
+    {"alarm.delete", h_alarm_delete},
     {"wifi.set", h_wifi_set},         {"wifi.status", h_wifi_status},
     {"ota.start", h_ota_start},       {"ota.status", h_ota_status},
     {"steps.get", h_steps_get},
