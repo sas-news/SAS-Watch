@@ -242,6 +242,10 @@ lv_obj_t* row_text(lv_obj_t* row, const char* text, const char* sub,
   // font_jp_20 は line_height 38 でグリフ (20px) より箱が大きいので、
   // 負の行間でサブ行をタイトル直下に寄せる (視覚的に ~2-4px)。
   lv_obj_set_style_pad_row(cell, -14, 0);
+  // 行が SIZE_CONTENT だと LVGL は track_place を START に固定し、
+  // 子が行の上寄りに張り付く。セルに行の最低高さを持たせて、セル内で
+  // タイトル (+サブ) ブロックを垂直中央揃えにする。
+  lv_obj_set_style_min_height(cell, kRowMinH, 0);
   lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
                         LV_FLEX_ALIGN_START);

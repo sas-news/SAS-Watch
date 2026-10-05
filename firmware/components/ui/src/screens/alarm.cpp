@@ -66,8 +66,15 @@ void rebuild_list() {
     lv_obj_set_style_border_width(cell, 0, 0);
     lv_obj_set_style_pad_all(cell, 0, 0);
     // 数字フォントと本文フォントの行高が大きいので負値で曜日行を近づける。
-    lv_obj_set_style_pad_row(cell, -10, 0);
+    // digits(34) はグリフが箱いっぱいなので強く詰めると時刻と曜日が重なる。
+    // ~4px 隙間になるよう -4 にとどめる。
+    lv_obj_set_style_pad_row(cell, -4, 0);
+    // セル自体を行の最低高さいっぱいにして上下中央揃えにする
+    // (行は SIZE_CONTENT で LVGL の track_place が START に固定されるため)。
+    lv_obj_set_style_min_height(cell, 80, 0);
     lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
     lv_obj_set_flex_grow(cell, 1);
     lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
 

@@ -187,7 +187,11 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_add_flag(s.remain_l, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_label_set_text(s.remain_l, "00:00");
   // 時計フォントのまま ~68% に縮小し、リング内に余白を持たせる (モック ~76px)。
+  // ピボット未指定だとレイヤ変換が左上基準で行われ、見た目が左上にずれる。
+  // 中心基準にすると ALIGN_CENTER のまま正しく中央に収まる。
   lv_obj_set_style_text_font(s.remain_l, ui::face::digits(112), 0);
+  lv_obj_set_style_transform_pivot_x(s.remain_l, LV_PCT(50), 0);
+  lv_obj_set_style_transform_pivot_y(s.remain_l, LV_PCT(50), 0);
   lv_obj_set_style_transform_scale_x(s.remain_l, 174, 0);
   lv_obj_set_style_transform_scale_y(s.remain_l, 174, 0);
   lv_obj_set_style_text_color(s.remain_l, t.text, 0);
