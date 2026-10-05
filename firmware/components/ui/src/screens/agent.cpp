@@ -90,13 +90,30 @@ void refresh() {
     lv_obj_add_flag(s.rec_bar, LV_OBJ_FLAG_HIDDEN);
   }
 
-  // 返答/エラーカード。
-  if (p == AgentPhase::Reply) {
-    lv_label_set_text(s.reply_l, watch::features::agent_reply_text());
+  // 送信中/考え中/返答/エラーカード (「話しかける」のすぐ下、定型質問より上)。
+  const char* reply_txt = nullptr;
+  bool show_close = false;
+  switch (p) {
+    case AgentPhase::Sending: reply_txt = "送信中…"; break;
+    case AgentPhase::Thinking: reply_txt = "考え中…"; break;
+    case AgentPhase::Reply:
+      reply_txt = watch::features::agent_reply_text();
+      show_close = true;
+      break;
+    case AgentPhase::Error:
+      reply_txt = watch::features::agent_error_text();
+      show_close = true;
+      break;
+    default: break;
+  }
+  if (reply_txt) {
+    lv_label_set_text(s.reply_l, reply_txt);
     lv_obj_remove_flag(s.reply_card, LV_OBJ_FLAG_HIDDEN);
-  } else if (p == AgentPhase::Error) {
-    lv_label_set_text(s.reply_l, watch::features::agent_error_text());
-    lv_obj_remove_flag(s.reply_card, LV_OBJ_FLAG_HIDDEN);
+    if (show_close) {
+      lv_obj_remove_flag(s.close_btn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(s.close_btn, LV_OBJ_FLAG_HIDDEN);
+    }
   } else {
     lv_obj_add_flag(s.reply_card, LV_OBJ_FLAG_HIDDEN);
   }
@@ -136,6 +153,22 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_style_bg_color(s.rec_bar, t.surface2, LV_PART_MAIN);
   lv_obj_set_style_bg_color(s.rec_bar, t.primary, LV_PART_INDICATOR);
 
+  // 返答/エラー表示カード (「話しかける」のすぐ下、定型質問より上。
+  // 長文はラベル折り返し + content 全体スクロール)。
+  s.reply_card = ui::c::card(col);
+  lv_obj_set_flex_align(s.reply_card, LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  s.reply_l = lv_label_create(s.reply_card);
+  lv_obj_set_width(s.reply_l, 330);
+  lv_obj_set_style_text_font(s.reply_l, t.font_body, 0);
+  lv_obj_set_style_text_color(s.reply_l, t.text, 0);
+  lv_label_set_long_mode(s.reply_l, LV_LABEL_LONG_WRAP);
+  s.close_btn = ui::c::button(s.reply_card, "閉じる",
+      [](lv_event_t*) { ui::emit(watch::ActionType::AgentClear); },
+      nullptr);
+  fit_in_card(s.close_btn);
+  lv_obj_add_flag(s.reply_card, LV_OBJ_FLAG_HIDDEN);
+
   // 定型質問ボタン (settings agent.q1..3 の非空分)。
   s.ask_card = ui::c::card(col);
   ui::c::line(s.ask_card, "定型質問");
@@ -156,21 +189,6 @@ lv_obj_t* build(lv_obj_t* scr) {
       lv_obj_set_width(l, LV_PCT(100));
     }
   }
-
-  // 返答/エラー表示カード (長文はラベル折り返し + content 全体スクロール)。
-  s.reply_card = ui::c::card(col);
-  lv_obj_set_flex_align(s.reply_card, LV_FLEX_ALIGN_START,
-                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  s.reply_l = lv_label_create(s.reply_card);
-  lv_obj_set_width(s.reply_l, 330);
-  lv_obj_set_style_text_font(s.reply_l, t.font_body, 0);
-  lv_obj_set_style_text_color(s.reply_l, t.text, 0);
-  lv_label_set_long_mode(s.reply_l, LV_LABEL_LONG_WRAP);
-  s.close_btn = ui::c::button(s.reply_card, "閉じる",
-      [](lv_event_t*) { ui::emit(watch::ActionType::AgentClear); },
-      nullptr);
-  fit_in_card(s.close_btn);
-  lv_obj_add_flag(s.reply_card, LV_OBJ_FLAG_HIDDEN);
 
   refresh();
   return scr;
