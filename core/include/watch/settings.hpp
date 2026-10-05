@@ -30,6 +30,10 @@ struct Settings {
   // 音 (Phase 9)。volume は再生/ビープ共通、click はボタン音のON/OFF。
   uint32_t audio_volume = 70;  // 0-100
   uint32_t audio_click = 1;    // 0/1
+  // AI (Agent)。定型質問ボタンの文言 (空 = ボタン非表示)。
+  char agent_q1[64] = "今日の予定は？";
+  char agent_q2[64] = "今の天気は？";
+  char agent_q3[64] = "";
 };
 
 struct SettingKey {

@@ -25,6 +25,9 @@ class FakeWatch(
     /** EVT フレーム（エンコード済みバイト列）を受け取るコールバック。 */
     var evtListener: ((ByteArray) -> Unit)? = null
 
+    /** bulk notify（時計→スマホの BULK フレーム）を受け取るコールバック。 */
+    var bulkOutListener: ((ByteArray) -> Unit)? = null
+
     private var evtSeq = 0
     private val reqReassembler = Reassembler()
 
@@ -411,6 +414,16 @@ class FakeWatch(
                 lastMedia = Triple(title, artist, (playingV as? Cbor.Cbool)?.value ?: false)
                 Res.okCbor()
             }
+            "agent.reply" -> {
+                // core: {id, text}。id は要求と同じ値。
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
+                val text = (p.value["text"] as? Cbor.Ctext)?.value
+                if (id == null || id !in 0..Frame.MAX_MSG_ID || text == null) {
+                    return Res.errCbor("bad_request", "agent.reply")
+                }
+                lastAgentReply = id to text
+                Res.okCbor()
+            }
             else -> Res.errCbor("unknown_method", "unknown method")
         }
     }
@@ -447,6 +460,61 @@ class FakeWatch(
     /** FakeWatchConnection.fetchBulk が読む音声実体。 */
     fun audioBlobFor(id: Int): ByteArray? = memos[id]?.blob
 
+    /** agent.reply REQ で受け取った最後の返答 (id, text)。 */
+    var lastAgentReply: Pair<Int, String>? = null
+        private set
+
+    private var agentReqId = 0
+
+    /** 時計側からの定型質問を模倣する (EVT agent.request)。返り値は要求 id。 */
+    fun simulateAgentRequest(text: String): Int {
+        val id = ++agentReqId
+        emit(Evt.AgentRequest(id, text))
+        return id
+    }
+
+    /** 「話しかける」の録音を模倣する (BULK kind="agent" で ADP1 を push)。
+     *  bulkOutListener 経由でフレームを出す。返り値は要求 id。 */
+    fun simulateAgentAudio(sec: Int = 3, mtuSize: Int = 247): Int {
+        val id = ++agentReqId
+        val rate = Adpcm.SAMPLE_RATE
+        val pcm = ShortArray(rate * sec) { i ->
+            (kotlin.math.sin(2.0 * Math.PI * 440.0 * i / rate) * 9000).toInt().toShort()
+        }
+        pushBulk(id, "agent", Adpcm.pcmToAdp1(pcm), mtuSize)
+        return id
+    }
+
+    /** data を BULK_START→CHUNK…→END のフレーム列で bulkOutListener に流す。 */
+    private fun pushBulk(id: Int, kind: String, data: ByteArray, mtuSize: Int) {
+        val listener = bulkOutListener ?: return
+        val sha = MessageDigest.getInstance("SHA-256").digest(data)
+        val chunk = 512  // core ble_glue の kBulkOutChunk と同じ
+        for (f in Fragmenter.fragment(
+            Frame.TYPE_BULK_START, id,
+            BulkCodec.encodeStart(id, kind, data.size, sha, chunk), mtuSize,
+        )) {
+            listener(f.encode())
+        }
+        var off = 0
+        while (off < data.size) {
+            val n = minOf(chunk, data.size - off)
+            for (f in Fragmenter.fragment(
+                Frame.TYPE_BULK_CHUNK, id,
+                BulkCodec.encodeChunk(id, off.toLong(), data.copyOfRange(off, off + n)),
+                mtuSize,
+            )) {
+                listener(f.encode())
+            }
+            off += n
+        }
+        for (f in Fragmenter.fragment(
+            Frame.TYPE_BULK_END, id, BulkCodec.encodeEnd(id), mtuSize,
+        )) {
+            listener(f.encode())
+        }
+    }
+
     private class FakeMemo(
         val id: Int,
         val kind: String,
@@ -475,6 +543,6 @@ class FakeWatch(
 
     companion object {
         const val FW_VERSION = "0.1.0-fake"
-        val CAPS = listOf("timer", "stopwatch", "counter", "memo", "theme", "audio")
+        val CAPS = listOf("timer", "stopwatch", "counter", "memo", "theme", "audio", "agent")
     }
 }

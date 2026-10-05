@@ -27,7 +27,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: test / assembleDebug / lint
-        run: ./gradlew :protocol:test :app:assembleDebug :app:lint --stacktrace
+        run: ./gradlew :protocol:test :agent:test :app:assembleDebug :app:lint --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

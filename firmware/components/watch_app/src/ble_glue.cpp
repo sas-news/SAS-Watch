@@ -21,6 +21,7 @@
 #include "esp_system.h"
 #include "theme_store/theme_store.hpp"
 #include "ui/ui.hpp"
+#include "watch/features/agent.hpp"
 #include "watch/features/memo.hpp"
 #include "watch/protocol/bulk.hpp"
 #include "watch/protocol/dispatch.hpp"
@@ -39,13 +40,15 @@ constexpr const char* TAG = "watch_app.ble";
 volatile int8_t s_pending_conn = -1;
 volatile int32_t s_pending_key = -1;
 
-// ---- bulk_out (音声メモの時計→スマホ送信) ----------------------------------
+// ---- bulk_out (時計→スマホの push 送信) ------------------------------------
 // Phone は受信側として BULK_ACK{next} を返す (8チャンクごと/END後)。
 // ACK が来ない/進まない部分はタイムアウトで acked 位置から送り直す。
+// kind="memo" (音声メモ) と "agent" (AI の録音) で共用。1本ずつしか流せない。
 struct BulkOut {
   bool active = false;
-  uint16_t id = 0;        // BULK の transfer id (= memo_id & 0xFFFF)
-  uint32_t memo_id = 0;
+  uint16_t id = 0;        // BULK の transfer id
+  uint32_t file_id = 0;   // AudioPort 上の音声ファイル id
+  void (*done)(uint16_t id, bool ok) = nullptr;  // app タスクから呼ぶ
   uint32_t size = 0;
   uint32_t sent = 0;      // 送信したバイト位置
   uint32_t acked = 0;     // Phone が受理したバイト位置
@@ -63,14 +66,18 @@ BulkOut s_out;
 void bulk_out_stop(const char* why) {
   ESP_LOGW(TAG, "bulk out id=%u stopped: %s", s_out.id, why);
   s_out.active = false;
+  if (s_out.done) s_out.done(s_out.id, false);
 }
 
-bool bulk_out_begin(uint32_t memo_id) {
+// file_id の音声ファイルを BULK kind で送る。tid は transfer id (返答の照合に使う)。
+// 完了/中断は done (nullptr 可) に app タスクで知らせる。
+bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
+                    void (*done)(uint16_t, bool)) {
   if (s_out.active || !ble_link_bulk_ready() || !fctx() || !fctx()->audio) {
     return false;
   }
   uint32_t size = 0;
-  if (!fctx()->audio->memo_audio_size(memo_id, &size) || size == 0) {
+  if (!fctx()->audio->memo_audio_size(file_id, &size) || size == 0) {
     return false;
   }
   // ファイル全体の sha256 を流しながら計算する。
@@ -79,7 +86,7 @@ bool bulk_out_begin(uint32_t memo_id) {
   uint32_t off = 0;
   for (;;) {
     size_t len = sizeof(buf);
-    if (!fctx()->audio->memo_audio_read(memo_id, off, buf, &len)) return false;
+    if (!fctx()->audio->memo_audio_read(file_id, off, buf, &len)) return false;
     if (len == 0) break;
     h.update(buf, len);
     off += len;
@@ -89,19 +96,19 @@ bool bulk_out_begin(uint32_t memo_id) {
   h.finish(sha);
 
   uint8_t start[96];
-  const uint16_t tid = static_cast<uint16_t>(memo_id & 0xFFFF);
   const size_t n = watch::proto::bulk_encode_start(
-      tid, "memo", size, sha, kBulkOutChunk, start, sizeof(start));
+      tid, kind, size, sha, kBulkOutChunk, start, sizeof(start));
   if (n == 0) return false;
   if (ble_link_bulk_send(0x10, tid, start, n) != ESP_OK) return false;
   s_out = BulkOut{};
   s_out.active = true;
   s_out.id = tid;
-  s_out.memo_id = memo_id;
+  s_out.file_id = file_id;
+  s_out.done = done;
   s_out.size = size;
   s_out.last_ms = clock()->now_ms();
-  ESP_LOGI(TAG, "bulk out start memo=%lu size=%lu",
-           static_cast<unsigned long>(memo_id),
+  ESP_LOGI(TAG, "bulk out start kind=%s file=%lu size=%lu", kind,
+           static_cast<unsigned long>(file_id),
            static_cast<unsigned long>(size));
   return true;
 }
@@ -152,7 +159,7 @@ void bulk_out_pump() {
     size_t len = kBulkOutChunk;
     if (s_out.sent + len > s_out.size) len = s_out.size - s_out.sent;
     size_t got = len;
-    if (!fctx()->audio->memo_audio_read(s_out.memo_id, s_out.sent,
+    if (!fctx()->audio->memo_audio_read(s_out.file_id, s_out.sent,
                                         frame + watch::proto::kBulkChunkHead,
                                         &got) ||
         got == 0) {
@@ -180,9 +187,54 @@ void bulk_out_pump() {
     }
   }
   if (s_out.end_sent && s_out.acked >= s_out.size) {
-    ESP_LOGI(TAG, "bulk out done memo=%lu",
-             static_cast<unsigned long>(s_out.memo_id));
+    ESP_LOGI(TAG, "bulk out done file=%lu",
+             static_cast<unsigned long>(s_out.file_id));
     s_out.active = false;
+    if (s_out.done) s_out.done(s_out.id, true);
+  }
+}
+
+// ---- agent (AI) の送信 ----------------------------------------------------
+// core が持つ「送りたい物」を app タスクのループで実際に出す。
+// 音声は BULK kind="agent"、定型質問は EVT agent.request。
+
+void agent_bulk_done(uint16_t id, bool ok) {
+  core_lock();
+  watch::features::agent_sent(id, ok, *fctx());
+  core_unlock();
+}
+
+void write_evt_agent_request(watch::cbor::Writer& w, void* ctx) {
+  const auto& p = *static_cast<const watch::features::AgentPending*>(ctx);
+  w.map(2).text("id").uint_v(p.id).text("text").text(p.text);
+}
+
+void agent_poll_send() {
+  watch::features::AgentPending p;
+  core_lock();
+  const bool has = watch::features::agent_pending(&p);
+  core_unlock();
+  if (!has || !ble_link_is_connected()) {
+    return;  // 未接続は feature の tick がエラーにする
+  }
+  if (p.audio) {
+    // 録音 (ADP1) を BULK kind="agent" で push。
+    if (bulk_out_begin(p.file_id, "agent", p.id, agent_bulk_done)) {
+      core_lock();
+      watch::features::agent_send_started(p.id);
+      core_unlock();
+    }
+  } else {
+    uint8_t buf[160];
+    watch::cbor::Writer w(buf, sizeof(buf));
+    if (watch::proto::encode_evt(&w, "agent.request",
+                                 write_evt_agent_request, &p) &&
+        w.ok() && ble_link_send_event(buf, w.size()) == ESP_OK) {
+      core_lock();
+      watch::features::agent_send_started(p.id);
+      watch::features::agent_sent(p.id, true, *fctx());
+      core_unlock();
+    }
   }
 }
 
@@ -352,7 +404,12 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return true;
   };
   svc.memo_audio_send = [](uint32_t id, void*) {
-    return bulk_out_begin(id);
+    return bulk_out_begin(id, "memo", static_cast<uint16_t>(id & 0xFFFF),
+                          nullptr);
+  };
+  svc.agent_reply = [](uint16_t id, const char* text, size_t len, void* c) {
+    return watch::features::agent_on_reply(
+        id, text, len, *static_cast<watch::FeatureContext*>(c));
   };
   svc.ctx = fctx();
   // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。
@@ -430,6 +487,7 @@ void ble_glue_poll() {
     s_pending_key = -1;
     ui::request_passkey(static_cast<uint32_t>(key));
   }
+  agent_poll_send();
   bulk_out_pump();
   // テーマ適用待ち (BULK 受信 or settings.set) → SetTheme Action で適用。
   // 画面OFF中でも効くよう source=System (外部入力は dispatch で捨てられる)。

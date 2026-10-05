@@ -20,6 +20,7 @@ import dev.sasnews.amoledwatch.connection.WatchLink
 import dev.sasnews.amoledwatch.protocol.BulkAck
 import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.BulkCodec
+import dev.sasnews.amoledwatch.protocol.BulkInbound
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.CborCodec
 import dev.sasnews.amoledwatch.protocol.Evt
@@ -27,10 +28,10 @@ import dev.sasnews.amoledwatch.protocol.Frame
 import dev.sasnews.amoledwatch.protocol.FrameCodec
 import dev.sasnews.amoledwatch.protocol.FrameException
 import dev.sasnews.amoledwatch.protocol.Fragmenter
+import dev.sasnews.amoledwatch.protocol.IncomingBulk
 import dev.sasnews.amoledwatch.protocol.Reassembler
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.Res
-import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.toCbor
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -44,6 +45,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -87,6 +89,10 @@ class BleWatchConnection(
     private val _bulkFrames = MutableSharedFlow<Frame>(extraBufferCapacity = 64)
     val bulkFrames: SharedFlow<Frame> = _bulkFrames
 
+    /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent" 等)。 */
+    private val _incomingBulk = MutableSharedFlow<IncomingBulk>(extraBufferCapacity = 8)
+    override val incomingBulk: SharedFlow<IncomingBulk> = _incomingBulk
+
     /** 届いた BULK_ACK（`{id,next}`）。BleBulkChannel が受け取る。 */
     private val bulkAcks = Channel<BulkAck>(Channel.UNLIMITED)
     override val bulk: BulkChannel = BleBulkChannel()
@@ -102,6 +108,7 @@ class BleWatchConnection(
     private val resReassembler = Reassembler()
     private val evtReassembler = Reassembler()
     private val bulkReassembler = Reassembler()
+    private val bulkInbound = BulkInbound()
 
     private val msgIds = AtomicInteger(1)
     private val pending = ConcurrentHashMap<Int, CompletableDeferred<Res>>()
@@ -417,6 +424,15 @@ class BleWatchConnection(
         }
         if (complete.type == Frame.TYPE_BULK_ACK) {
             BulkCodec.decodeAck(complete.payload)?.let { bulkAcks.trySend(it) }
+        } else {
+            // 時計→スマホの受信転送。ACK を返して完成品を配る。
+            for (out in bulkInbound.feed(complete)) {
+                when (out) {
+                    is BulkInbound.Out.Ack ->
+                        scope.launch { sendBulkAck(out.id, out.next) }
+                    is BulkInbound.Out.Completed -> _incomingBulk.tryEmit(out.transfer)
+                }
+            }
         }
         _bulkFrames.tryEmit(complete)
     }
@@ -451,70 +467,11 @@ class BleWatchConnection(
     override suspend fun fetchBulk(id: Int, sha256: ByteArray, timeoutMs: Long): ByteArray? {
         val tid = id and Frame.MAX_MSG_ID
         if (bulkChar == null) return null
-        val done = CompletableDeferred<ByteArray?>()
-        val job = scope.launch {
-            var buf = ByteArray(0)
-            var expectNext = 0L
-            var sinceAck = 0
-            bulkFrames.collect { f ->
-                if (done.isCompleted) return@collect
-                when (f.type) {
-                    Frame.TYPE_BULK_START -> {
-                        val m = CborCodec.decode(f.payload) as? Cbor.Cmap
-                        val sid = m?.int("id")?.toInt()
-                        val size = m?.int("size")?.toInt()
-                        if (m != null && sid != null && size != null &&
-                            (sid and Frame.MAX_MSG_ID) == tid && size > 0
-                        ) {
-                            buf = ByteArray(size)
-                            expectNext = 0
-                            sinceAck = 0
-                        }
-                    }
-                    Frame.TYPE_BULK_CHUNK -> {
-                        val p = f.payload
-                        if (buf.isEmpty() || p.size < 6) return@collect
-                        val cid = (p[0].toInt() and 0xFF) or
-                            ((p[1].toInt() and 0xFF) shl 8)
-                        if (cid != tid) return@collect
-                        val off = (p[2].toLong() and 0xFF) or
-                            ((p[3].toLong() and 0xFF) shl 8) or
-                            ((p[4].toLong() and 0xFF) shl 16) or
-                            ((p[5].toLong() and 0xFF) shl 24)
-                        val n = p.size - 6
-                        if (off != expectNext || off + n > buf.size) {
-                            // ずれた → 受信済みの続き位置を教えて再送してもらう。
-                            sendBulkAck(tid, expectNext)
-                            return@collect
-                        }
-                        p.copyInto(buf, off.toInt(), 6, 6 + n)
-                        expectNext += n
-                        if (++sinceAck >= 8) {
-                            sinceAck = 0
-                            sendBulkAck(tid, expectNext)
-                        }
-                    }
-                    Frame.TYPE_BULK_END -> {
-                        val m = CborCodec.decode(f.payload) as? Cbor.Cmap
-                        if (m == null || (m.int("id").toInt() and Frame.MAX_MSG_ID) != tid ||
-                            buf.isEmpty()
-                        ) return@collect
-                        val ok = expectNext.toInt() == buf.size &&
-                            java.security.MessageDigest.getInstance("SHA-256")
-                                .digest(buf).contentEquals(sha256)
-                        // 完了の合図: 検証が通った時だけ最終 ACK{next=size} を返す。
-                        if (ok) sendBulkAck(tid, expectNext)
-                        done.complete(if (ok) buf else null)
-                    }
-                }
-            }
-        }
-        val res = try {
-            withTimeoutOrNull(timeoutMs) { done.await() }
-        } finally {
-            job.cancel()
-        }
-        return res
+        // bulkInbound が組み立てた完成品から自分の転送 (id + kind 一致) を拾う。
+        val t = withTimeoutOrNull(timeoutMs) {
+            _incomingBulk.first { it.id == tid && it.kind == "memo" }
+        } ?: return null
+        return if (t.sha256.contentEquals(sha256)) t.bytes else null
     }
 
     private fun failAllPending(reason: String) {

@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","agent"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -48,6 +48,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `memo.audio.get` | `{id:<int>}` | `{id, size, sha256:<bytes32>}` この直後に時計から BULK (kind=`"memo"`, id=メモid & 0xFFFF) が送られる |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
 | `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可) | `{}` |
+| `agent.reply` | `{id:<int>, text:<str>}` | `{}` | AI の返答。id は直前の `agent.request` / BULK kind=`"agent"` の id と同じ。text は最大960バイト (UTF-8)。適用できない id でも `ok` |
 
 error code:
 
@@ -80,6 +81,9 @@ error code:
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
 | `audio.volume` | u32 | 70 | クリック音・ビープ・メモ再生の音量 0-100 |
 | `audio.click` | u32 | 1 | ボタンのクリック音 ON/OFF (0/1) |
+| `agent.q1` | text | `今日の予定は？` | AI の定型質問ボタン 1 (空 = 非表示、63バイトまで) |
+| `agent.q2` | text | `今の天気は？` | AI の定型質問ボタン 2 (同左) |
+| `agent.q3` | text | (空) | AI の定型質問ボタン 3 (同左) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正
@@ -100,7 +104,7 @@ error code:
 | `nav.notifications` | 通知 | 通知画面を開く |
 | `nav.more` | アプリ一覧 | アプリ一覧画面を開く |
 | `nav.dev` | 開発者 | 開発者画面を開く |
-| `nav.agent` | エージェント | エージェント画面を開く (将来) |
+| `nav.agent` | エージェント | AI (エージェント) 画面を開く |
 | `nav.settings` | 設定 | 設定画面を開く |
 | `nav.media` | メディア | メディア画面を開く |
 | `memo.record` | メモ録音 | 音声メモの録音を開始 |
@@ -122,7 +126,7 @@ event の一覧はこの表が唯一の正。
 | `memo.saved` | `{id, kind:"text"|"voice", sec:<voice秒>}` |
 | `memo.deleted` | `{id}` |
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
-| `agent.request` | `{id, text}` (将来) |
+| `agent.request` | `{id, text}` AI の定型質問。id は返答の `agent.reply` の id と同じ |
 
 ## CBOR 正規形
 両側の実装でバイト列を一致させるため、encode は次の正規形に従う。
@@ -142,8 +146,8 @@ core (GoogleTest) と android (JUnit) の両方がこのファイルを読んで
 結果一致を検査する。形式は `docs/protocol-vectors/README.md`、
 再生成は `tools/gen_protocol_vectors.py`。
 
-## BULK (双方向: Asset / OTA / 音声メモ)
-BULK_START payload (CBOR): `{id, kind:"theme"|"asset"|"ota"|"memo", size, sha256:<bytes32>, chunk:<int>}`
+## BULK (双方向: Asset / OTA / 音声メモ / AI音声)
+BULK_START payload (CBOR): `{id, kind:"theme"|"asset"|"ota"|"memo"|"agent", size, sha256:<bytes32>, chunk:<int>}` (kind は7文字まで)
 BULK_CHUNK payload: `transfer_id:u16 | offset:u32 | bytes...`
 BULK_ACK payload (CBOR): `{id, next:<offset>}`
 BULK_END payload (CBOR): `{id}`
@@ -159,6 +163,21 @@ BULK_END payload (CBOR): `{id}`
   `BULK_ACK{next}` を bulk char へ write-without-response で返し、
   `BULK_END` 受信・sha256 一致後に最終 `BULK_ACK{next=size}` を返す。
   (Phone は ctrl に notify を送れないので RES ではなくこの ACK が完了の合図)
+- Watch → Phone (kind `"agent"`): 「話しかける」の録音 (ADP1, 最大30秒)。
+  kind `"memo"` と同じ手順だが REQ に紐付かない push 型で、id は AI の要求 id
+  (時計側の連番)。返答は `agent.reply` REQ で同じ id とともに返す。
+
+## Agent (AI)
+時計はオフライン。スマホが OpenAI 互換 API に中継する。
+
+1. 「話しかける」: 録音 (ADP1, 最大30秒) → BULK kind=`"agent"` id=<要求id>
+   を push。スマホは STT → LLM に投げ、`agent.reply{id, text}` を返す。
+2. 定型質問ボタン (settings `agent.q1..3`、空欄は非表示): EVT
+   `agent.request{id, text}` を送り、同じく `agent.reply` を待つ。
+
+要求 id は時計側の連番 (BULK transfer id と同じ値)。返答は `agent.reply` REQ で、
+時計は「録音中→送信中→考え中→返答」の状態を表示する。送信開始から60秒で
+タイムアウト (エラー表示)。返答 text は最大960バイト。
 
 切断後は送信側が `BULK_START` を同じ id で再送し、受信側は `BULK_ACK{next}`
 で再開位置を返す。

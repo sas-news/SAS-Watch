@@ -69,6 +69,23 @@
     <string name="settings_theme">テーマ</string>
     <string name="settings_raw_hint">設定値は時計の settings keys（protocol-v1.md）に対応しています。</string>
 
+    <!-- AI設定 -->
+    <string name="agent_title">AI設定（時計の「AI」アプリ）</string>
+    <string name="agent_base_url">API の Base URL</string>
+    <string name="agent_api_key">API キー</string>
+    <string name="agent_chat_model">返答モデル名</string>
+    <string name="agent_stt_model">音声認識モデル名</string>
+    <string name="agent_key_hint">API キーはこの端末内だけで暗号化して保存します。ローカルの LLM サーバを使うときは Base URL をそのアドレスに変えてください。</string>
+    <string name="agent_save">AI設定を保存</string>
+    <string name="agent_busy">AI が応答を考えています…</string>
+    <string name="agent_q1">質問ボタン 1</string>
+    <string name="agent_q2">質問ボタン 2</string>
+    <string name="agent_q3">質問ボタン 3</string>
+    <string name="agent_questions_hint">時計の「AI」画面に出る定型質問ボタン（最大3つ）。空欄にするとそのボタンは消えます。</string>
+    <string name="agent_history_title">AI の会話履歴</string>
+    <string name="agent_history_empty">まだ会話はありません。</string>
+    <string name="agent_history_clear">履歴を消去</string>
+
     <!-- テーマ画面 -->
     <string name="themes_not_connected">時計に接続するとテーマを切り替えたり送ったりできます。</string>
     <string name="themes_builtin_title">内蔵テーマ</string>

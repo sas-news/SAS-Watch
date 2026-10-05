@@ -1,13 +1,15 @@
-// Feature (Timer/Stopwatch/Counter/Memo) と Settings のホストテスト。
+// Feature (Timer/Stopwatch/Counter/Memo/Agent) と Settings のホストテスト。
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <string>
 
+#include "watch/features/agent.hpp"
 #include "watch/features/counter.hpp"
 #include "watch/features/memo.hpp"
 #include "watch/features/stopwatch.hpp"
 #include "watch/features/timer.hpp"
+#include "watch/power.hpp"
 #include "watch/settings.hpp"
 #include "fakes.hpp"
 
@@ -29,6 +31,7 @@ struct FeatFixture {
     features::stopwatch_reset_state();
     features::counter_reset_state();
     features::memo_reset_state();
+    features::agent_reset_state();
   }
 
   void act(const FeatureDescriptor& d, ActionType t, uint32_t arg0 = 0,
@@ -313,4 +316,188 @@ TEST(Settings, SaveAllAndLoad) {
   settings_load(s2, kv);
   EXPECT_EQ(s2.brightness, 10u);
   EXPECT_EQ(s2.tz_offset_min, -300);
+}
+
+// ---------- Agent (AI) ----------
+
+// audio/power/settings が必要なので配線済みの fixture を足す。
+struct AgentFixture : FeatFixture {
+  test::FakeAudio audio;
+  PowerPolicy power{&bus};
+  Settings settings;
+
+  AgentFixture() {
+    audio.set_clock(&clock);
+    ctx.power = &power;
+    ctx.audio = &audio;
+    ctx.settings = &settings;
+    power.set_ble_connected(true);  // BLE ありが既定 (切るテストは false に)
+  }
+
+  void tick(int64_t at) { features::kAgent.tick(at, ctx); }
+};
+
+TEST(Agent, RecordStopQueuesAudioSend) {
+  AgentFixture f;
+  f.clock.set_now_ms(10'000);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Recording);
+  EXPECT_TRUE(features::agent_recording());
+  EXPECT_GT(f.power.lease_count(), 0);  // 録音中は Deep Sleep しない
+  EXPECT_EQ(f.audio.record_begin_calls, 1);
+
+  f.clock.advance_ms(5'000);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);  // 停止→送信へ
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+  // 録音ファイルは確定済み (5秒, kAgentAudioFileId)。
+  uint32_t size = 0;
+  EXPECT_TRUE(f.audio.memo_audio_size(features::kAgentAudioFileId, &size));
+  EXPECT_EQ(size, test::FakeAudio::kFileHeader +
+                      5 * test::FakeAudio::kBytesPerSec);
+
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  EXPECT_TRUE(p.audio);
+  EXPECT_EQ(p.file_id, features::kAgentAudioFileId);
+  EXPECT_NE(p.id, 0);
+  // 送信開始→ pending 閉鎖。BULK 完了で Thinking。
+  features::agent_send_started(p.id);
+  EXPECT_FALSE(features::agent_pending(&p));
+  features::agent_sent(p.id, true, f.ctx);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+  // 音声ファイルは送信完了で消える。
+  EXPECT_FALSE(
+      f.audio.memo_audio_size(features::kAgentAudioFileId, nullptr));
+}
+
+TEST(Agent, RecordingAutoStopsAt30s) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  f.audio.rec_elapsed_s = features::kAgentMaxRecordSec;
+  f.tick(0);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+}
+
+TEST(Agent, RecordBeginFailureShowsError) {
+  AgentFixture f;
+  f.audio.fail_record_begin = true;
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "録音を開始できませんでした");
+}
+
+TEST(Agent, AskSendsQuestionText) {
+  AgentFixture f;
+  std::snprintf(f.settings.agent_q1, sizeof(f.settings.agent_q1), "%s",
+                "今日の予定は？");
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  EXPECT_FALSE(p.audio);
+  EXPECT_STREQ(p.text, "今日の予定は？");
+  features::agent_sent(p.id, true, f.ctx);  // EVT を出した
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+}
+
+TEST(Agent, AskEmptyQuestionDoesNothing) {
+  AgentFixture f;
+  f.settings.agent_q3[0] = '\0';
+  f.act(features::kAgent, ActionType::AgentAsk, 2);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Idle);
+}
+
+TEST(Agent, ReplyShowsText) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentAsk, 0);  // 既定: 今日の予定は？
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  features::agent_sent(p.id, true, f.ctx);
+
+  const char* reply = "今日は15時に会議があります。";
+  EXPECT_TRUE(features::agent_on_reply(p.id, reply, std::strlen(reply),
+                                       f.ctx));
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Reply);
+  EXPECT_STREQ(features::agent_reply_text(), reply);
+  const auto* ev = f.rec.last_of(EventType::AgentStatusChanged);
+  ASSERT_NE(ev, nullptr);
+  EXPECT_EQ(ev->arg0,
+            static_cast<uint32_t>(features::AgentPhase::Reply));
+
+  // 別 id の返答は無視される。
+  const char* late = "遅れた返答";
+  EXPECT_FALSE(features::agent_on_reply(p.id + 1, late, std::strlen(late),
+                                      f.ctx));
+  EXPECT_STREQ(features::agent_reply_text(), reply);
+
+  f.act(features::kAgent, ActionType::AgentClear);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Idle);
+}
+
+TEST(Agent, ReplyTruncatesLongText) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  features::agent_sent(p.id, true, f.ctx);
+
+  std::string long_text(features::kAgentReplyMax + 300, 'x');
+  EXPECT_TRUE(features::agent_on_reply(p.id, long_text.data(),
+                                       long_text.size(), f.ctx));
+  EXPECT_EQ(std::strlen(features::agent_reply_text()),
+            features::kAgentReplyMax);
+}
+
+TEST(Agent, TimeoutShowsError) {
+  AgentFixture f;
+  f.clock.set_now_ms(0);
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  features::agent_sent(p.id, true, f.ctx);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+  EXPECT_EQ(features::kAgent.next_deadline_ms(), features::kAgentTimeoutMs);
+
+  f.tick(features::kAgentTimeoutMs - 1);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+  f.tick(features::kAgentTimeoutMs);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "応答がありませんでした");
+}
+
+TEST(Agent, BleDisconnectShowsError) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  features::agent_sent(p.id, true, f.ctx);
+  f.power.set_ble_connected(false);
+  f.tick(1000);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "スマホとつながっていません");
+}
+
+TEST(Agent, SendFailureShowsError) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  f.clock.advance_ms(5'000);  // 1秒未満の録音は捨てられるので進める
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  features::agent_send_started(p.id);
+  features::agent_sent(p.id, false, f.ctx);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "送信に失敗しました");
+}
+
+TEST(Agent, BusyIgnoresNewRequest) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
+  features::AgentPending p1;
+  ASSERT_TRUE(features::agent_pending(&p1));
+  // 処理中に別の質問を押しても現在の要求は変わらない。
+  f.act(features::kAgent, ActionType::AgentAsk, 1);
+  features::AgentPending p2;
+  ASSERT_TRUE(features::agent_pending(&p2));
+  EXPECT_EQ(p2.id, p1.id);
 }

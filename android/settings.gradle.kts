@@ -16,4 +16,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "amoledwatch-companion"
-include(":protocol", ":app")
+include(":protocol", ":app", ":agent")

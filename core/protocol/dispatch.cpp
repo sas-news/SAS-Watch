@@ -69,13 +69,14 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(6)
+      .array(7)
       .text("timer")
       .text("stopwatch")
       .text("counter")
       .text("memo")
       .text("theme")
-      .text("audio");
+      .text("audio")
+      .text("agent");
   return DispatchError::Ok;
 }
 
@@ -385,6 +386,22 @@ DispatchError h_memo_audio_get(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// agent.reply {id, text}: AI の返答。text は params 内部のポインタ (非NUL)。
+DispatchError h_agent_reply(const cbor::Value& params, Services& svc,
+                            cbor::Writer* r) {
+  if (!svc.agent_reply) return DispatchError::Internal;
+  int64_t id = -1;
+  const char* text = nullptr;
+  size_t tn = 0;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT16_MAX ||
+      !param_text(params, "text", &text, &tn)) {
+    return DispatchError::BadRequest;
+  }
+  svc.agent_reply(static_cast<uint16_t>(id), text, tn, svc.ctx);
+  r->map(0);
+  return DispatchError::Ok;
+}
+
 DispatchError h_notify_post(const cbor::Value& params, Services& svc,
                             cbor::Writer* r) {
   const char *app = nullptr, *title = nullptr, *body = nullptr;
@@ -456,6 +473,7 @@ constexpr Handler kHandlers[] = {
     {"memo.list", h_memo_list},       {"memo.get", h_memo_get},
     {"memo.delete", h_memo_delete},   {"memo.audio.get", h_memo_audio_get},
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
+    {"agent.reply", h_agent_reply},
 };
 
 }  // namespace

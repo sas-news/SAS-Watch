@@ -3,12 +3,15 @@ package dev.sasnews.amoledwatch.connection
 import dev.sasnews.amoledwatch.protocol.BulkAck
 import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.BulkCodec
+import dev.sasnews.amoledwatch.protocol.BulkInbound
 import dev.sasnews.amoledwatch.protocol.CborCodec
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.FakeWatch
 import dev.sasnews.amoledwatch.protocol.Frame
 import dev.sasnews.amoledwatch.protocol.FrameCodec
+import dev.sasnews.amoledwatch.protocol.FrameException
 import dev.sasnews.amoledwatch.protocol.Fragmenter
+import dev.sasnews.amoledwatch.protocol.IncomingBulk
 import dev.sasnews.amoledwatch.protocol.Reassembler
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.Res
@@ -45,12 +48,31 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
 
     override val bulk: BulkChannel = FakeBulkChannel()
 
+    /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent" 等)。 */
+    private val _incomingBulk = MutableSharedFlow<IncomingBulk>(extraBufferCapacity = 8)
+    override val incomingBulk: SharedFlow<IncomingBulk> = _incomingBulk
+    private val inboundReassembler = Reassembler()
+    private val bulkInbound = BulkInbound()
+
     init {
         fake.evtListener = { bytes ->
             val evt = runCatching {
                 Evt.fromCbor(CborCodec.decode(FrameCodec.decode(bytes).payload))
             }.getOrNull()
             if (evt != null) _events.tryEmit(evt)
+        }
+        fake.bulkOutListener = { bytes ->
+            try {
+                inboundReassembler.feed(FrameCodec.decode(bytes))?.let { complete ->
+                    // FakeWatch の送信側は ACK を待たないので Completed だけ拾う
+                    bulkInbound.feed(complete).forEach {
+                        if (it is BulkInbound.Out.Completed) {
+                            _incomingBulk.tryEmit(it.transfer)
+                        }
+                    }
+                }
+            } catch (_: FrameException) {
+            }
         }
         scope.launch {
             delay(500) // 接続待ちっぽさを演出

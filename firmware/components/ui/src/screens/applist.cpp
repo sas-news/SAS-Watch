@@ -26,6 +26,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   row(col, "ストップウォッチ", watch::Route::Stopwatch);
   row(col, "カウンター", watch::Route::Counter);
   row(col, "メモ", watch::Route::Memo);
+  row(col, "AI", watch::Route::Agent);
   row(col, "設定", watch::Route::Settings);
   return scr;
 }

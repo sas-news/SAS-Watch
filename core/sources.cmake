@@ -26,6 +26,7 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/features/stopwatch/stopwatch.cpp
     ${WATCH_CORE_DIR}/features/counter/counter.cpp
     ${WATCH_CORE_DIR}/features/memo/memo.cpp
+    ${WATCH_CORE_DIR}/features/agent/agent.cpp
     ${WATCH_CORE_DIR}/features/registry.cpp
     ${WATCH_CORE_DIR}/protocol/crc16.cpp
     ${WATCH_CORE_DIR}/protocol/cbor.cpp

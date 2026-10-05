@@ -3,6 +3,8 @@ package dev.sasnews.amoledwatch
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import dev.sasnews.amoledwatch.agent.AgentBridge
+import dev.sasnews.amoledwatch.agent.AgentPrefs
 import dev.sasnews.amoledwatch.media.MediaBridge
 import dev.sasnews.amoledwatch.service.WatchService
 
@@ -14,10 +16,13 @@ class WatchApp : Application() {
         private set
     lateinit var mediaBridge: MediaBridge
         private set
+    lateinit var agentBridge: AgentBridge
+        private set
 
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        agentBridge = AgentBridge(AgentPrefs(this))
         manager = WatchLinkManager(this)
         mediaBridge = MediaBridge(this).also { it.start() }
 
