@@ -1,4 +1,4 @@
-# amoled-watch
+# SAS-Watch
 
 Waveshare **ESP32-S3-Touch-AMOLED-2.06** 向けの自作スマートウォッチ。
 
