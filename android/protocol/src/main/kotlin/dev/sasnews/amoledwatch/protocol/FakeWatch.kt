@@ -154,7 +154,12 @@ class FakeWatch(
                     }
                     settings[SettingsKeys.THEME] = Cbor.Ctext(info.id)
                 }
+                val wasFirmware = bulkKind == "firmware"
                 bulkActive = false
+                if (wasFirmware) {
+                    // 実機は commit 後にパーティションへ書き込んで再起動する。
+                    startFakeOta("BLE")
+                }
                 return resFrames(complete.msgId, Res.okCbor(), mtuSize)
             }
         }
@@ -401,6 +406,51 @@ class FakeWatch(
                 lastNotification = Triple(app, title, body)
                 Res.okCbor()
             }
+            "wifi.set" -> {
+                // core: ssid 1-32 / pass 0 または 8-63
+                val ssid = (p.value["ssid"] as? Cbor.Ctext)?.value
+                val pass = (p.value["pass"] as? Cbor.Ctext)?.value
+                if (ssid.isNullOrEmpty() || pass == null ||
+                    (pass.isNotEmpty() && pass.length !in 8..63)
+                ) {
+                    return Res.errCbor("bad_request", "wifi.set")
+                }
+                wifiSsid = ssid
+                Res.okCbor()
+            }
+            "wifi.status" -> Res.okCbor(
+                Cbor.Cmap(
+                    mapOf(
+                        "configured" to Cbor.Cbool(wifiSsid != null),
+                        "ssid" to Cbor.Ctext(wifiSsid ?: ""),
+                    ),
+                ),
+            )
+            "ota.start" -> {
+                // core: url(text,http(s)) / sha256(bytes32) / version(text)
+                val url = (p.value["url"] as? Cbor.Ctext)?.value
+                val sha = (p.value["sha256"] as? Cbor.Cbytes)?.value
+                val ver = (p.value["version"] as? Cbor.Ctext)?.value
+                if (otaBusy()) return Res.errCbor("busy", "ota")
+                if (url.isNullOrEmpty() || sha == null || sha.size != 32 ||
+                    ver.isNullOrEmpty()
+                ) {
+                    return Res.errCbor("bad_request", "ota.start")
+                }
+                startFakeOta(ver)
+                Res.okCbor()
+            }
+            "ota.status" -> Res.okCbor(
+                Cbor.Cmap(
+                    mapOf(
+                        "active" to Cbor.Cbool(otaBusy()),
+                        "stage" to Cbor.Ctext(otaStage),
+                        "pct" to Cbor.Cint(otaPct.toLong()),
+                        "msg" to Cbor.Ctext(otaMsg),
+                        "version" to Cbor.Ctext(otaVersion),
+                    ),
+                ),
+            )
             "media.state" -> {
                 // core: title/artist は text 必須、playing はあれば bool
                 val title = (p.value["title"] as? Cbor.Ctext)?.value
@@ -425,6 +475,44 @@ class FakeWatch(
             )
             else -> Res.errCbor("unknown_method", "unknown method")
         }
+    }
+
+    // ---------------- Wi-Fi / OTA (擬似) ----------------
+
+    private var wifiSsid: String? = null
+    private var otaStage = "idle"
+    private var otaPct = 0
+    private var otaMsg = ""
+    private var otaVersion = ""
+
+    private fun otaBusy() = otaStage !in listOf("idle", "fail")
+
+    /** HTTPS 開始 or BLE firmware commit 後の進捗を段階的に emit する。 */
+    private fun startFakeOta(version: String) {
+        otaStage = "download"
+        otaPct = 0
+        otaVersion = version
+        otaMsg = ""
+        scheduler.schedule({ emit(Evt.OtaProgress(30, "download")) }, 250, TimeUnit.MILLISECONDS)
+        scheduler.schedule({ emit(Evt.OtaProgress(70, "download")) }, 500, TimeUnit.MILLISECONDS)
+        scheduler.schedule(
+            {
+                otaStage = "verify"
+                otaPct = 95
+                emit(Evt.OtaProgress(95, "verify"))
+            },
+            750, TimeUnit.MILLISECONDS,
+        )
+        scheduler.schedule(
+            {
+                otaStage = "done"
+                otaPct = 100
+                emit(Evt.OtaResult(true, "reboot"))
+                otaStage = "idle"
+                otaPct = 0
+            },
+            1_100, TimeUnit.MILLISECONDS,
+        )
     }
 
     /** 時計 → スマホ の EVT を発火させる（テスト・UI デモ用）。 */
@@ -487,6 +575,9 @@ class FakeWatch(
 
     companion object {
         const val FW_VERSION = "0.1.0-fake"
-        val CAPS = listOf("timer", "stopwatch", "counter", "memo", "theme", "audio", "steps")
+        val CAPS = listOf(
+            "timer", "stopwatch", "counter", "memo", "theme", "audio",
+            "wifi", "ota", "steps",
+        )
     }
 }

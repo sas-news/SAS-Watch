@@ -14,9 +14,16 @@ import dev.sasnews.amoledwatch.protocol.ThemePackage
 import dev.sasnews.amoledwatch.ui.screens.DevicesContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesUiState
 import dev.sasnews.amoledwatch.ui.screens.FoundUi
+import dev.sasnews.amoledwatch.ui.screens.FirmwareSendState
 import dev.sasnews.amoledwatch.ui.screens.MemoContent
 import dev.sasnews.amoledwatch.ui.screens.MemoUi
 import dev.sasnews.amoledwatch.ui.screens.NotifyContent
+import dev.sasnews.amoledwatch.protocol.OtaStatusInfo
+import dev.sasnews.amoledwatch.ui.screens.ReleaseUi
+import dev.sasnews.amoledwatch.ui.screens.UpdateContent
+import dev.sasnews.amoledwatch.ui.screens.UpdateUiState
+import dev.sasnews.amoledwatch.ui.screens.WifiContent
+import dev.sasnews.amoledwatch.ui.screens.WifiUiState
 import dev.sasnews.amoledwatch.ui.screens.SettingsContent
 import dev.sasnews.amoledwatch.ui.screens.ThemeItemUi
 import dev.sasnews.amoledwatch.ui.screens.ThemeTransferState
@@ -222,6 +229,78 @@ class ScreenshotTest {
                     onPickZip = {},
                     onSendPicked = {},
                     onRetry = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun update_screen() {
+        captureRoboImage(filePath = path("update")) {
+            AmoledWatchTheme {
+                UpdateContent(
+                    state = UpdateUiState(
+                        connected = true,
+                        fw = "0.1.0",
+                        release = ReleaseUi("v0.2.0", "https://example.com/firmware.bin"),
+                        releaseLoading = false,
+                        releaseError = false,
+                        ota = null,
+                        send = FirmwareSendState.Idle,
+                        pickedName = null,
+                    ),
+                    onOpenWifi = {},
+                    onFetchRelease = {},
+                    onStartHttps = {},
+                    onPickFirmware = {},
+                    onSendFirmware = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun update_progress() {
+        captureRoboImage(filePath = path("update_progress")) {
+            AmoledWatchTheme {
+                UpdateContent(
+                    state = UpdateUiState(
+                        connected = true,
+                        fw = "0.1.0",
+                        release = ReleaseUi("v0.2.0", "https://example.com/firmware.bin"),
+                        releaseLoading = false,
+                        releaseError = false,
+                        ota = OtaStatusInfo(
+                            active = true,
+                            stage = "download",
+                            pct = 42,
+                            msg = "",
+                            version = "v0.2.0",
+                        ),
+                        send = FirmwareSendState.Sending(620_000, 2_500_000),
+                        pickedName = "firmware.bin",
+                    ),
+                    onOpenWifi = {},
+                    onFetchRelease = {},
+                    onStartHttps = {},
+                    onPickFirmware = {},
+                    onSendFirmware = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun wifi_screen() {
+        captureRoboImage(filePath = path("wifi")) {
+            AmoledWatchTheme {
+                WifiContent(
+                    state = WifiUiState(
+                        connected = true,
+                        savedSsid = "sas-home",
+                    ),
+                    onSave = { _, _ -> },
+                    onBack = {},
                 )
             }
         }

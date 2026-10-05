@@ -14,6 +14,7 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/steps.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/memo.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/settings.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/screens/ota.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/powermenu.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_20.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_26.c

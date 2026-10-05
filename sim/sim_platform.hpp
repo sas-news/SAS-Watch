@@ -34,4 +34,7 @@ watch::Log& log();
 // 録音/再生のメモリ実装 (メモ画面のスナップショット用)。
 watch::AudioPort& audio();
 
+// OTA 画面のスナップショット用に進捗状態を差し替える。
+void set_ota_debug(int stage, int pct, const char* msg, const char* version);
+
 }  // namespace sim

@@ -6,7 +6,7 @@ idf_component_register(
          "src/imu_service.cpp"
     INCLUDE_DIRS "include" "src"
     REQUIRES watch_core platform_esp board ui ble_link theme_store audio
-    PRIV_REQUIRES esp_pm esp_timer lvgl esp_app_format
+    PRIV_REQUIRES esp_pm esp_timer lvgl esp_app_format wifi ota
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE

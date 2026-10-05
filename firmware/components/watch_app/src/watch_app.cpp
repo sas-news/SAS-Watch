@@ -7,6 +7,8 @@
 
 #include "audio/audio.hpp"
 #include "board/board.hpp"
+#include "ota/ota.hpp"
+#include "wifi/wifi.hpp"
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
@@ -70,6 +72,7 @@ void enter_deep_sleep() {
 void app_task(void*) {
   for (;;) {
     ble_glue_poll();
+    ota::poll();  // OTA 進捗の Event 化 + 電源 Lease (deep sleep 禁止)
 
     const int64_t now = s_clock->now_ms();
     core_lock();
@@ -148,6 +151,9 @@ bool start(const Deps& deps) {
     fctx.audio = audio::port();
     audio::attach(s_bus);
   }
+  // Wi-Fi 資格情報 (NVS) + OTA セッション (セッション中だけ Wi-Fi を上げる)。
+  wifi::init(s_kv);
+  ota::init(&s_power, &s_bus);
   s_rt.init(fctx);
   s_features.restore_all(fctx);
 

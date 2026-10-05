@@ -8,10 +8,12 @@
 #include "board/power_consts.h"
 #include "esp_heap_caps.h"
 #include "esp_idf_version.h"
+#include "esp_app_desc.h"
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_chip_info.h"
+#include "ota/ota.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "sdkconfig.h"
@@ -54,6 +56,21 @@ size_t device_info(char* buf, size_t cap) {
 }
 
 int power_off_hold_seconds() { return board::kPowerOffHoldSeconds; }
+
+// ---- ファーム更新 ----
+
+const char* fw_version() { return esp_app_get_description()->version; }
+
+void ota_status(OtaView* out) {
+  if (!out) return;
+  const ota::Status s = ota::status();
+  out->stage = static_cast<int>(s.stage);
+  out->pct = s.pct;
+  std::strncpy(out->msg, s.msg, sizeof(out->msg) - 1);
+  out->msg[sizeof(out->msg) - 1] = '\0';
+  std::strncpy(out->version, s.version, sizeof(out->version) - 1);
+  out->version[sizeof(out->version) - 1] = '\0';
+}
 
 // ---- テーマ資産 (littlefs "/assets/themes" + PSRAM アリーナ) ----
 

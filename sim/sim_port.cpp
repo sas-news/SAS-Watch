@@ -40,6 +40,14 @@ size_t device_info(char* buf, size_t cap) {
 
 int power_off_hold_seconds() { return board::kPowerOffHoldSeconds; }
 
+// ---- ファーム更新 (スナップショット用の固定値、sim::set_ota_debug で差替) ----
+
+const char* fw_version() { return "0.1.0"; }
+
+OtaView s_ota;  // NOLINT - sim_platform 経由で設定される
+
+void ota_status(OtaView* out) { if (out) *out = s_ota; }
+
 void display_power(bool on) {
   std::printf("[sim] display_power %s\n", on ? "on" : "off");
 }
@@ -84,3 +92,16 @@ bool theme_asset_load(const char* path, const uint8_t** out,
 }
 
 }  // namespace ui::port
+
+namespace sim {
+
+void set_ota_debug(int stage, int pct, const char* msg, const char* version) {
+  ui::port::s_ota.stage = stage;
+  ui::port::s_ota.pct = pct;
+  std::snprintf(ui::port::s_ota.msg, sizeof(ui::port::s_ota.msg), "%s",
+                msg ? msg : "");
+  std::snprintf(ui::port::s_ota.version, sizeof(ui::port::s_ota.version), "%s",
+                version ? version : "");
+}
+
+}  // namespace sim

@@ -26,6 +26,7 @@ enum class Route : uint8_t {
   Dev,
   Agent,
   PowerMenu,
+  Ota,      // ファーム更新 (Settings から)
   Confirm,  // 承認モーダル用
 };
 
