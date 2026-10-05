@@ -11,10 +11,13 @@
 namespace watch {
 namespace proto {
 
+// kind の最大長 (NUL 除く)。"firmware" まで入る 15。
+constexpr size_t kBulkKindMax = 15;
+
 // BULK_START payload (CBOR {id, kind, size, sha256, chunk}) のパース結果。
 struct BulkStart {
   uint16_t id = 0;
-  char kind[8] = {0};  // "theme" / "asset" / "ota" を想定 (それ以外も受理)
+  char kind[kBulkKindMax + 1] = {0};  // "theme" / "asset" / "ota" / "firmware" など
   uint32_t size = 0;
   uint8_t sha256[32] = {0};
   uint32_t chunk = 0;  // 送信側推奨のチャンク長 (情報)

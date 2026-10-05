@@ -89,7 +89,7 @@ class BleWatchConnection(
     private val _bulkFrames = MutableSharedFlow<Frame>(extraBufferCapacity = 64)
     val bulkFrames: SharedFlow<Frame> = _bulkFrames
 
-    /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent" 等)。 */
+    /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent_audio" 等)。 */
     private val _incomingBulk = MutableSharedFlow<IncomingBulk>(extraBufferCapacity = 8)
     override val incomingBulk: SharedFlow<IncomingBulk> = _incomingBulk
 

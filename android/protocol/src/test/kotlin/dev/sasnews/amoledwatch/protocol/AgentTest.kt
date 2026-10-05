@@ -49,7 +49,7 @@ class AgentTest {
         assertEquals(1, inbox.size)
         val t = inbox[0]
         assertEquals(id, t.id)
-        assertEquals("agent", t.kind)
+        assertEquals("agent_audio", t.kind)
         // ADP1 ヘッダが付いた音声データが届く
         assertEquals('A'.code.toByte(), t.bytes[0])
         assertNotNull(Adpcm.adp1ToWav(t.bytes))

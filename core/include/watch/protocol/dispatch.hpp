@@ -53,6 +53,21 @@ struct Services {
   // memo.audio.get: RES のあとに BULK push 転送を開始する。失敗は false。
   bool (*memo_audio_send)(uint32_t id, void* ctx) = nullptr;
 
+  // ---- Wi-Fi / OTA (Phase OTA) ----
+  // wifi.set: SSID/pass を永続化する。pass は後で読み出せないこと
+  //   (設定値の一部にしない・読み出しパスを作らない)。false = 失敗。
+  bool (*wifi_set)(const char* ssid, const char* pass, void* ctx) = nullptr;
+  // wifi.status: 設定済みの SSID を out に書く (pass は返さない)。
+  // 戻り値 true = 設定済み。未設定・未対応なら false。
+  bool (*wifi_info)(char* ssid, size_t cap, void* ctx) = nullptr;
+  // ota.start: url のイメージをダウンロードして OTA 更新を開始。
+  //   sha256 はファイル全体の SHA-256 (32B)。version は表示用。
+  //   戻り値 0=開始 / 1=更新中で busy / -1=内部失敗。
+  int (*ota_start)(const char* url, const uint8_t sha256[32],
+                   const char* version, void* ctx) = nullptr;
+  // ota.status: {active,stage,pct,msg,version} を w に書く。未対応は false。
+  bool (*ota_status)(cbor::Writer& w, void* ctx) = nullptr;
+
   // agent.reply: AI の返答 {id, text}。表示中の要求に適用できたら true
   // (無視された id でも呼び出し元は RES ok を返してよい)。
   bool (*agent_reply)(uint16_t id, const char* text, size_t len,

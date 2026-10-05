@@ -260,17 +260,26 @@ int main(int argc, char** argv) {
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
 
+  // ファーム更新画面: 待機 → 進捗中。
+  back_home();
+  nav_to(watch::Route::Ota);
+  ok &= save(out, "21_ota_idle");
+  sim::set_ota_debug(2, 42, "", "0.2.0");
+  s_bus.publish({watch::EventType::OtaProgress, 42});
+  pump(300);
+  ok &= save(out, "22_ota_progress");
+
   // ---- AI (Agent) ----
   // sim には BLE が無いので、ble_connected を立てておき、送信完了/返答は
   // feature の API を直接叩く (実機では ble_glue が agent_pending を拾う)。
   s_power.set_ble_connected(true);
   back_home();
   nav_to(watch::Route::Agent);
-  ok &= save(out, "21_agent");
+  ok &= save(out, "23_agent");
 
   ui::emit(watch::ActionType::AgentRecordToggle);
   pump(2500);
-  ok &= save(out, "22_agent_recording");
+  ok &= save(out, "24_agent_recording");
   ui::emit(watch::ActionType::AgentRecordToggle);  // 停止→送信中
   pump(300);
 
@@ -284,13 +293,13 @@ int main(int argc, char** argv) {
     watch::features::agent_sent(ap.id, true, *s_fctx);
   }
   pump(100);
-  ok &= save(out, "23_agent_thinking");
+  ok &= save(out, "25_agent_thinking");
   const char* reply =
       "今日は 15 時にミーティング、19 時にジムの予定があります。";
   watch::features::agent_on_reply(ap.id, reply, std::strlen(reply),
                                   *s_fctx);
   pump(300);
-  ok &= save(out, "24_agent_reply");
+  ok &= save(out, "26_agent_reply");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

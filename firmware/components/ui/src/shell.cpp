@@ -404,6 +404,7 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::SettingsChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::PowerStateChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::ThemeChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::OtaProgress, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::AgentStatusChanged, bus_cb,
                          nullptr);
   }

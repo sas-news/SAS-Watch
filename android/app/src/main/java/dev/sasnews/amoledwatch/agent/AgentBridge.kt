@@ -17,7 +17,7 @@ import kotlinx.coroutines.sync.withLock
 /**
  * 時計の AI 要求 → OpenAI 互換 API → `agent.reply` を返す橋渡し。
  * - EVT agent.request (定型質問) → `onRequest`
- * - BULK kind="agent" (話しかけた録音, ADP1) → `onBulk`
+ * - BULK kind="agent_audio" (話しかけた録音, ADP1) → `onBulk`
  * WatchLinkManager が接続ごとにここへ流す。応答は直列化して順に返す。
  */
 class AgentBridge(
@@ -76,9 +76,9 @@ class AgentBridge(
         }
     }
 
-    /** BULK kind="agent" (録音 ADP1)。他の kind はここでは処理しない。 */
+    /** BULK kind="agent_audio" (録音 ADP1)。他の kind はここでは処理しない。 */
     fun onBulk(link: WatchLink, t: IncomingBulk) {
-        if (t.kind != "agent") return
+        if (t.kind != "agent_audio") return
         scope.launch {
             reply(link, t.id) { engine.answerAudio(t.bytes) }
         }

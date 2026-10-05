@@ -82,6 +82,38 @@ sealed interface Req {
         )
     }
 
+    /** 時計の Wi-Fi 資格情報を NVS に保存。pass は 0文字(オープン) or 8-63文字。読み出せない。 */
+    data class WifiSet(val ssid: String, val pass: String) : Req {
+        override val method get() = "wifi.set"
+        override fun params() = Cbor.Cmap(
+            mapOf("ssid" to Cbor.Ctext(ssid), "pass" to Cbor.Ctext(pass)),
+        )
+    }
+
+    /** 保存済み Wi-Fi の有無と SSID を返す (pass は含まれない)。 */
+    data object WifiStatus : Req {
+        override val method get() = "wifi.status"
+        override fun params() = Cbor.Cmap(emptyMap())
+    }
+
+    /** HTTPS OTA 開始。url は http(s)://、sha256 は32 bytes、version は表示用。 */
+    data class OtaStart(val url: String, val sha256: ByteArray, val version: String) : Req {
+        override val method get() = "ota.start"
+        override fun params() = Cbor.Cmap(
+            mapOf(
+                "url" to Cbor.Ctext(url),
+                "sha256" to Cbor.Cbytes(sha256),
+                "version" to Cbor.Ctext(version),
+            ),
+        )
+    }
+
+    /** OTA セッションの状態を取得する。 */
+    data object OtaStatus : Req {
+        override val method get() = "ota.status"
+        override fun params() = Cbor.Cmap(emptyMap())
+    }
+
     data class MediaState(val title: String, val artist: String, val playing: Boolean) : Req {
         override val method get() = "media.state"
         override fun params() = Cbor.Cmap(
@@ -190,6 +222,22 @@ sealed interface Evt {
         override val data get() = Cbor.Cmap(mapOf("cmd" to Cbor.Ctext(cmd.wire)))
     }
 
+    /** OTA 進捗 {pct, stage}。stage: wifi/download/verify など。 */
+    data class OtaProgress(val pct: Int, val stage: String) : Evt {
+        override val name get() = "ota.progress"
+        override val data get() = Cbor.Cmap(
+            mapOf("pct" to Cbor.Cint(pct.toLong()), "stage" to Cbor.Ctext(stage)),
+        )
+    }
+
+    /** OTA 終端 {ok, msg}。ok=true の直後に時計は再起動する。 */
+    data class OtaResult(val ok: Boolean, val msg: String) : Evt {
+        override val name get() = "ota.result"
+        override val data get() = Cbor.Cmap(
+            mapOf("ok" to Cbor.Cbool(ok), "msg" to Cbor.Ctext(msg)),
+        )
+    }
+
     data class AgentRequest(val id: Int, val text: String) : Evt {
         override val name get() = "agent.request"
         override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong()), "text" to Cbor.Ctext(text)))
@@ -214,6 +262,8 @@ sealed interface Evt {
                 )
                 "memo.deleted" -> MemoDeleted(d.int("id").toInt())
                 "media.cmd" -> MediaCommand(MediaCmd.of(d.text("cmd")) ?: return Unknown(name, d))
+                "ota.progress" -> OtaProgress(d.int("pct").toInt(), d.text("stage"))
+                "ota.result" -> OtaResult(d.bool("ok"), d.text("msg"))
                 "agent.request" -> AgentRequest(d.int("id").toInt(), d.text("text"))
                 else -> Unknown(name, d)
             }
@@ -299,6 +349,7 @@ object ActionNames {
         ActionSpec("nav.agent", "エージェント"),
         ActionSpec("nav.settings", "設定"),
         ActionSpec("nav.media", "メディア"),
+        ActionSpec("nav.ota", "ファーム更新"),
         ActionSpec("memo.record", "メモ録音"),
         ActionSpec("timer.start", "タイマー開始"),
         ActionSpec("timer.stop", "タイマー停止"),
@@ -399,6 +450,38 @@ data class MemoInfo(
                 sec = m.int("sec").toInt(),
                 size = m.int("size"),
                 text = m.text("text"),
+            )
+        }
+    }
+}
+
+/** wifi.status の RES を展開する。pass は返らない設計なので含まれない。 */
+data class WifiStatusInfo(val configured: Boolean, val ssid: String) {
+    companion object {
+        fun fromCbor(v: Cbor): WifiStatusInfo? {
+            val m = v as? Cbor.Cmap ?: return null
+            return WifiStatusInfo(m.bool("configured"), m.text("ssid"))
+        }
+    }
+}
+
+/** ota.status の RES を展開する。stage: idle/wifi/download/verify/done/reboot/fail。 */
+data class OtaStatusInfo(
+    val active: Boolean,
+    val stage: String,
+    val pct: Int,
+    val msg: String,
+    val version: String,
+) {
+    companion object {
+        fun fromCbor(v: Cbor): OtaStatusInfo? {
+            val m = v as? Cbor.Cmap ?: return null
+            return OtaStatusInfo(
+                active = m.bool("active"),
+                stage = m.text("stage", "idle"),
+                pct = m.int("pct").toInt(),
+                msg = m.text("msg"),
+                version = m.text("version"),
             )
         }
     }

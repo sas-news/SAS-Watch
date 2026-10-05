@@ -63,4 +63,17 @@ bool theme_asset_load(const char* path, const uint8_t** out,
 // (テーマ適用の直前に1度呼ぶ。アリーナ自体は初期化時に1度だけ確保)。
 void theme_assets_reset();
 
+// ---- ファーム更新 (docs/protocol-v1.md) ----
+// stage: 0 idle / 1 wifi / 2 download / 3 verify / 4 done / 5 reboot / 6 fail
+struct OtaView {
+  int stage = 0;
+  int pct = 0;  // 0-100
+  char msg[40] = {};      // 失敗理由など (短い ASCII)
+  char version[24] = {};  // 更新先バージョン
+};
+// 現在の OTA セッションのスナップショットを out に書く。
+void ota_status(OtaView* out);
+// 起動中ファームのバージョン (常に非null)。設定/更新画面用。
+const char* fw_version();
+
 }  // namespace ui::port

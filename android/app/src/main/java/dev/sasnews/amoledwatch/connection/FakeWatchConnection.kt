@@ -48,7 +48,7 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
 
     override val bulk: BulkChannel = FakeBulkChannel()
 
-    /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent" 等)。 */
+    /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent_audio" 等)。 */
     private val _incomingBulk = MutableSharedFlow<IncomingBulk>(extraBufferCapacity = 8)
     override val incomingBulk: SharedFlow<IncomingBulk> = _incomingBulk
     private val inboundReassembler = Reassembler()

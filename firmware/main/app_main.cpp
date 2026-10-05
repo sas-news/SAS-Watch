@@ -13,6 +13,7 @@
 
 #include "board/board.hpp"
 #include "diag/diag.hpp"
+#include "ota/ota.hpp"
 #include "platform_esp/platform_esp.hpp"
 #include "theme_store/theme_store.hpp"
 #include "ui/ui.hpp"
@@ -110,4 +111,8 @@ extern "C" void app_main(void)
 #endif
 
     xTaskCreate(battery_poll, "batt", 2048, nullptr, 3, nullptr);
+
+    // OTA 直後の初回起動なら、ここまで初期化が全部通った = 自己診断 OK として
+    // 新イメージを mark valid にする (次回リセットで旧イメージに戻されない)。
+    ota::mark_valid_if_pending();
 }

@@ -718,3 +718,193 @@ TEST(DispatchMemo, AudioGetReportsAndStartsSend) {
   ASSERT_TRUE(f.res_err_code(out, n2, &code, &cn));
   EXPECT_EQ(std::string(code, cn), "not_found");
 }
+
+// ---------- Dispatch: wifi.* / ota.* (Phase OTA) ----------
+
+namespace {
+
+struct SvcOtaFixture : SvcFixture {
+  std::string wifi_ssid;
+  std::string wifi_pass;
+  bool wifi_saved = false;
+  std::string ota_url;
+  std::string ota_version;
+  uint8_t ota_sha[32] = {};
+  int ota_start_ret = 0;
+  bool ota_status_written = false;
+
+  SvcOtaFixture() {
+    svc.wifi_set = [](const char* s, const char* p, void* c) {
+      auto* f = static_cast<SvcOtaFixture*>(c);
+      f->wifi_ssid = s;
+      f->wifi_pass = p;
+      f->wifi_saved = true;
+      return true;
+    };
+    svc.wifi_info = [](char* out, size_t cap, void* c) {
+      auto* f = static_cast<SvcOtaFixture*>(c);
+      if (!f->wifi_saved || f->wifi_ssid.size() >= cap) return false;
+      std::strcpy(out, f->wifi_ssid.c_str());
+      return true;
+    };
+    svc.ota_start = [](const char* url, const uint8_t sha[32], const char* ver,
+                       void* c) {
+      auto* f = static_cast<SvcOtaFixture*>(c);
+      f->ota_url = url;
+      f->ota_version = ver;
+      std::memcpy(f->ota_sha, sha, sizeof(f->ota_sha));
+      return f->ota_start_ret;
+    };
+    svc.ota_status = [](cbor::Writer& w, void* c) {
+      auto* f = static_cast<SvcOtaFixture*>(c);
+      f->ota_status_written = true;
+      w.map(5)
+          .text("active").bool_v(true)
+          .text("stage").text("download")
+          .text("pct").uint_v(42)
+          .text("msg").text("")
+          .text("version").text("0.2.0");
+      return true;
+    };
+  }
+};
+
+}  // namespace
+
+TEST(DispatchOta, WifiSetCallsHandler) {
+  SvcOtaFixture f;
+  uint8_t out[512];
+  const size_t n = f.req(
+      "wifi.set",
+      [](cbor::Writer& w) {
+        w.map(2).text("ssid").text("HomeWifi").text("pass").text("password123");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_EQ(f.wifi_ssid, "HomeWifi");
+  EXPECT_EQ(f.wifi_pass, "password123");
+}
+
+TEST(DispatchOta, WifiSetRejectsBadParams) {
+  SvcOtaFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  // ssid 空は bad_request
+  f.req(
+      "wifi.set",
+      [](cbor::Writer& w) {
+        w.map(2).text("ssid").text("").text("pass").text("password123");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  // pass 7文字 (WPA 未満) も bad_request
+  f.req(
+      "wifi.set",
+      [](cbor::Writer& w) {
+        w.map(2).text("ssid").text("Net").text("pass").text("1234567");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  EXPECT_FALSE(f.wifi_saved);
+}
+
+TEST(DispatchOta, WifiStatusReportsConfigured) {
+  SvcOtaFixture f;
+  uint8_t out[512];
+  // 未設定: configured=false
+  size_t n = f.req("wifi.status", nullptr, out, sizeof(out));
+  cbor::Value v;
+  ASSERT_TRUE(res_r_find(out, n, "configured", &v));
+  bool conf = true;
+  ASSERT_TRUE(cbor::as_bool(v, &conf));
+  EXPECT_FALSE(conf);
+  // wifi.set → wifi.status で ssid が見える (pass は含まれない)
+  f.req(
+      "wifi.set",
+      [](cbor::Writer& w) {
+        w.map(2).text("ssid").text("HomeWifi").text("pass").text("password123");
+      },
+      out, sizeof(out));
+  n = f.req("wifi.status", nullptr, out, sizeof(out));
+  ASSERT_TRUE(res_r_find(out, n, "configured", &v));
+  ASSERT_TRUE(cbor::as_bool(v, &conf));
+  EXPECT_TRUE(conf);
+  ASSERT_TRUE(res_r_find(out, n, "ssid", &v));
+  const char* s = nullptr;
+  size_t sn = 0;
+  ASSERT_TRUE(cbor::as_text(v, &s, &sn));
+  EXPECT_EQ(std::string(s, sn), "HomeWifi");
+  EXPECT_FALSE(res_r_find(out, n, "pass", &v));
+}
+
+TEST(DispatchOta, OtaStartCallsHandler) {
+  SvcOtaFixture f;
+  uint8_t out[512];
+  const uint8_t sha[32] = {0xAB};
+  const size_t n = f.req(
+      "ota.start",
+      [sha](cbor::Writer& w) {
+        w.map(3)
+            .text("url").text("https://example.com/fw.bin")
+            .text("sha256").bytes(sha, sizeof(sha))
+            .text("version").text("0.2.0");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_EQ(f.ota_url, "https://example.com/fw.bin");
+  EXPECT_EQ(f.ota_version, "0.2.0");
+  EXPECT_EQ(f.ota_sha[0], 0xAB);
+}
+
+TEST(DispatchOta, OtaStartBusyAndBadRequest) {
+  SvcOtaFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  f.ota_start_ret = 1;  // 更新中
+  const uint8_t sha[32] = {};
+  f.req(
+      "ota.start",
+      [sha](cbor::Writer& w) {
+        w.map(3)
+            .text("url").text("https://example.com/fw.bin")
+            .text("sha256").bytes(sha, sizeof(sha))
+            .text("version").text("0.2.0");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "busy");
+  // sha256 が bytes でない → bad_request
+  f.req(
+      "ota.start",
+      [](cbor::Writer& w) {
+        w.map(3)
+            .text("url").text("https://example.com/fw.bin")
+            .text("sha256").text("abc")
+            .text("version").text("0.2.0");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+}
+
+TEST(DispatchOta, OtaStatusWritesMap) {
+  SvcOtaFixture f;
+  uint8_t out[512];
+  const size_t n = f.req("ota.status", nullptr, out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_TRUE(f.ota_status_written);
+  cbor::Value v;
+  ASSERT_TRUE(res_r_find(out, n, "pct", &v));
+  int64_t pct = -1;
+  ASSERT_TRUE(cbor::as_int(v, &pct));
+  EXPECT_EQ(pct, 42);
+  ASSERT_TRUE(res_r_find(out, n, "stage", &v));
+  const char* s = nullptr;
+  size_t sn = 0;
+  ASSERT_TRUE(cbor::as_text(v, &s, &sn));
+  EXPECT_EQ(std::string(s, sn), "download");
+}

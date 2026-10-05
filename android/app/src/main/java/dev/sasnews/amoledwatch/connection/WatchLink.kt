@@ -34,7 +34,7 @@ interface WatchLink {
     /**
      * 時計→スマホに届いた BULK 転送 (sha256 検証済み)。
      * `memo.audio.get` の応答 (kind="memo") と REQ に紐付かない push
-     * (kind="agent" 等) の両方が流れる。
+     * (kind="agent_audio" 等) の両方が流れる。
      */
     val incomingBulk: SharedFlow<IncomingBulk>
 

@@ -9,7 +9,7 @@ data class IncomingBulk(val id: Int, val kind: String, val sha256: ByteArray, va
  * 時計→スマホの BULK 受信機 (firmware `ble_glue.cpp` の bulk_out と対)。
  * 再構成済みの完全なメッセージ (Reassembler 通過後) を feed すると、
  * 返すべき BULK_ACK と完成した転送を Out で返す。
- * REQ に紐付かない push 転送 (kind="agent" 等) と、`memo.audio.get` の直後に
+ * REQ に紐付かない push 転送 (kind="agent_audio" 等) と、`memo.audio.get` の直後に
  * 来る kind="memo" の両方をここで受ける。
  */
 class BulkInbound {
