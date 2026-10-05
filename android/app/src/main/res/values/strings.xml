@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SAS-Watch コンパニオン</string>
+    <string name="notification_listener_label">SAS-Watch 通知転送</string>
+
+    <!-- タブ -->
+    <string name="tab_devices">デバイス</string>
+    <string name="tab_settings">設定</string>
+    <string name="tab_notify">通知・メディア</string>
+
+    <!-- デバイス画面 -->
+    <string name="perm_needed_title">Bluetooth の許可が必要です</string>
+    <string name="perm_needed_body">時計を探して接続するために Bluetooth の権限を許可してください。</string>
+    <string name="perm_grant">権限を許可する</string>
+    <string name="perm_notification">接続状態の通知を表示するために通知の許可を求めます。</string>
+    <string name="scan_start">スキャン開始</string>
+    <string name="scan_stop">スキャン停止</string>
+    <string name="scanning">時計を探しています…</string>
+    <string name="no_devices">まだ見つかっていません。時計の電源が入っているか確認してください。</string>
+    <string name="connect">接続</string>
+    <string name="disconnect">切断</string>
+    <string name="connected_to">接続中</string>
+    <string name="connecting_to">接続しています（%1$d 回目の試行）…</string>
+    <string name="bonding">ペアリングを確認しています…</string>
+    <string name="disconnected">未接続</string>
+    <string name="fake_watch_card">デバッグ用の仮想時計</string>
+    <string name="fake_watch_body">実機がなくても画面を試せます（デバッグビルドのみ）。</string>
+    <string name="fake_connect">仮想時計に接続</string>
+    <string name="hello_fw">ファーム %1$s / proto %2$d</string>
+    <string name="hello_caps">機能: %1$s</string>
+    <string name="device_info_title">デバイス情報</string>
+    <string name="device_info_battery">電池 %1$d%%（%2$s）</string>
+    <string name="charging">充電中</string>
+    <string name="not_charging">電池駆動</string>
+    <string name="device_info_heap">空きヒープ %1$d B / PSRAM %2$d B</string>
+    <string name="refresh_info">情報を更新</string>
+    <string name="timer_title">タイマー</string>
+    <string name="timer_start">タイマー開始</string>
+    <string name="timer_stop">タイマー停止</string>
+    <string name="timer_seconds_label">秒数</string>
+    <string name="memo_title">メモ送信</string>
+    <string name="memo_hint">時計に送るメモ</string>
+    <string name="memo_send">メモを送る</string>
+    <string name="events_title">イベント履歴</string>
+    <string name="no_events">まだイベントはありません。</string>
+    <string name="fake_demo_title">仮想時計のデモ操作</string>
+    <string name="fake_demo_battery">電池イベントを発生</string>
+    <string name="fake_demo_media">メディア操作イベントを発生</string>
+    <string name="request_error">送信に失敗しました: %1$s</string>
+    <string name="memo_sent">メモを送信しました（id=%1$d）</string>
+
+    <!-- 設定画面 -->
+    <string name="settings_load">時計から設定を読み込む</string>
+    <string name="settings_save">設定を保存</string>
+    <string name="settings_saved">設定を保存しました</string>
+    <string name="settings_not_connected">時計に接続すると設定できます。</string>
+    <string name="settings_brightness">明るさ</string>
+    <string name="settings_dim_after">暗くなるまで（秒）</string>
+    <string name="settings_screen_off">画面OFFまで（秒）</string>
+    <string name="settings_button_boot_short">BOOT 短押し</string>
+    <string name="settings_button_boot_long">BOOT 長押し</string>
+    <string name="settings_button_boot_double">BOOT 2回押し</string>
+    <string name="settings_button_pwr_short">PWR 短押し</string>
+    <string name="settings_button_pwr_long">PWR 長押し</string>
+    <string name="settings_theme">テーマ</string>
+    <string name="settings_raw_hint">設定値は時計の settings keys（protocol-v1.md）に対応しています。</string>
+
+    <!-- 通知・メディア画面 -->
+    <string name="notif_access_title">通知アクセス</string>
+    <string name="notif_access_body">時計に通知を転送するには、このアプリの通知アクセスを許可してください。</string>
+    <string name="notif_access_open">通知アクセス設定を開く</string>
+    <string name="notif_access_granted">通知アクセスは許可済みです。</string>
+    <string name="notif_apps_title">転送するアプリ</string>
+    <string name="notif_apps_none">まだアプリが選ばれていません。選んだアプリの通知だけを時計に送ります。</string>
+    <string name="media_title">メディア連携</string>
+    <string name="media_body">再生中の曲を時計に送り、時計からの操作（再生/停止/次/前/音量）を受け付けます。通知アクセスが必要です。</string>
+    <string name="media_now_playing">再生中: %1$s / %2$s</string>
+    <string name="media_idle">再生中のメディアはありません。</string>
+    <string name="media_no_access">通知アクセスが許可されると動作します。</string>
+
+    <!-- Foreground Service 通知 -->
+    <string name="fgs_channel_name">時計との接続</string>
+    <string name="fgs_connected">SAS-Watch と接続中</string>
+    <string name="fgs_connecting">SAS-Watch に接続中…</string>
+    <string name="fgs_disconnected">SAS-Watch 未接続</string>
+</resources>

@@ -1,0 +1,431 @@
+package dev.sasnews.amoledwatch.ble
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
+import android.util.Log
+import androidx.core.content.ContextCompat
+import dev.sasnews.amoledwatch.connection.LinkState
+import dev.sasnews.amoledwatch.connection.WatchLink
+import dev.sasnews.amoledwatch.protocol.CborCodec
+import dev.sasnews.amoledwatch.protocol.Evt
+import dev.sasnews.amoledwatch.protocol.Frame
+import dev.sasnews.amoledwatch.protocol.FrameCodec
+import dev.sasnews.amoledwatch.protocol.FrameException
+import dev.sasnews.amoledwatch.protocol.Fragmenter
+import dev.sasnews.amoledwatch.protocol.Reassembler
+import dev.sasnews.amoledwatch.protocol.Req
+import dev.sasnews.amoledwatch.protocol.Res
+import dev.sasnews.amoledwatch.protocol.toCbor
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * protocol-v1.md の BLE 実装。
+ * - REQ は ctrl へ書き込み、同じ msg_id の RES を notify で待つ（5 秒タイムアウト）。
+ * - 切断されたら指数バックオフ（1s → 最大30s）で再接続し続ける。
+ * - 未ボンドなら createBond()（時計側は Numeric Comparison で6桁を表示する想定）。
+ * // TODO(hw): 実機で確認 — ボンディングの流れ（実機が要求する pairing 方式）
+ */
+@SuppressLint("MissingPermission") // 呼び出し側（スキャン/接続ボタン）で権限を確認済み
+class BleWatchConnection(
+    private val context: Context,
+    private val device: BluetoothDevice,
+    private val scope: CoroutineScope,
+) : WatchLink {
+
+    companion object {
+        private const val TAG = "BleWatchConnection"
+        private const val REQ_TIMEOUT_MS = 5_000L
+        private const val OP_TIMEOUT_MS = 10_000L
+        private const val BOND_TIMEOUT_MS = 60_000L
+        private const val BACKOFF_MAX_MS = 30_000L
+    }
+
+    private val _state = MutableStateFlow<LinkState>(LinkState.Connecting(1))
+    override val state: StateFlow<LinkState> = _state
+
+    private val _events = MutableSharedFlow<Evt>(extraBufferCapacity = 64)
+    override val events: SharedFlow<Evt> = _events
+
+    /** BULK_* フレーム（将来の Asset/OTA 転送用に流しておく）。 */
+    private val _bulkFrames = MutableSharedFlow<Frame>(extraBufferCapacity = 64)
+    val bulkFrames: SharedFlow<Frame> = _bulkFrames
+
+    @Volatile private var gatt: BluetoothGatt? = null
+    @Volatile private var mtu: Int = 23
+    @Volatile private var closed = false
+
+    private var ctrlChar: BluetoothGattCharacteristic? = null
+    private var eventChar: BluetoothGattCharacteristic? = null
+    private var bulkChar: BluetoothGattCharacteristic? = null
+
+    private val resReassembler = Reassembler()
+    private val evtReassembler = Reassembler()
+    private val bulkReassembler = Reassembler()
+
+    private val msgIds = AtomicInteger(1)
+    private val pending = ConcurrentHashMap<Int, CompletableDeferred<Res>>()
+
+    // ---- 直列化された GATT 操作の完了シグナル ----
+    private val opMutex = Mutex()
+    @Volatile private var connectSignal = CompletableDeferred<Boolean>()
+    @Volatile private var servicesSignal = CompletableDeferred<Boolean>()
+    @Volatile private var mtuSignal = CompletableDeferred<Boolean>()
+    @Volatile private var descSignal = CompletableDeferred<Boolean>()
+    @Volatile private var writeSignal = CompletableDeferred<Boolean>()
+    @Volatile private var disconnectSignal = CompletableDeferred<Boolean>()
+    @Volatile private var bondSignal = CompletableDeferred<Boolean>()
+
+    private var bondReceiver: BroadcastReceiver? = null
+
+    private val callback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            when (newState) {
+                BluetoothProfile.STATE_CONNECTED -> {
+                    if (!connectSignal.isCompleted) connectSignal.complete(true)
+                }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    Log.i(TAG, "disconnected (status=$status)")
+                    if (!connectSignal.isCompleted) connectSignal.complete(false)
+                    if (!disconnectSignal.isCompleted) disconnectSignal.complete(true)
+                    failAllPending("disconnected")
+                }
+            }
+        }
+
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            servicesSignal.complete(status == BluetoothGatt.GATT_SUCCESS)
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, negotiated: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) mtu = negotiated
+            mtuSignal.complete(status == BluetoothGatt.GATT_SUCCESS)
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            if (!descSignal.isCompleted) descSignal.complete(status == BluetoothGatt.GATT_SUCCESS)
+        }
+
+        override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            if (!writeSignal.isCompleted) writeSignal.complete(status == BluetoothGatt.GATT_SUCCESS)
+        }
+
+        // API <33
+        @Deprecated("deprecated in API 33", ReplaceWith(""))
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            @Suppress("DEPRECATION")
+            onNotify(c.uuid, c.value)
+        }
+
+        // API 33+
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt,
+            c: BluetoothGattCharacteristic,
+            value: ByteArray,
+        ) {
+            onNotify(c.uuid, value)
+        }
+    }
+
+    private val job = scope.launch { run() }
+
+    // ---------------- 接続ループ（指数バックオフ再接続） ----------------
+
+    private suspend fun run() {
+        var attempt = 0
+        while (!closed) {
+            attempt++
+            _state.value = LinkState.Connecting(attempt)
+            val connected = try {
+                connectOnce()
+            } catch (e: Exception) {
+                Log.w(TAG, "connectOnce failed", e)
+                false
+            }
+            if (closed) break
+            if (connected) {
+                _state.value = LinkState.Connected
+                disconnectSignal.await()
+                closeGatt()
+            }
+            if (closed) break
+            val wait = backoff(attempt)
+            Log.i(TAG, "retry in ${wait}ms (attempt $attempt)")
+            delay(wait)
+        }
+        closeGatt()
+        _state.value = LinkState.Disconnected
+    }
+
+    private fun backoff(attempt: Int): Long {
+        val shift = (attempt - 1).coerceAtMost(5)
+        return minOf(BACKOFF_MAX_MS, 1_000L shl shift)
+    }
+
+    /** 1回の接続試行。notify 購読まで済んだら true。 */
+    private suspend fun connectOnce(): Boolean {
+        if (device.bondState != BluetoothDevice.BOND_BONDED && !bond()) return false
+
+        connectSignal = CompletableDeferred()
+        servicesSignal = CompletableDeferred()
+        mtuSignal = CompletableDeferred()
+        disconnectSignal = CompletableDeferred()
+
+        val g = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+        if (g == null) return false
+        gatt = g
+
+        if (!awaitSignal(connectSignal, "connect")) { closeGatt(); return false }
+        if (!g.discoverServices() || !awaitSignal(servicesSignal, "services")) { closeGatt(); return false }
+
+        val service = g.getService(BleUuids.SERVICE)
+        ctrlChar = service?.getCharacteristic(BleUuids.CTRL)
+        eventChar = service?.getCharacteristic(BleUuids.EVENT)
+        bulkChar = service?.getCharacteristic(BleUuids.BULK)
+        if (ctrlChar == null || eventChar == null) {
+            Log.w(TAG, "service/chars not found: service=$service")
+            closeGatt(); return false
+        }
+
+        if (!g.requestMtu(BleUuids.MTU) || !awaitSignal(mtuSignal, "mtu")) { closeGatt(); return false }
+        Log.i(TAG, "MTU=$mtu")
+
+        // notify 購読（ctrl / event / bulk を順に）
+        for (c in listOfNotNull(ctrlChar, eventChar, bulkChar)) {
+            if (!enableNotify(g, c)) { closeGatt(); return false }
+        }
+        return true
+    }
+
+    private suspend fun awaitSignal(signal: CompletableDeferred<Boolean>, what: String): Boolean =
+        withTimeoutOrNull(OP_TIMEOUT_MS) { signal.await() } ?: run {
+            Log.w(TAG, "$what timed out")
+            false
+        }
+
+    private suspend fun enableNotify(g: BluetoothGatt, c: BluetoothGattCharacteristic): Boolean {
+        if (!g.setCharacteristicNotification(c, true)) return false
+        val d = c.getDescriptor(BleUuids.CCC_DESCRIPTOR) ?: return false
+        descSignal = CompletableDeferred()
+        val ok = writeDescriptor(g, d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+        if (!ok) return false
+        return awaitSignal(descSignal, "cccd ${c.uuid}")
+    }
+
+    private suspend fun bond(): Boolean {
+        _state.value = LinkState.Bonding
+        bondSignal = CompletableDeferred()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val dev = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+                if (dev?.address != device.address) return
+                when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
+                    BluetoothDevice.BOND_BONDED -> bondSignal.complete(true)
+                    BluetoothDevice.BOND_NONE -> bondSignal.complete(false)
+                }
+            }
+        }
+        bondReceiver = receiver
+        ContextCompat.registerReceiver(
+            context, receiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        try {
+            if (!device.createBond()) return false
+            return withTimeoutOrNull(BOND_TIMEOUT_MS) { bondSignal.await() } ?: false
+        } finally {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: IllegalArgumentException) {
+            }
+            bondReceiver = null
+        }
+    }
+
+    // ---------------- REQ/RES ----------------
+
+    private fun nextMsgId(): Int {
+        val v = msgIds.getAndIncrement()
+        if (v >= Frame.MAX_MSG_ID) msgIds.set(1)
+        return v and Frame.MAX_MSG_ID
+    }
+
+    override suspend fun request(req: Req): Res {
+        if (closed) return Res.Err("internal", "closed")
+        val g = gatt ?: return Res.Err("internal", "not connected")
+        val ctrl = ctrlChar ?: return Res.Err("internal", "ctrl characteristic not found")
+        val id = nextMsgId()
+        val deferred = CompletableDeferred<Res>()
+        pending[id] = deferred
+        try {
+            val frames = Fragmenter.fragment(Frame.TYPE_REQ, id, CborCodec.encode(req.toCbor()), mtu)
+            for (f in frames) {
+                if (!writeRaw(g, ctrl, f.encode(), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)) {
+                    pending.remove(id)
+                    return Res.Err("internal", "write failed")
+                }
+            }
+            return withTimeout(REQ_TIMEOUT_MS) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            pending.remove(id)
+            return Res.Err("internal", "timeout (5s)")
+        } catch (e: Exception) {
+            pending.remove(id)
+            return Res.Err("internal", e.message ?: "request failed")
+        }
+    }
+
+    /** キャラクタリスティック write（GATT の完了コールバックを待つ直列化）。 */
+    private suspend fun writeRaw(
+        g: BluetoothGatt,
+        c: BluetoothGattCharacteristic,
+        bytes: ByteArray,
+        writeType: Int,
+    ): Boolean {
+        opMutex.withLock {
+            writeSignal = CompletableDeferred()
+            val ok = writeCharacteristic(g, c, bytes, writeType)
+            if (!ok) return false
+            return awaitSignal(writeSignal, "write")
+        }
+    }
+
+    private fun writeCharacteristic(
+        g: BluetoothGatt,
+        c: BluetoothGattCharacteristic,
+        value: ByteArray,
+        writeType: Int,
+    ): Boolean =
+        if (Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(c, value, writeType) == BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                c.writeType = writeType
+                c.value = value
+                g.writeCharacteristic(c)
+            }
+        }
+
+    private fun writeDescriptor(g: BluetoothGatt, d: BluetoothGattDescriptor, value: ByteArray): Boolean =
+        if (Build.VERSION.SDK_INT >= 33) {
+            g.writeDescriptor(d, value) == BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                d.value = value
+                g.writeDescriptor(d)
+            }
+        }
+
+    // ---------------- notify 受信 ----------------
+
+    private fun onNotify(uuid: java.util.UUID, value: ByteArray) {
+        val frame = try {
+            FrameCodec.decode(value)
+        } catch (e: FrameException) {
+            Log.w(TAG, "bad frame on $uuid: ${e.message}")
+            return
+        }
+        when (uuid) {
+            BleUuids.CTRL -> handleRes(frame)
+            BleUuids.EVENT -> handleEvt(frame)
+            BleUuids.BULK -> handleBulk(frame)
+        }
+    }
+
+    private fun handleRes(fragment: Frame) {
+        val complete = try {
+            resReassembler.feed(fragment) ?: return
+        } catch (e: FrameException) {
+            Log.w(TAG, "RES reassembly: ${e.message}")
+            return
+        }
+        val res = try {
+            Res.fromCbor(CborCodec.decode(complete.payload))
+        } catch (e: Exception) {
+            Res.Err("internal", "bad RES cbor: ${e.message}")
+        }
+        pending.remove(complete.msgId)?.complete(res)
+    }
+
+    private fun handleEvt(fragment: Frame) {
+        val complete = try {
+            evtReassembler.feed(fragment) ?: return
+        } catch (e: FrameException) {
+            Log.w(TAG, "EVT reassembly: ${e.message}")
+            return
+        }
+        try {
+            Evt.fromCbor(CborCodec.decode(complete.payload))?.let { _events.tryEmit(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "bad EVT cbor: ${e.message}")
+        }
+    }
+
+    private fun handleBulk(fragment: Frame) {
+        val complete = try {
+            bulkReassembler.feed(fragment) ?: return
+        } catch (e: FrameException) {
+            Log.w(TAG, "BULK reassembly: ${e.message}")
+            return
+        }
+        _bulkFrames.tryEmit(complete)
+    }
+
+    private fun failAllPending(reason: String) {
+        val it = pending.entries.iterator()
+        while (it.hasNext()) {
+            it.next().value.complete(Res.Err("internal", reason))
+            it.remove()
+        }
+    }
+
+    // ---------------- 後片付け ----------------
+
+    private fun closeGatt() {
+        gatt?.disconnect()
+        gatt?.close()
+        gatt = null
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        disconnectSignal.complete(true)
+        connectSignal.complete(false)
+        failAllPending("closed")
+        closeGatt()
+        job.cancel()
+    }
+}
