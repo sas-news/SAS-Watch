@@ -52,7 +52,8 @@ esp_err_t read_accel_mg(float* x, float* y, float* z)
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    return qmi8658_read_accel_mg(&s_imu, x, y, z);
+    // qmi8658_read_accel は既定 (accel_unit_mps2=false) で mg を返す
+    return qmi8658_read_accel(&s_imu, x, y, z);
 }
 
 esp_err_t arm_wake_on_motion()
