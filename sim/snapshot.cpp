@@ -275,11 +275,11 @@ int main(int argc, char** argv) {
   s_power.set_ble_connected(true);
   back_home();
   nav_to(watch::Route::Agent);
-  ok &= save(out, "23_agent");
+  ok &= save(out, "50_agent");
 
   ui::emit(watch::ActionType::AgentRecordToggle);
   pump(2500);
-  ok &= save(out, "24_agent_recording");
+  ok &= save(out, "51_agent_recording");
   ui::emit(watch::ActionType::AgentRecordToggle);  // 停止→送信中
   pump(300);
 
@@ -293,13 +293,13 @@ int main(int argc, char** argv) {
     watch::features::agent_sent(ap.id, true, *s_fctx);
   }
   pump(100);
-  ok &= save(out, "25_agent_thinking");
+  ok &= save(out, "52_agent_thinking");
   const char* reply =
       "今日は 15 時にミーティング、19 時にジムの予定があります。";
   watch::features::agent_on_reply(ap.id, reply, std::strlen(reply),
                                   *s_fctx);
   pump(300);
-  ok &= save(out, "26_agent_reply");
+  ok &= save(out, "53_agent_reply");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }
