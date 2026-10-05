@@ -144,4 +144,47 @@
     <string name="fgs_connected">SAS-Watch と接続中</string>
     <string name="fgs_connecting">SAS-Watch に接続中…</string>
     <string name="fgs_disconnected">SAS-Watch 未接続</string>
+
+    <!-- 更新画面 (Wi-Fi 設定 / ファーム更新) -->
+    <string name="tab_update">更新</string>
+    <string name="update_not_connected">時計に接続するとファームを更新できます。</string>
+    <string name="update_current">現在: v%1$s</string>
+    <string name="update_unknown">（不明）</string>
+    <string name="update_wifi_open">時計の Wi-Fi 設定</string>
+    <string name="update_release_title">GitHub Releases から更新</string>
+    <string name="update_release_body">時計が Wi-Fi で直接ダウンロードします。先に「時計の Wi-Fi 設定」を済ませてください。</string>
+    <string name="update_check">最新版を確認</string>
+    <string name="update_checking">確認しています…</string>
+    <string name="update_latest">最新: %1$s</string>
+    <string name="update_start_https">このバージョンに更新</string>
+    <string name="update_release_error">リリース情報を取得できませんでした</string>
+    <string name="update_ble_title">ファイルから更新 (BLE)</string>
+    <string name="update_ble_body">Wi-Fi が無い環境向け。ファームを BLE で時計へ送ります（時間がかかります）。</string>
+    <string name="update_pick">firmware.bin を選択</string>
+    <string name="update_picked">選択中: %1$s</string>
+    <string name="update_send_ble">BLE で転送して更新</string>
+    <string name="update_sending">BLE 転送中… %1$d%%</string>
+    <string name="update_ble_done">転送しました。時計が書き込み後に再起動します。</string>
+    <string name="update_ble_failed">転送に失敗しました</string>
+    <string name="update_progress_title">更新の進捗</string>
+    <string name="update_progress_pct">→ %1$s / %2$d%%</string>
+    <string name="update_progress_pct_nover">%1$d%%</string>
+    <string name="update_stage_idle">待機中</string>
+    <string name="update_stage_wifi">Wi-Fi接続中</string>
+    <string name="update_stage_download">ダウンロード中</string>
+    <string name="update_stage_verify">検証・書き込み中</string>
+    <string name="update_stage_done">完了（時計が再起動します）</string>
+    <string name="update_stage_reboot">再起動中</string>
+    <string name="update_stage_fail">失敗</string>
+
+    <!-- 時計の Wi-Fi 設定画面 -->
+    <string name="wifi_title">時計の Wi-Fi 設定</string>
+    <string name="wifi_body">ファームのダウンロードに使う Wi-Fi を時計に登録します。</string>
+    <string name="wifi_current">保存済み: %1$s</string>
+    <string name="wifi_not_set">（未設定）</string>
+    <string name="wifi_ssid">SSID</string>
+    <string name="wifi_pass">パスワード</string>
+    <string name="wifi_pass_hint">パスワードは時計に保存されるだけで読み出せません。空欄はオープン接続。</string>
+    <string name="wifi_save">時計に保存</string>
+    <string name="wifi_back">戻る</string>
 </resources>

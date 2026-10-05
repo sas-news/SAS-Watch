@@ -69,7 +69,7 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(9)
+      .array(11)
       .text("timer")
       .text("stopwatch")
       .text("counter")
@@ -78,7 +78,9 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("audio")
       .text("alarm")
       .text("notify")
-      .text("media");
+      .text("media")
+      .text("wifi")
+      .text("ota");
   return DispatchError::Ok;
 }
 
@@ -388,6 +390,87 @@ DispatchError h_memo_audio_get(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// text パラメタを固定バッファにコピーして NUL 終端させる。
+size_t copy_text(char* dst, size_t cap, const char* s, size_t n) {
+  if (n >= cap) n = cap - 1;
+  std::memcpy(dst, s, n);
+  dst[n] = '\0';
+  return n;
+}
+
+DispatchError h_wifi_set(const cbor::Value& params, Services& svc,
+                         cbor::Writer* r) {
+  if (!svc.wifi_set) return DispatchError::Internal;
+  const char *ssid = nullptr, *pass = nullptr;
+  size_t sn = 0, pn = 0;
+  if (!param_text(params, "ssid", &ssid, &sn) || sn == 0 || sn > 32) {
+    return DispatchError::BadRequest;
+  }
+  if (!param_text(params, "pass", &pass, &pn)) {
+    return DispatchError::BadRequest;
+  }
+  // WPA は 8-63 文字。空 (0) はオープン接続として許可する。
+  if (pn > 0 && (pn < 8 || pn > 63)) return DispatchError::BadRequest;
+  char s[33], p[64];
+  copy_text(s, sizeof(s), ssid, sn);
+  copy_text(p, sizeof(p), pass, pn);
+  if (!svc.wifi_set(s, p, svc.ctx)) return DispatchError::Internal;
+  r->map(0);
+  return DispatchError::Ok;
+}
+
+DispatchError h_wifi_status(const cbor::Value&, Services& svc,
+                            cbor::Writer* r) {
+  char ssid[33] = {};
+  const bool configured =
+      svc.wifi_info && svc.wifi_info(ssid, sizeof(ssid), svc.ctx);
+  r->map(2).text("configured").bool_v(configured).text("ssid").text(ssid);
+  return DispatchError::Ok;
+}
+
+DispatchError h_ota_start(const cbor::Value& params, Services& svc,
+                          cbor::Writer* r) {
+  if (!svc.ota_start) return DispatchError::Internal;
+  const char *url = nullptr, *version = nullptr;
+  size_t un = 0, vn = 0;
+  if (!param_text(params, "url", &url, &un) || un < 8 || un > 255) {
+    return DispatchError::BadRequest;
+  }
+  cbor::Value sv;
+  const uint8_t* sha = nullptr;
+  size_t shn = 0;
+  if (!cbor::map_find(params, "sha256", &sv) ||
+      !cbor::as_bytes(sv, &sha, &shn) || shn != 32) {
+    return DispatchError::BadRequest;
+  }
+  if (!param_text(params, "version", &version, &vn) || vn == 0 || vn > 23) {
+    return DispatchError::BadRequest;
+  }
+  // http(s):// 以外は受け付けない。
+  if (!((un >= 8 && std::memcmp(url, "https://", 8) == 0) ||
+        (un >= 7 && std::memcmp(url, "http://", 7) == 0))) {
+    return DispatchError::BadRequest;
+  }
+  char url_s[256], ver_s[24];
+  uint8_t sha_s[32];
+  copy_text(url_s, sizeof(url_s), url, un);
+  copy_text(ver_s, sizeof(ver_s), version, vn);
+  std::memcpy(sha_s, sha, sizeof(sha_s));
+  const int rc = svc.ota_start(url_s, sha_s, ver_s, svc.ctx);
+  if (rc > 0) return DispatchError::Busy;
+  if (rc < 0) return DispatchError::Internal;
+  r->map(0);
+  return DispatchError::Ok;
+}
+
+DispatchError h_ota_status(const cbor::Value&, Services& svc,
+                           cbor::Writer* r) {
+  if (!svc.ota_status) return DispatchError::Internal;
+  // 結果は {active,stage,pct,msg,version} の map。
+  if (!svc.ota_status(*r, svc.ctx)) return DispatchError::Internal;
+  return DispatchError::Ok;
+}
+
 DispatchError h_notify_post(const cbor::Value& params, Services& svc,
                             cbor::Writer* r) {
   const char *app = nullptr, *title = nullptr, *body = nullptr;
@@ -523,6 +606,8 @@ constexpr Handler kHandlers[] = {
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
     {"alarm.list", h_alarm_list},    {"alarm.set", h_alarm_set},
     {"alarm.delete", h_alarm_delete},
+    {"wifi.set", h_wifi_set},         {"wifi.status", h_wifi_status},
+    {"ota.start", h_ota_start},       {"ota.status", h_ota_status},
 };
 
 }  // namespace

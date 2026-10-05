@@ -41,6 +41,7 @@ import dev.sasnews.amoledwatch.ui.screens.MemoScreen
 import dev.sasnews.amoledwatch.ui.screens.NotifyScreen
 import dev.sasnews.amoledwatch.ui.screens.SettingsScreen
 import dev.sasnews.amoledwatch.ui.screens.ThemesScreen
+import dev.sasnews.amoledwatch.ui.screens.UpdateScreen
 import dev.sasnews.amoledwatch.ui.theme.AmoledWatchTheme
 
 class MainActivity : ComponentActivity() {
@@ -63,7 +64,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { DEVICES, MEMO, ALARM, SETTINGS, THEMES, NOTIFY }
+enum class Tab { DEVICES, MEMO, ALARM, SETTINGS, THEMES, UPDATE, NOTIFY }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,6 +143,12 @@ fun App(vm: WatchViewModel) {
                     icon = {},
                 )
                 NavigationBarItem(
+                    selected = tab == Tab.UPDATE.ordinal,
+                    onClick = { tab = Tab.UPDATE.ordinal },
+                    label = { Text(stringResource(R.string.tab_update)) },
+                    icon = {},
+                )
+                NavigationBarItem(
                     selected = tab == Tab.NOTIFY.ordinal,
                     onClick = { tab = Tab.NOTIFY.ordinal },
                     label = { Text(stringResource(R.string.tab_notify)) },
@@ -179,6 +186,12 @@ fun App(vm: WatchViewModel) {
                     .padding(padding),
             )
             Tab.THEMES -> ThemesScreen(
+                vm = vm,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+            Tab.UPDATE -> UpdateScreen(
                 vm = vm,
                 modifier = Modifier
                     .fillMaxSize()

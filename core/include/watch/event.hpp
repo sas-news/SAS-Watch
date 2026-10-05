@@ -31,6 +31,7 @@ enum class EventType : uint16_t {
   AlarmRinging,          // arg0 = alarm id。鳴動開始 (繰り返し再通知も出る)
   AlarmChanged,          // 一覧変更・鳴動停止・スヌーズ設定など表示更新用
   AgentStatusChanged,
+  OtaProgress,           // arg0 = 0-100 (状態詳細は firmware 側参照)
 };
 
 struct Event {

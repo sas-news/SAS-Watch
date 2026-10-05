@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media","wifi","ota"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -51,6 +51,21 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `alarm.list` | `{}` | `{alarms:[{id:<int>, hour:<0-23>, min:<0-59>, dow:<曜日bit bit0=日..bit6=土, 0=毎日>, on:<bool>}]}` (最大5件) |
 | `alarm.set` | `{hour, min}` + 省略可 `{id:<int>, dow:<int>, on:<bool>}` | `{id:<int>}` | `id` 省略/0 で新規 (満杯なら `busy`)、既存 id で更新 (`not_found`)。`dow` 0-0x7F 省略時 0、`on` 省略時 true |
 | `alarm.delete` | `{id:<int>}` | `{}` | 無い id は `not_found` |
+| `wifi.set` | `{ssid:<1-32文字>, pass:<0または8-63文字>}` | `{}` |
+| `wifi.status` | `{}` | `{configured:<bool>, ssid:<str>}` |
+| `ota.start` | `{url:<http(s)://〜 ≤255文字>, sha256:<bytes32>, version:<str>}` | `{}` |
+| `ota.status` | `{}` | `{active:<bool>, stage:<str>, pct:<0-100>, msg:<str>, version:<str>}` |
+
+`wifi.set` の資格情報は settings keys の表に**入れない**。ssid/pass は
+NVS に直接保存され、読み出し経路は `wifi.status` の ssid のみ
+(pass はいかなる method でも読み出せない)。
+
+`ota.start` は Wi-Fi セッション方式 OTA: 時計が Wi-Fi を立ち上げて
+url のイメージを HTTPS 取得→ sha256 照合→ 再起動。更新中は EVT
+`ota.progress` が飛び、終了時に `ota.result` が飛ぶ。
+`ota.status` の `stage` は `"idle"|"wifi"|"download"|"verify"|"done"|"reboot"|"fail"`。
+失敗の詳細は `msg`、更新先の表示名は `version`。もう1つの更新経路は
+BULK kind `"firmware"` (下記 BULK 節)。
 
 error code:
 
@@ -108,6 +123,7 @@ error code:
 | `nav.settings` | 設定 | 設定画面を開く |
 | `nav.media` | メディア | メディア画面を開く |
 | `nav.alarm` | アラーム | アラーム画面を開く |
+| `nav.ota` | ファーム更新 | ファーム更新画面を開く |
 | `memo.record` | メモ録音 | 音声メモの録音を開始 |
 | `timer.start` | タイマー開始 | タイマーを開始 |
 | `timer.stop` | タイマー停止 | タイマーを停止 |
@@ -129,6 +145,8 @@ event の一覧はこの表が唯一の正。
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
 | `alarm.ringing` | `{id}` (鳴動中のアラーム id) |
 | `agent.request` | `{id, text}` (将来) |
+| `ota.progress` | `{pct:<0-100>, stage:<str>}` OTA 進捗 (wifi/download/verify) |
+| `ota.result` | `{ok:<bool>, msg:<str>}` OTA 終了 (ok=true なら直後に再起動) |
 
 ## CBOR 正規形
 両側の実装でバイト列を一致させるため、encode は次の正規形に従う。
@@ -149,14 +167,17 @@ core (GoogleTest) と android (JUnit) の両方がこのファイルを読んで
 再生成は `tools/gen_protocol_vectors.py`。
 
 ## BULK (双方向: Asset / OTA / 音声メモ)
-BULK_START payload (CBOR): `{id, kind:"theme"|"asset"|"ota"|"memo", size, sha256:<bytes32>, chunk:<int>}`
+BULK_START payload (CBOR): `{id, kind:<str ≤15文字>, size, sha256:<bytes32>, chunk:<int>}`
+kind は `"theme"|"asset"|"ota"|"memo"|"firmware"`。`"firmware"` はファーム更新
+(Wi-Fi が使えないときの代替経路): 時計が /assets に一旦受け取り、
+sha256 検証後に OTA パーティションへ書き込んで再起動する。
 BULK_CHUNK payload: `transfer_id:u16 | offset:u32 | bytes...`
 BULK_ACK payload (CBOR): `{id, next:<offset>}`
 BULK_END payload (CBOR): `{id}`
 
 送信方向は2通り。どちらも「受信側が BULK_ACK を返す」のは同じ。
 
-- Phone → Watch (kind `"theme"|"asset"|"ota"`): bulk char に write-without-response。
+- Phone → Watch (kind `"theme"|"asset"|"ota"|"firmware"`): bulk char に write-without-response。
   Watch は8チャンクごとに `BULK_ACK{next}` を notify で返し、
   `BULK_END` 受信後は sha256 を検証して最終 `BULK_ACK{next=size}` を返す
   (RES-on-ctrl でも同じ結果を返してよい)。

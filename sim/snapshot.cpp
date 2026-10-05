@@ -269,25 +269,34 @@ int main(int argc, char** argv) {
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
 
+  // ファーム更新画面: 待機 → 進捗中。
+  back_home();
+  nav_to(watch::Route::Ota);
+  ok &= save(out, "21_ota_idle");
+  sim::set_ota_debug(2, 42, "", "0.2.0");
+  s_bus.publish({watch::EventType::OtaProgress, 42});
+  pump(300);
+  ok &= save(out, "22_ota_progress");
+
   // ---- アラーム ----
   back_home();
   nav_to(watch::Route::Alarm);
-  ok &= save(out, "21_alarm");
+  ok &= save(out, "23_alarm");
 
   // 鳴動アラート: 今この分のアラームを登録すると次の tick で鳴る。
   watch::features::alarm_set(0, 18, 41, 0, true, fctx);
   pump(400);
-  ok &= save(out, "22_alarm_alert");
+  ok &= save(out, "24_alarm_alert");
   tap(205, 281);  // 止める (中央 +30 のボタン中心)
   pump(300);
 
   // ---- 通知一覧 ----
   nav_to(watch::Route::Notifications);
-  ok &= save(out, "23_notifications");
+  ok &= save(out, "25_notifications");
   // 先頭行をタップして詳細 (アプリ名・タイトル・本文の全体表示)。
   tap(205, 130);
   pump(200);
-  ok &= save(out, "24_notification_detail");
+  ok &= save(out, "26_notification_detail");
   tap(205, 290);  // 一覧に戻る
   pump(200);
 
@@ -295,13 +304,13 @@ int main(int argc, char** argv) {
   watch::features::notify_add("LINE", "兄", "今週末帰るよ");
   s_bus.publish({watch::EventType::NotificationPosted, 0});
   pump(300);
-  ok &= save(out, "25_notify_popup");
+  ok &= save(out, "27_notify_popup");
   pump(4500);  // トーストが消えるまで待つ
 
   // ---- 音楽操作 ----
   back_home();
   nav_to(watch::Route::Media);
-  ok &= save(out, "26_media");
+  ok &= save(out, "28_media");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

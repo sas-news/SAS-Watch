@@ -19,9 +19,11 @@ import dev.sasnews.amoledwatch.protocol.MemoAudioInfo
 import dev.sasnews.amoledwatch.protocol.MemoEntry
 import dev.sasnews.amoledwatch.protocol.MemoInfo
 import dev.sasnews.amoledwatch.protocol.MemoListResult
+import dev.sasnews.amoledwatch.protocol.OtaStatusInfo
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.Res
+import dev.sasnews.amoledwatch.protocol.WifiStatusInfo
 import java.io.File
 import dev.sasnews.amoledwatch.service.WatchService
 import java.security.MessageDigest
@@ -101,6 +103,10 @@ class WatchLinkManager(private val app: WatchApp) {
     /** settings.get で読んだ最新の設定。 */
     private val _settings = MutableStateFlow<Map<String, Cbor>?>(null)
     val settings: StateFlow<Map<String, Cbor>?> = _settings
+
+    /** OTA セッションの最新状態 (EVT と ota.status の両方で更新)。 */
+    private val _otaStatus = MutableStateFlow<OtaStatusInfo?>(null)
+    val otaStatus: StateFlow<OtaStatusInfo?> = _otaStatus
 
     /** 画面に出す一時メッセージ（エラー/成功）。 */
     private val _notice = MutableStateFlow<String?>(null)
@@ -188,6 +194,24 @@ class WatchLinkManager(private val app: WatchApp) {
             is Evt.AlarmRinging -> {
                 _notice.value = app.getString(R.string.alarm_ringing_notice, evt.id)
                 scope.launch { refreshAlarms() }
+            }
+            is Evt.OtaProgress -> {
+                _otaStatus.value = OtaStatusInfo(
+                    active = true,
+                    stage = evt.stage,
+                    pct = evt.pct,
+                    msg = "",
+                    version = _otaStatus.value?.version ?: "",
+                )
+            }
+            is Evt.OtaResult -> {
+                _otaStatus.value = OtaStatusInfo(
+                    active = false,
+                    stage = if (evt.ok) "done" else "fail",
+                    pct = if (evt.ok) 100 else _otaStatus.value?.pct ?: 0,
+                    msg = evt.msg,
+                    version = _otaStatus.value?.version ?: "",
+                )
             }
             is Evt.AgentRequest -> {}
             is Evt.Unknown -> {}
@@ -307,6 +331,66 @@ class WatchLinkManager(private val app: WatchApp) {
         val out = File(dir, "memo_${id}.wav")
         out.writeBytes(wav)
         return out
+    }
+
+    // ---------------- Wi-Fi / OTA ----------------
+
+    suspend fun wifiSet(ssid: String, pass: String): Boolean {
+        val res = send(Req.WifiSet(ssid, pass))
+        if (res is Res.Ok) _notice.value = "Wi-Fi 設定を保存しました"
+        return res is Res.Ok
+    }
+
+    suspend fun wifiStatus(): WifiStatusInfo? {
+        val res = send(Req.WifiStatus)
+        return if (res is Res.Ok) WifiStatusInfo.fromCbor(res.result) else null
+    }
+
+    /** HTTPS OTA を開始 (時計が Wi-Fi で url を取りに行く)。 */
+    suspend fun otaStart(url: String, sha256: ByteArray, version: String): Boolean {
+        val res = send(Req.OtaStart(url, sha256, version))
+        return res is Res.Ok
+    }
+
+    suspend fun refreshOtaStatus() {
+        val res = send(Req.OtaStatus)
+        if (res is Res.Ok) _otaStatus.value = OtaStatusInfo.fromCbor(res.result)
+    }
+
+    /**
+     * ファームウェアを BULK (kind="firmware") で送る。
+     * sendTheme と同じ再開規則 (id = sha256 先頭2バイト)。時計は受領後に
+     * パーティションへ書き込んで再起動する。
+     */
+    suspend fun sendFirmware(bytes: ByteArray, onProgress: (Int, Int) -> Unit = { _, _ -> }): Boolean {
+        val sha = MessageDigest.getInstance("SHA-256").digest(bytes)
+        val transferId = (sha[0].toInt() and 0xFF) or ((sha[1].toInt() and 0xFF) shl 8)
+        var attempt = 0
+        while (attempt < THEME_MAX_ATTEMPTS) {
+            attempt++
+            val link = _link.value ?: return false
+            val ch = link.bulk ?: return false
+            val res = try {
+                BulkSender().send(ch, "firmware", bytes, transferId, onProgress = onProgress)
+            } catch (e: Exception) {
+                Res.Err("internal", e.message ?: "send failed")
+            }
+            when (res) {
+                is Res.Ok -> {
+                    log("BULK firmware 転送完了 (id=$transferId)")
+                    return true
+                }
+                is Res.Err -> {
+                    log("BULK firmware 転送失敗 ($attempt/$THEME_MAX_ATTEMPTS): ${res.code} ${res.message}")
+                    if (res.code != "internal") return false
+                    val reconnected = withTimeoutOrNull(THEME_RECONNECT_WAIT_MS) {
+                        link.state.first { it is LinkState.Connected }
+                    }
+                    if (reconnected == null && _link.value === link) return false
+                }
+            }
+        }
+        return false
     }
 
     suspend fun mediaState(title: String, artist: String, playing: Boolean) =

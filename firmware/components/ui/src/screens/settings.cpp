@@ -127,6 +127,18 @@ lv_obj_t* build(lv_obj_t* scr) {
   ui::c::list_row(btn, "PWR 長押し", action_jp(st.button_pwr_long), nullptr,
                   nullptr);
 
+  // ファーム更新: 現在バージョンを出しつつ進捗画面へ。
+  lv_obj_t* fw = ui::c::card(col);
+  ui::c::line(fw, "ファーム更新");
+  char fwver[48];
+  std::snprintf(fwver, sizeof(fwver), "現在 v%s", ui::port::fw_version());
+  ui::c::list_row(fw, "ファーム更新", fwver,
+                  [](lv_event_t*) {
+                    ui::emit(watch::ActionType::Navigate,
+                             static_cast<uint32_t>(watch::Route::Ota));
+                  },
+                  nullptr);
+
   lv_obj_t* info = ui::c::card(col);
   ui::c::line(info, "端末情報");
   char buf[96];
