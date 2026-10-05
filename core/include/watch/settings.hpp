@@ -30,6 +30,8 @@ struct Settings {
   // 音 (Phase 9)。volume は再生/ビープ共通、click はボタン音のON/OFF。
   uint32_t audio_volume = 70;  // 0-100
   uint32_t audio_click = 1;    // 0/1
+  // 通知を受け取ったときの振動 (0/1)。
+  uint32_t notify_vibrate = 1;
 };
 
 struct SettingKey {

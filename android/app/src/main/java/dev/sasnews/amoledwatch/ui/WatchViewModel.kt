@@ -67,6 +67,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
         is Evt.TimerFinished -> "タイマー終了"
         is Evt.MemoSaved -> "メモ保存 id=${evt.id}（${evt.kind}）"
         is Evt.MemoDeleted -> "メモ削除 id=${evt.id}"
+        is Evt.AlarmRinging -> "アラーム鳴動 id=${evt.id}"
         is Evt.MediaCommand -> "メディア操作: ${evt.cmd.wire}"
         is Evt.AgentRequest -> "Agent要求 id=${evt.id}: ${evt.text}"
         is Evt.Unknown -> "${evt.name}"
@@ -184,6 +185,19 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshMemos() = viewModelScope.launch { manager.refreshMemos() }
 
     fun memoDelete(id: Int) = viewModelScope.launch { manager.memoDelete(id) }
+
+    // ---------------- アラーム ----------------
+
+    val alarms: StateFlow<List<dev.sasnews.amoledwatch.protocol.AlarmEntry>?> =
+        manager.alarms
+
+    fun refreshAlarms() = viewModelScope.launch { manager.refreshAlarms() }
+
+    /** id=0 で新規。hour 0-23, min 0-59, dow: bit0=日..bit6=土 (0=毎日)。 */
+    fun alarmSave(id: Int, hour: Int, min: Int, dow: Int, on: Boolean) =
+        viewModelScope.launch { manager.alarmSave(id, hour, min, dow, on) }
+
+    fun alarmDelete(id: Int) = viewModelScope.launch { manager.alarmDelete(id) }
 
     /** 音声メモの再生トグル (未キャッシュなら時計から取って WAV にして鳴らす)。 */
     fun memoPlayToggle(id: Int) {

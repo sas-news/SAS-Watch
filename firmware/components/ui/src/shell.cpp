@@ -6,6 +6,8 @@
 #include "components.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
+#include "watch/features/alarm.hpp"
+#include "watch/features/notify.hpp"
 #include "watch/platform.hpp"
 
 #include <cstdio>
@@ -25,6 +27,9 @@ const ScreenOps* s_ops = nullptr;
 uint8_t s_last_depth = 1;
 lv_obj_t* s_alert = nullptr;
 lv_timer_t* s_alert_timer = nullptr;
+lv_timer_t* s_alarm_beep_timer = nullptr;  // アラーム繰り返しビープ
+lv_obj_t* s_toast = nullptr;               // 通知ポップアップ
+lv_timer_t* s_toast_timer = nullptr;
 
 // BLE パスキー確認
 lv_obj_t* s_key_modal = nullptr;
@@ -225,6 +230,154 @@ void show_timer_alert() {
   port::vibrate(800);  // TODO(hw): 実機で確認 — 振動強さ/パターン
 }
 
+// ---- アラーム鳴動アラート ---------------------------------------------------
+// 「止める」「スヌーズ」縦並び。鳴動中は ~4.5s ごとにビープ+短振動を繰り返す。
+
+void hide_alarm_alert() {
+  if (s_alert) {
+    lv_obj_delete(s_alert);
+    s_alert = nullptr;
+  }
+  if (s_alarm_beep_timer) {
+    lv_timer_delete(s_alarm_beep_timer);
+    s_alarm_beep_timer = nullptr;
+  }
+  s_alert_timer = nullptr;
+}
+
+void alarm_beep(lv_timer_t*) {
+  if (s_ctx.fctx && s_ctx.fctx->audio) {
+    const uint8_t vol = static_cast<uint8_t>(
+        s_ctx.settings && s_ctx.settings->audio_volume > 100
+            ? 100
+            : (s_ctx.settings ? s_ctx.settings->audio_volume : 70));
+    s_ctx.fctx->audio->beep(watch::BeepKind::Alarm, vol);
+  }
+  port::vibrate(300);  // TODO(hw): 実機で確認 — 繰り返し振動の強さ/間隔
+}
+
+void show_alarm_alert(uint32_t id) {
+  hide_alert(nullptr);   // タイマーアラートが出ていれば消す
+  if (s_alert) hide_alarm_alert();  // 連続発火時は作り直し
+  const Theme& t = theme();
+  s_alert = lv_obj_create(lv_layer_top());
+  lv_obj_remove_flag(s_alert, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(s_alert, 410, 502);
+  lv_obj_set_pos(s_alert, 0, 0);
+  lv_obj_set_style_bg_color(s_alert, t.bg, 0);
+  lv_obj_set_style_bg_opa(s_alert, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(s_alert, 0, 0);
+  lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* l = lv_label_create(s_alert);
+  lv_label_set_text(l, "アラーム");
+  lv_obj_set_style_text_font(l, t.font_title, 0);
+  lv_obj_set_style_text_color(l, t.accent, 0);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, -180);
+
+  // 鳴っているアラームの時刻 (id が見つからなければ時刻は出さない)。
+  watch::features::AlarmEntry e;
+  if (watch::features::alarm_find(id, &e)) {
+    char tb[8];
+    std::snprintf(tb, sizeof(tb), "%u:%02u", e.hour, e.min);
+    lv_obj_t* tm = lv_label_create(s_alert);
+    lv_label_set_text(tm, tb);
+    lv_obj_set_style_text_font(tm, t.font_digits, 0);
+    lv_obj_set_style_text_color(tm, t.text, 0);
+    lv_obj_align(tm, LV_ALIGN_CENTER, 0, -90);
+  }
+
+  lv_obj_t* stop = lv_button_create(s_alert);
+  lv_obj_set_size(stop, 260, 72);
+  lv_obj_align(stop, LV_ALIGN_CENTER, 0, 30);
+  lv_obj_set_style_radius(stop, t.radius_lg, 0);
+  lv_obj_set_style_bg_color(stop, t.primary, 0);
+  lv_obj_t* sl = lv_label_create(stop);
+  lv_label_set_text(sl, "止める");
+  lv_obj_set_style_text_font(sl, t.font_title, 0);
+  lv_obj_set_style_text_color(sl, t.on_primary, 0);
+  lv_obj_center(sl);
+  lv_obj_add_event_cb(
+      stop,
+      [](lv_event_t*) {
+        emit(watch::ActionType::AlarmStop);
+        hide_alarm_alert();
+      },
+      LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t* snz = lv_button_create(s_alert);
+  lv_obj_set_size(snz, 260, 72);
+  lv_obj_align(snz, LV_ALIGN_CENTER, 0, 130);
+  lv_obj_set_style_radius(snz, t.radius_lg, 0);
+  lv_obj_set_style_bg_color(snz, t.surface2, 0);
+  lv_obj_t* nl = lv_label_create(snz);
+  lv_label_set_text(nl, "スヌーズ (5分)");
+  lv_obj_set_style_text_font(nl, t.font_body, 0);
+  lv_obj_set_style_text_color(nl, t.text, 0);
+  lv_obj_center(nl);
+  lv_obj_add_event_cb(
+      snz,
+      [](lv_event_t*) {
+        emit(watch::ActionType::AlarmSnooze);
+        hide_alarm_alert();
+      },
+      LV_EVENT_CLICKED, nullptr);
+
+  // 鳴動中は繰り返す (停止/スヌーズ/タイムアウトでアラートが消えると止まる)。
+  s_alarm_beep_timer = lv_timer_create(alarm_beep, 4500, nullptr);
+  alarm_beep(nullptr);  // 初回は即鳴らす
+  port::vibrate(600);   // TODO(hw): 実機で確認
+}
+
+// ---- 通知ポップアップ -------------------------------------------------------
+// 画面上部に短時間だけ出すトースト。タップ操作は下に通す。
+
+void hide_toast(lv_timer_t*) {
+  if (s_toast) {
+    lv_obj_delete(s_toast);
+    s_toast = nullptr;
+  }
+  s_toast_timer = nullptr;
+}
+
+void show_notify_popup() {
+  watch::features::NotifyEntry e;
+  if (!watch::features::notify_at(0, &e)) return;
+  hide_toast(nullptr);
+  const Theme& t = theme();
+  s_toast = lv_obj_create(lv_layer_top());
+  lv_obj_remove_flag(s_toast, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(s_toast, 390, 96);
+  lv_obj_set_pos(s_toast, 10, 8);
+  lv_obj_set_style_bg_color(s_toast, t.surface2, 0);
+  lv_obj_set_style_bg_opa(s_toast, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(s_toast, 0, 0);
+  lv_obj_set_style_radius(s_toast, t.radius_lg, 0);
+  lv_obj_set_flex_flow(s_toast, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_toast, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                       LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_all(s_toast, 12, 0);
+  lv_obj_set_style_pad_row(s_toast, 4, 0);
+
+  lv_obj_t* app = lv_label_create(s_toast);
+  lv_label_set_text(app, e.app);
+  lv_obj_set_style_text_font(app, t.font_body, 0);
+  lv_obj_set_style_text_color(app, t.text_dim, 0);
+
+  lv_obj_t* title = lv_label_create(s_toast);
+  lv_label_set_text(title, e.title);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(title, LV_PCT(100));
+  lv_obj_set_style_text_font(title, t.font_body, 0);
+  lv_obj_set_style_text_color(title, t.text, 0);
+
+  s_toast_timer = lv_timer_create(hide_toast, 4000, nullptr);
+  lv_timer_set_repeat_count(s_toast_timer, 1);
+  if (!s_ctx.settings || s_ctx.settings->notify_vibrate) {
+    port::vibrate(150);  // TODO(hw): 実機で確認 — 通知の振動強さ
+  }
+}
+
 // ---- パスキー確認モーダル ---------------------------------------------------
 
 void hide_passkey(lv_timer_t*) {
@@ -335,6 +488,13 @@ void handle_event(const watch::Event& e) {
     if (!s_cur || (s_ops && s_ops->route != r)) swap_screen(r);
   } else if (e.type == watch::EventType::TimerFinished) {
     show_timer_alert();
+  } else if (e.type == watch::EventType::AlarmRinging) {
+    show_alarm_alert(e.arg0);
+  } else if (e.type == watch::EventType::AlarmChanged) {
+    // 停止/スヌーズ/自動停止で鳴動が終わったら閉じる。
+    if (!watch::features::alarm_ringing() && s_alert) hide_alarm_alert();
+  } else if (e.type == watch::EventType::NotificationPosted) {
+    show_notify_popup();
   } else if (e.type == watch::EventType::ThemeChanged) {
     // settings.theme を適用 (失敗時は適用層が standard に倒す)。
     const char* id = s_ctx.settings ? s_ctx.settings->theme : "standard";
@@ -404,6 +564,13 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::SettingsChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::PowerStateChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::ThemeChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::AlarmRinging, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::AlarmChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::NotificationPosted, bus_cb,
+                         nullptr);
+    s_ctx.bus->subscribe(watch::EventType::NotificationsCleared, bus_cb,
+                         nullptr);
+    s_ctx.bus->subscribe(watch::EventType::MediaStateChanged, bus_cb, nullptr);
   }
   // 設定されたテーマを最初の画面構築より先に適用する。
   if (s_ctx.settings) theme_apply(s_ctx.settings->theme);

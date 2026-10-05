@@ -53,6 +53,17 @@ struct Services {
   // memo.audio.get: RES のあとに BULK push 転送を開始する。失敗は false。
   bool (*memo_audio_send)(uint32_t id, void* ctx) = nullptr;
 
+  // ---- alarm.list / alarm.set / alarm.delete ----
+  // alarm.list: 総件数 (>=0)。
+  int32_t (*alarm_count)(void* ctx) = nullptr;
+  // alarm.list: i 番目のエントリを {id,hour,min,dow,on} で w に書く。
+  bool (*alarm_entry)(uint32_t i, cbor::Writer& w, void* ctx) = nullptr;
+  // alarm.set: 確定 id (>0) / -1 引数不正 / -2 満杯 / -3 指定 id 無し。
+  int32_t (*alarm_set)(uint32_t id, uint8_t hour, uint8_t min, uint8_t dow,
+                       bool on, void* ctx) = nullptr;
+  // alarm.delete: 1=消えた / 0=無い。
+  int32_t (*alarm_delete)(uint32_t id, void* ctx) = nullptr;
+
   // 任意の通知 (未設定でも RES ok を返す)
   void (*notify_posted)(const char* app, const char* title, const char* body,
                         void* ctx) = nullptr;

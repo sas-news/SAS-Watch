@@ -37,6 +37,13 @@ lv_obj_t* build(lv_obj_t* scr) {
                 nullptr);
   ui::c::button(col, "アプリ一覧",
                 [](lv_event_t*) { nav_to(watch::Route::More); }, nullptr);
+  ui::c::button(col, "アラーム",
+                [](lv_event_t*) { nav_to(watch::Route::Alarm); }, nullptr);
+  ui::c::button(col, "通知",
+                [](lv_event_t*) { nav_to(watch::Route::Notifications); },
+                nullptr);
+  ui::c::button(col, "音楽",
+                [](lv_event_t*) { nav_to(watch::Route::Media); }, nullptr);
   ui::c::button(col, "設定",
                 [](lv_event_t*) { nav_to(watch::Route::Settings); }, nullptr);
   return scr;

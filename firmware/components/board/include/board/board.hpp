@@ -48,6 +48,12 @@ namespace rtc {
     esp_err_t apply_to_system_time();
     esp_err_t get_epoch(time_t* out);   // RTC が読めなければエラー
     esp_err_t set_epoch(time_t t);      // UTC epoch を RTC に書く
+    // アラーム (時・分・秒に一致 = 毎日その時刻。次回発火を都度書き込む前提)。
+    // INT (GPIO39) が LOW になるので light sleep wake として使える。
+    // deep sleep からは復帰できないので deep sleep 中は RTC timer wakeup で起きる。
+    esp_err_t set_alarm_epoch(time_t t);
+    // アラーム割り込み解除 (AIE off + AF clear)。発火後の INT LOW 解除にも使う。
+    esp_err_t clear_alarm();
 }
 
 namespace imu {

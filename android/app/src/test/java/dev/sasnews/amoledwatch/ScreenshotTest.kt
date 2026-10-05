@@ -5,11 +5,13 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.roborazziSystemPropertyOutputDirectory
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.media.MediaBridge
+import dev.sasnews.amoledwatch.protocol.AlarmEntry
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
 import dev.sasnews.amoledwatch.protocol.ThemePackage
+import dev.sasnews.amoledwatch.ui.screens.AlarmContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesUiState
 import dev.sasnews.amoledwatch.ui.screens.FoundUi
@@ -217,6 +219,24 @@ class ScreenshotTest {
                     onPickZip = {},
                     onSendPicked = {},
                     onRetry = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun alarm_screen() {
+        captureRoboImage(filePath = path("alarm")) {
+            AmoledWatchTheme {
+                AlarmContent(
+                    connected = true,
+                    alarms = listOf(
+                        AlarmEntry(id = 1, hour = 7, min = 0, dow = 0x3E, on = true),
+                        AlarmEntry(id = 2, hour = 9, min = 30, dow = 0, on = false),
+                    ),
+                    onRefresh = {},
+                    onSave = { _, _, _, _, _ -> },
+                    onDelete = {},
                 )
             }
         }

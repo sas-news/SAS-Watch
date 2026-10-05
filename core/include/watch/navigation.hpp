@@ -26,6 +26,7 @@ enum class Route : uint8_t {
   Agent,
   PowerMenu,
   Confirm,  // 承認モーダル用
+  Alarm,
 };
 
 class Navigator {

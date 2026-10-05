@@ -16,6 +16,7 @@
 #include "power_apply.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
+#include "watch/features/alarm.hpp"
 #include "watch/input_mapper.hpp"
 #include "watch/platform.hpp"
 
@@ -63,6 +64,35 @@ void enter_deep_sleep() {
   board::sleep::enter_deep_sleep(us);
 }
 
+// core が計算した次回アラーム発火時刻を PCF85063 のアラームに反映する。
+// 値が変わった時だけ I2C 書き込み (軽量化)。鳴動に入ったら AF をクリアして
+// INT (GPIO39) を HIGH に戻す — LOW のままだと light sleep が即起きてしまう。
+int64_t s_rtc_alarm = -1;   // RTC に書いた最後の発火時刻 (-1 = 未同期)
+bool s_af_cleared = false;  // 鳴動中に AF を1度だけクリアしたか
+void alarm_rtc_sync() {
+  if (watch::features::alarm_ringing()) {
+    if (!s_af_cleared) {
+      board::rtc::clear_alarm();
+      s_af_cleared = true;
+    }
+    // 鳴動が終わったら必ず次回を再書き込みさせる。
+    s_rtc_alarm = -1;
+    return;
+  }
+  s_af_cleared = false;
+  const int64_t e = watch::features::alarm_next_fire_epoch();
+  if (e == s_rtc_alarm) return;
+  s_rtc_alarm = e;
+  if (e > 0) {
+    const esp_err_t ret = board::rtc::set_alarm_epoch(static_cast<time_t>(e));
+    if (ret != ESP_OK) {
+      ESP_LOGW(TAG, "rtc alarm write: %s", esp_err_to_name(ret));
+    }
+  } else {
+    board::rtc::clear_alarm();
+  }
+}
+
 void app_task(void*) {
   for (;;) {
     ble_glue_poll();
@@ -70,6 +100,8 @@ void app_task(void*) {
     const int64_t now = s_clock->now_ms();
     core_lock();
     s_rt.step(now, *s_fctx);
+    // core 状態を読むので lock の内側。I2C 書き込みは値が変わった時だけ。
+    alarm_rtc_sync();
     core_unlock();
     power_apply(s_power.state(), s_settings);
 

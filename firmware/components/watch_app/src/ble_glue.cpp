@@ -21,7 +21,10 @@
 #include "esp_system.h"
 #include "theme_store/theme_store.hpp"
 #include "ui/ui.hpp"
+#include "watch/features/alarm.hpp"
+#include "watch/features/media.hpp"
 #include "watch/features/memo.hpp"
+#include "watch/features/notify.hpp"
 #include "watch/protocol/bulk.hpp"
 #include "watch/protocol/dispatch.hpp"
 #include "watch/protocol/frame.hpp"
@@ -216,6 +219,24 @@ void write_evt_id(watch::cbor::Writer& w, void* ctx) {
   w.map(1).text("id").uint_v(id);
 }
 
+// media.cmd の数値 → ワイヤ表現 (protocol-v1.md と一致させる)。
+const char* media_cmd_wire(uint32_t cmd) {
+  switch (static_cast<watch::MediaCmd>(cmd)) {
+    case watch::MediaCmd::PlayPause: return "play_pause";
+    case watch::MediaCmd::Next: return "next";
+    case watch::MediaCmd::Prev: return "prev";
+    case watch::MediaCmd::VolUp: return "vol_up";
+    case watch::MediaCmd::VolDown: return "vol_down";
+    default: return nullptr;
+  }
+}
+
+void write_evt_media_cmd(watch::cbor::Writer& w, void* ctx) {
+  const uint32_t cmd = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(ctx));
+  const char* s = media_cmd_wire(cmd);
+  w.map(1).text("cmd").text(s ? s : "unknown");
+}
+
 void on_bus_evt(const watch::Event& e, void*) {
   if (!ble_link_is_connected()) return;
   uint8_t buf[160];
@@ -237,6 +258,16 @@ void on_bus_evt(const watch::Event& e, void*) {
     case watch::EventType::MemoDeleted:
       ok = watch::proto::encode_evt(
           &w, "memo.deleted", write_evt_id,
+          reinterpret_cast<void*>(static_cast<uintptr_t>(e.arg0)));
+      break;
+    case watch::EventType::AlarmRinging:
+      ok = watch::proto::encode_evt(
+          &w, "alarm.ringing", write_evt_id,
+          reinterpret_cast<void*>(static_cast<uintptr_t>(e.arg0)));
+      break;
+    case watch::EventType::MediaCmdRequested:
+      ok = watch::proto::encode_evt(
+          &w, "media.cmd", write_evt_media_cmd,
           reinterpret_cast<void*>(static_cast<uintptr_t>(e.arg0)));
       break;
     default:
@@ -354,6 +385,43 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
   svc.memo_audio_send = [](uint32_t id, void*) {
     return bulk_out_begin(id);
   };
+  svc.alarm_count = [](void*) {
+    return static_cast<int32_t>(watch::features::alarm_count());
+  };
+  svc.alarm_entry = [](uint32_t i, watch::cbor::Writer& w, void*) {
+    watch::features::AlarmEntry e;
+    if (!watch::features::alarm_at(i, &e)) return false;
+    w.map(5)
+        .text("id")
+        .uint_v(e.id)
+        .text("hour")
+        .uint_v(e.hour)
+        .text("min")
+        .uint_v(e.min)
+        .text("dow")
+        .uint_v(e.dow)
+        .text("on")
+        .bool_v(e.enabled != 0);
+    return true;
+  };
+  svc.alarm_set = [](uint32_t id, uint8_t hour, uint8_t min, uint8_t dow,
+                     bool on, void* c) -> int32_t {
+    return watch::features::alarm_set(
+        id, hour, min, dow, on, *static_cast<watch::FeatureContext*>(c));
+  };
+  svc.alarm_delete = [](uint32_t id, void* c) -> int32_t {
+    return watch::features::alarm_delete(
+        id, *static_cast<watch::FeatureContext*>(c));
+  };
+  svc.notify_posted = [](const char* app, const char* title, const char* body,
+                         void*) {
+    watch::features::notify_add(app, title, body);
+  };
+  svc.media_state = [](const char* title, const char* artist, bool playing,
+                       void* c) {
+    watch::features::media_set(title, artist, playing,
+                               *static_cast<watch::FeatureContext*>(c));
+  };
   svc.ctx = fctx();
   // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。
   svc.setting_changed = [](const char* key, void*) {
@@ -409,6 +477,8 @@ void ble_glue_init() {
   bus().subscribe(watch::EventType::TimerFinished, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::MemoSaved, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::MemoDeleted, on_bus_evt, nullptr);
+  bus().subscribe(watch::EventType::AlarmRinging, on_bus_evt, nullptr);
+  bus().subscribe(watch::EventType::MediaCmdRequested, on_bus_evt, nullptr);
 }
 
 // app タスクのループで保留分を処理する。

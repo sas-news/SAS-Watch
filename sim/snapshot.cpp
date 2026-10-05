@@ -13,7 +13,10 @@
 #include "sim_platform.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
+#include "watch/features/alarm.hpp"
+#include "watch/features/media.hpp"
 #include "watch/features/memo.hpp"
+#include "watch/features/notify.hpp"
 #include "watch/input_mapper.hpp"
 #include "watch/power.hpp"
 #include "watch/runtime.hpp"
@@ -144,6 +147,13 @@ int main(int argc, char** argv) {
   watch::features::memo_create(m1, std::strlen(m1), fctx);
   watch::features::memo_create(m2, std::strlen(m2), fctx);
 
+  // アラーム 2件 (7:00 平日 / 9:30 毎日) と通知・曲情報。
+  watch::features::alarm_set(0, 7, 0, 0x3E, true, fctx);
+  watch::features::alarm_set(0, 9, 30, 0, false, fctx);
+  watch::features::notify_add("LINE", "母", "夕飯何にする？");
+  watch::features::notify_add("Gmail", "GitHub", "[SAS-Watch] PR #9 merged");
+  watch::features::media_set("夜に駆ける", "YOASOBI", true, fctx);
+
   // Action 出口 → core キュー。
   ui::set_action_sink(&sink);
   ui::create({&s_bus, &s_nav, &s_settings, &fctx});
@@ -258,6 +268,40 @@ int main(int argc, char** argv) {
   tap(205, 190);
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
+
+  // ---- アラーム ----
+  back_home();
+  nav_to(watch::Route::Alarm);
+  ok &= save(out, "21_alarm");
+
+  // 鳴動アラート: 今この分のアラームを登録すると次の tick で鳴る。
+  watch::features::alarm_set(0, 18, 41, 0, true, fctx);
+  pump(400);
+  ok &= save(out, "22_alarm_alert");
+  tap(205, 281);  // 止める (中央 +30 のボタン中心)
+  pump(300);
+
+  // ---- 通知一覧 ----
+  nav_to(watch::Route::Notifications);
+  ok &= save(out, "23_notifications");
+  // 先頭行をタップして詳細 (アプリ名・タイトル・本文の全体表示)。
+  tap(205, 130);
+  pump(200);
+  ok &= save(out, "24_notification_detail");
+  tap(205, 290);  // 一覧に戻る
+  pump(200);
+
+  // 通知ポップアップ: notify.post 相当 (store 追加 + NotificationPosted)。
+  watch::features::notify_add("LINE", "兄", "今週末帰るよ");
+  s_bus.publish({watch::EventType::NotificationPosted, 0});
+  pump(300);
+  ok &= save(out, "25_notify_popup");
+  pump(4500);  // トーストが消えるまで待つ
+
+  // ---- 音楽操作 ----
+  back_home();
+  nav_to(watch::Route::Media);
+  ok &= save(out, "26_media");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }
