@@ -28,6 +28,15 @@ Action imu(int16_t x, int16_t y, int16_t z) {
   return a;
 }
 
+// HW pedometer の累積カウンタ同期 (arg0 = 24bit 生値)。
+Action hw_sync(uint32_t total) {
+  Action a{};
+  a.type = ActionType::StepsHwSync;
+  a.source = ActionSource::System;
+  a.arg0 = total;
+  return a;
+}
+
 }  // namespace
 
 // ---------- RaiseDetector ----------
@@ -161,6 +170,11 @@ struct StepsFixture {
       clock.advance_ms(50);
     }
   }
+
+  void sync(uint32_t total) {
+    Action a = hw_sync(total);
+    features::kSteps.handle(a, ctx);
+  }
 };
 
 TEST(Steps, ImuSampleCountsAndPublishes) {
@@ -234,6 +248,77 @@ TEST(Steps, MidnightDeadlineIsFuture) {
   StepsFixture f;
   const int64_t dl = features::kSteps.next_deadline_ms();
   EXPECT_GT(dl, f.clock.now_ms());
+}
+
+// ---------- Steps Feature: HW pedometer 経路 ----------
+
+TEST(StepsHw, SyncAccumulatesDelta) {
+  StepsFixture f;
+  f.sync(100);   // 初回: hw_last=0 なので 100 まるまる差分
+  EXPECT_EQ(features::steps_today(), 100u);
+  f.sync(150);   // +50
+  EXPECT_EQ(features::steps_today(), 150u);
+  f.sync(150);   // delta 0 — StepsChanged は余計に出ない
+  EXPECT_EQ(features::steps_today(), 150u);
+}
+
+TEST(StepsHw, SyncDisablesSoftwareCounting) {
+  StepsFixture f;
+  f.sync(10);  // HW 有効の印
+  f.walk(200);  // sw 検出は走らないので歩数は増えない
+  EXPECT_EQ(features::steps_today(), 10u);
+}
+
+TEST(StepsHw, SoftwareFallbackCountsBeforeSync) {
+  StepsFixture f;
+  f.walk(200);  // まだ sync が来ていない間は sw で数える
+  EXPECT_GT(features::steps_today(), 0u);
+}
+
+TEST(StepsHw, CounterWrapDelta) {
+  StepsFixture f;
+  f.sync(100);
+  f.sync(0xFFFFFE);  // 大差分 → リセット疑いで破棄だが hw_last は更新
+  f.sync(5);         // (5 - 0xFFFFFE) & 0xFFFFFF = 7 → ラップ差分として加算
+  EXPECT_EQ(features::steps_today(), 107u);
+}
+
+TEST(StepsHw, ImplausibleDeltaDiscardedButRecovers) {
+  StepsFixture f;
+  f.sync(50);
+  f.sync(500000);  // 数十万差分 = カウンタリセット疑い → 破棄
+  EXPECT_EQ(features::steps_today(), 50u);
+  f.sync(500010);  // 以降は正常差分として継続
+  EXPECT_EQ(features::steps_today(), 60u);
+}
+
+TEST(StepsHw, RestoreContinuesHwDelta) {
+  StepsFixture f;
+  f.sync(1000);
+  features::kSteps.save(f.ctx);
+  const uint32_t before = features::steps_today();
+
+  // 再起動 (deep sleep 覚醒) — 永続化した hw_last から差分継続。
+  test::FakeClock clock2;
+  clock2.set_epoch_s(f.clock.epoch_s());
+  FeatureContext ctx2{f.bus, f.kv, clock2, nullptr, nullptr, nullptr,
+                      &f.settings};
+  features::kSteps.restore(ctx2);
+  EXPECT_EQ(features::steps_today(), before);
+
+  Action a = hw_sync(1060);  // deep sleep 中に 60 歩進んだ
+  features::kSteps.handle(a, ctx2);
+  EXPECT_EQ(features::steps_today(), before + 60);
+}
+
+TEST(StepsHw, SyncAcrossMidnightOnlyAddsDelta) {
+  StepsFixture f;
+  f.sync(400);
+  EXPECT_EQ(features::steps_today(), 400u);
+  // 翌日: 当日歩数はリセットされるがカウンタ差分は正しく続く。
+  f.clock.set_epoch_s(f.clock.epoch_s() + 86400);
+  f.sync(430);
+  EXPECT_EQ(features::steps_today(), 30u);
 }
 
 // ---------- steps.get (protocol) ----------

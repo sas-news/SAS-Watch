@@ -58,6 +58,17 @@ namespace imu {
     esp_err_t arm_wake_on_motion();
     // WoM を解除し、加速度計を通常設定 (init 時と同じ range/ODR) に戻す。
     esp_err_t disarm_wake_on_motion();
+
+    // --- ハードウェア歩数計 (QMI8658A DS §11; C rev0.9 も CTRL8.bit4 あり) ---
+    // 未設定なら CTRL9 でパラメータ書込み → CTRL8.bit4 で有効化。
+    // deep sleep 復帰で既に有効なら再設定せず採用 (カウント継続)。
+    // チップが pedometer を持たない/失敗なら ESP_ERR_* を返す
+    // (呼び出し側はソフト検出へフォールバック)。
+    esp_err_t hw_pedometer_init();
+    // hw_pedometer_init() が成功しているか。
+    bool hw_pedometer_active();
+    // 累積歩数 (24bit) を読む。成功時 ESP_OK。
+    esp_err_t hw_pedometer_steps(uint32_t* out);
 }
 
 namespace haptics {

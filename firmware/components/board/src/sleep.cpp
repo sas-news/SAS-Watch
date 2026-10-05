@@ -51,6 +51,10 @@ bool woke_by_imu()
 
 void enter_deep_sleep(uint64_t wake_after_us)
 {
+    // light sleep 用に貼り付けた歩数同期タイマー (imu_service が set) を
+    // deep sleep に持ち込まない。以降は wake_after_us だけが timer になる。
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+
     // BOOT(GPIO0, LOW) — ext0 (単一 RTC GPIO)
     esp_err_t ret = esp_sleep_enable_ext0_wakeup(pins::kButtonBoot, 0);
     if (ret != ESP_OK) {
