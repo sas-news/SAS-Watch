@@ -119,7 +119,7 @@ void attach_input(lv_obj_t* scr) {
   lv_obj_add_event_cb(scr, on_long_press, LV_EVENT_LONG_PRESSED, nullptr);
 }
 
-void swap_screen(watch::Route r) {
+void swap_screen(watch::Route r, bool rebuild = false) {
   const ScreenOps* ops = screen_ops(r);
   if (!ops) {
     // 画面未実装の Route (Notifications/Media/Dev/Agent/Confirm) は無視。
@@ -134,7 +134,7 @@ void swap_screen(watch::Route r) {
       push ? LV_SCREEN_LOAD_ANIM_MOVE_LEFT : LV_SCREEN_LOAD_ANIM_MOVE_RIGHT;
   const Theme& t = theme();
 
-  if (r == watch::Route::Home && s_home) {
+  if (r == watch::Route::Home && s_home && !rebuild) {
     lv_obj_t* prev = lv_screen_active();
     lv_screen_load_anim(s_home, anim, t.anim_ms, 0, false);
     s_cur = s_home;
@@ -187,6 +187,14 @@ void show_timer_alert() {
   lv_obj_set_style_bg_opa(s_alert, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_alert, 0, 0);
   lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
+
+  // テーマ画像スロット: タイマー終了時の画像 (あれば文字の上)。
+  if (t.img_timer_done) {
+    lv_obj_t* img = lv_image_create(s_alert);
+    lv_image_set_src(img, t.img_timer_done);
+    lv_obj_align(img, LV_ALIGN_CENTER, 0, -160);
+    lv_obj_add_flag(img, LV_OBJ_FLAG_EVENT_BUBBLE);
+  }
 
   lv_obj_t* l = lv_label_create(s_alert);
   lv_label_set_text(l, "タイマー終了！");
@@ -308,6 +316,18 @@ void drain_passkey(void*) {
   show_passkey(static_cast<uint32_t>(k));
 }
 
+// テーマ切替で現在画面を作り直す (Home は作り直して差し替える)。
+void rebuild_current() {
+  const watch::Route r =
+      s_ctx.nav ? s_ctx.nav->current() : watch::Route::Home;
+  if (r == watch::Route::Home) {
+    s_home = nullptr;  // 旧 Home は swap_screen の prev として遅延削除される
+    swap_screen(r, true);
+  } else {
+    swap_screen(r, true);  // prev はアニメ後に削除される
+  }
+}
+
 void handle_event(const watch::Event& e) {
   if (e.type == watch::EventType::RouteChanged) {
     const watch::Route r =
@@ -315,6 +335,13 @@ void handle_event(const watch::Event& e) {
     if (!s_cur || (s_ops && s_ops->route != r)) swap_screen(r);
   } else if (e.type == watch::EventType::TimerFinished) {
     show_timer_alert();
+  } else if (e.type == watch::EventType::ThemeChanged) {
+    // settings.theme を適用 (失敗時は適用層が standard に倒す)。
+    const char* id = s_ctx.settings ? s_ctx.settings->theme : "standard";
+    theme_apply(id);
+    rebuild_current();
+    // アラート表示中なら画像差し替わりに合わせて閉じる。
+    if (s_alert) hide_alert(nullptr);
   }
   if (s_ops && s_ops->on_event && s_cur) s_ops->on_event(s_cur, e);
 }
@@ -349,6 +376,15 @@ void emit(watch::ActionType type, uint32_t arg0) {
   s_sink(a);
 }
 
+void emit_text(watch::ActionType type, const char* text) {
+  if (!s_sink || !text) return;
+  watch::Action a{};
+  a.type = type;
+  a.source = watch::ActionSource::Touch;
+  a.set_text(text);
+  s_sink(a);
+}
+
 bool create(const Ctx& c) {
   s_ctx = c;
   if (s_ctx.bus) {
@@ -367,7 +403,10 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::BrightnessChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::SettingsChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::PowerStateChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::ThemeChanged, bus_cb, nullptr);
   }
+  // 設定されたテーマを最初の画面構築より先に適用する。
+  if (s_ctx.settings) theme_apply(s_ctx.settings->theme);
   // 最初のアクティブ画面は破棄して Home に置き換える。
   lv_obj_t* initial = lv_screen_active();
   swap_screen(watch::Route::Home);

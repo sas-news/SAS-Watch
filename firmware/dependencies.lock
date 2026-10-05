@@ -120,6 +120,16 @@ dependencies:
     source:
       type: idf
     version: 5.5.0
+  joltwallet/littlefs:
+    component_hash: add3caf39a265868f70e55f17e8bfb401f200e45a601dc392832e7ac2c1487bc
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.16.4
   lvgl/lvgl:
     component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
     dependencies: []
@@ -208,10 +218,11 @@ direct_dependencies:
 - espressif/esp_codec_dev
 - espressif/usb
 - idf
+- joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_amoled_2_06
 - waveshare/pcf85063a
 - waveshare/qmi8658
-manifest_hash: 0581b127d154361b6f1799ac4b100f1fd011ff34de610594824d7cf6d4a606b1
+manifest_hash: 6f24481630d6115f6d02658b2fdeb61f821abdae9a9375014f7d1d587486500d
 target: esp32s3
 version: 2.0.0

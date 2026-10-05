@@ -1,4 +1,6 @@
 // theme.hpp — Theme Token。色・角丸・余白・フォントを1か所に集める。
+// docs/theme-format.md: 内蔵 (standard/light) か littlefs 上の
+// /themes/<id>/ を読んで切替える。画像スロットは無ければ nullptr。
 #pragma once
 
 #include "lvgl.h"
@@ -27,8 +29,33 @@ struct Theme {
   uint8_t radius_lg;  // カード角丸 (=18)
   uint16_t anim_ms;   // 画面遷移 (=220)
   uint8_t tap_min;    // タップ最小高さ (=56)
+
+  // 画像スロット (docs/theme-format.md)。nullptr = 画像なし。
+  const lv_image_dsc_t* img_home_bg;    // Home 背景 (下帯)
+  const lv_image_dsc_t* img_stand;      // Home 立ち絵
+  const lv_image_dsc_t* img_timer_done; // タイマー終了アラート
 };
 
+// 現在有効な Theme (適用済みスナップショット)。
 const Theme& theme();
+
+// 適用中テーマの id / 表示名 (file テーマは manifest の name、無ければ id)。
+const char* theme_id();
+const char* theme_name();
+
+// [内部] 適用中テーマの id/name を記録する。theme_manager.cpp 専用。
+void theme_set_info(const char* id, const char* name);
+
+// 内蔵テーマ ("standard" / "light")。無ければ nullptr。
+const Theme* builtin_theme(const char* id);
+
+// theme id を適用 (theme_manager.cpp)。
+//   内蔵 → コピー。file → port::theme_asset_* で読んで構築。
+//   失敗時は standard にフォールバックして false。
+// LVGL コンテキスト内 (LVGL タスクか port::lock 下) で呼ぶこと。
+bool theme_apply(const char* id);
+
+// [内部] 現行テーマを差し替える。theme_manager.cpp 専用。
+void theme_replace_active(const Theme& t);
 
 }  // namespace ui

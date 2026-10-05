@@ -46,4 +46,39 @@ void brightness_apply(int percent) {
   std::printf("[sim] brightness %d%%\n", percent);
 }
 
+// ---- テーマ資産 (ホスト fs の "sim/themes" + malloc アリーナ) ----
+
+constexpr uint32_t kThemeArenaSize = 3 * 1024 * 1024;
+uint8_t* s_arena = nullptr;
+uint32_t s_arena_used = 0;
+
+const char* theme_assets_root() { return "sim/themes"; }
+
+void theme_assets_reset() {
+  if (!s_arena) s_arena = static_cast<uint8_t*>(std::malloc(kThemeArenaSize));
+  s_arena_used = 0;
+}
+
+bool theme_asset_load(const char* path, const uint8_t** out,
+                      uint32_t* out_len) {
+  if (!s_arena || !out || !out_len) return false;
+  FILE* f = std::fopen(path, "rb");
+  if (!f) return false;
+  std::fseek(f, 0, SEEK_END);
+  const long sz = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  if (sz < 0 || static_cast<uint64_t>(s_arena_used) + sz + 8 > kThemeArenaSize) {
+    std::fclose(f);
+    return false;
+  }
+  uint8_t* dst = s_arena + s_arena_used;
+  const size_t got = std::fread(dst, 1, static_cast<size_t>(sz), f);
+  std::fclose(f);
+  if (got != static_cast<size_t>(sz)) return false;
+  s_arena_used += (static_cast<uint32_t>(sz) + 7u) & ~7u;
+  *out = dst;
+  *out_len = static_cast<uint32_t>(sz);
+  return true;
+}
+
 }  // namespace ui::port
