@@ -20,6 +20,7 @@ import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.MediaCmd
 import dev.sasnews.amoledwatch.protocol.OtaStatusInfo
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
+import dev.sasnews.amoledwatch.protocol.StepsInfo
 import dev.sasnews.amoledwatch.protocol.ThemePackage
 import dev.sasnews.amoledwatch.protocol.WifiStatusInfo
 import dev.sasnews.amoledwatch.ui.screens.FirmwareSendState
@@ -44,6 +45,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     val hello: StateFlow<HelloResult?> = manager.hello
     val deviceInfo: StateFlow<DeviceInfo?> = manager.deviceInfo
     val settings: StateFlow<Map<String, Cbor>?> = manager.settings
+    val steps: StateFlow<StepsInfo?> = manager.steps
     val log: StateFlow<List<String>> = manager.log
     val notice: StateFlow<String?> = manager.notice
     val enabledPackages: StateFlow<Set<String>> = watchApp.prefs.enabledPackages
@@ -130,7 +132,10 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh() = viewModelScope.launch {
         manager.refreshDeviceInfo()
         manager.refreshSettings()
+        manager.refreshSteps()
     }
+
+    fun refreshSteps() = viewModelScope.launch { manager.refreshSteps() }
 
     fun saveSettings(values: Map<String, Cbor>) = viewModelScope.launch {
         for ((k, v) in values) manager.setSetting(k, v)
