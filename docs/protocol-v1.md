@@ -102,6 +102,8 @@ error code:
 | `notify.vibrate` | u32 | 1 | 通知受信時の振動 ON/OFF (0/1) |
 | `raise_to_wake` | u32 | 1 | 腕を上げて画面オン (0/1) |
 | `steps.goal` | u32 | 8000 | 歩数目標 (歩数画面の達成率・steps.get の goal) |
+| `face` | text | `bold` | 文字盤 id (`bold`/`analog`/`hud`/`minimal`/`chara_side`/`chara_bubble`) |
+| `clock_font` | text | `auto` | 時計数字フォント id (`auto`/`oswald`/`bebas`/`orbitron`/`outfit`/`chakra`) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正

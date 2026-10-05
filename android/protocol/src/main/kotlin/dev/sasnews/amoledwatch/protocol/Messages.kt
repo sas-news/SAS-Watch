@@ -322,6 +322,8 @@ object SettingsKeys {
     const val NOTIFY_VIBRATE = "notify.vibrate"
     const val RAISE_TO_WAKE = "raise_to_wake"
     const val STEPS_GOAL = "steps.goal"
+    const val FACE = "face"
+    const val CLOCK_FONT = "clock_font"
 
     /** kKeys と同じ順。 */
     val ALL = listOf(
@@ -331,6 +333,7 @@ object SettingsKeys {
         BUTTON_PWR_SHORT, BUTTON_PWR_LONG, BUTTON_PWR_DOUBLE,
         AUDIO_VOLUME, AUDIO_CLICK, NOTIFY_VIBRATE,
         RAISE_TO_WAKE, STEPS_GOAL,
+        FACE, CLOCK_FONT,
     )
 
     /** button.* のデフォルト値（core `settings.hpp` と一致）。 */
@@ -352,7 +355,37 @@ object SettingsKeys {
         NOTIFY_VIBRATE to Cbor.Cint(1),
         RAISE_TO_WAKE to Cbor.Cint(1),
         STEPS_GOAL to Cbor.Cint(8000),
+        FACE to Cbor.Ctext("bold"),
+        CLOCK_FONT to Cbor.Ctext("auto"),
     )
+}
+
+/** `face` に設定できる文字盤 id。watch 側の盤定義と一致。 */
+object FaceNames {
+    val ALL: List<ActionSpec> = listOf(
+        ActionSpec("bold", "ボールド"),
+        ActionSpec("analog", "アナログ"),
+        ActionSpec("hud", "HUD"),
+        ActionSpec("minimal", "ミニマル"),
+        ActionSpec("chara_side", "キャラ（横）"),
+        ActionSpec("chara_bubble", "キャラ（ふきだし）"),
+    )
+
+    fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
+}
+
+/** `clock_font` に設定できるフォント id。`auto` は文字盤ごとの既定。 */
+object ClockFontNames {
+    val ALL: List<ActionSpec> = listOf(
+        ActionSpec("auto", "自動（文字盤ごと）"),
+        ActionSpec("oswald", "Oswald"),
+        ActionSpec("bebas", "Bebas Neue"),
+        ActionSpec("orbitron", "Orbitron"),
+        ActionSpec("outfit", "Outfit"),
+        ActionSpec("chakra", "Chakra Petch"),
+    )
+
+    fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
 }
 
 /**
