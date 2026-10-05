@@ -23,6 +23,7 @@ enum class EventType : uint16_t {
   StopwatchChanged,      // arg0 = 0:stop 1:run 2:lap
   CounterChanged,        // arg0 = 値 (uint32解釈)
   MemoSaved,             // arg0 = memo id
+  MemoDeleted,           // arg0 = memo id (一覧の再描画用)
   NotificationPosted,    // 通知が来た (中身は NotificationStore 側)
   MediaCmdRequested,     // arg0 = MediaCmd (時計→スマホ)
   AgentStatusChanged,

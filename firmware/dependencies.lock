@@ -212,6 +212,6 @@ direct_dependencies:
 - waveshare/esp32_s3_touch_amoled_2_06
 - waveshare/pcf85063a
 - waveshare/qmi8658
-manifest_hash: 934c3ac1bdc16f2baa4ea9b829f1f07a0c64f76b490aefcc696a4e9cdb956fb0
+manifest_hash: 0581b127d154361b6f1799ac4b100f1fd011ff34de610594824d7cf6d4a606b1
 target: esp32s3
 version: 2.0.0

@@ -1,0 +1,37 @@
+# sim.yml — ホストシミュレータで各画面のスナップショットを生成し、
+# artifact に保存する (デザインの回帰チェック用)。
+name: sim
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'firmware/components/ui/**'
+      - 'sim/**'
+      - '.github/workflows/sim.yml'
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build simulator
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zlib1g-dev
+          cmake -S sim -B sim/build \
+            -DCONFIG_LV_BUILD_DEMOS=OFF -DCONFIG_LV_BUILD_EXAMPLES=OFF
+          cmake --build sim/build -j"$(nproc)"
+
+      - name: Generate screenshots
+        run: ./sim/build/snapshot --out sim/screenshots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: sim/screenshots/*.png

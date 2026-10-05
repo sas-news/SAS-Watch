@@ -1,19 +1,43 @@
 # firmware/
 
 Waveshare **ESP32-S3-Touch-AMOLED-2.06** 向けファームウェア (ESP-IDF 5.5 + 公式BSP v2 + LVGL 9)。
-`docs/plan.md` R 章 Phase 2 の最小形: 時刻・日付・電池%を出して、ボタンとタッチで復帰する。
+`docs/plan.md` R 章 Phase 4〜6 の MVP: `core/` の Runtime を回して時計単体で使える。
 
 ## 構成
 
 ```
-main/app_main.cpp        起動処理・簡易電源管理 (無操作10秒で画面オフ)
+main/app_main.cpp        起動処理 (NVS→ボード層→LVGL→watch_app開始)
+components/watch_app/    core::Runtime を回すアプリタスク + 入力/PowerApply/BLE接着
+components/platform_esp/ platform 実装 (Clock=esp_timer, KV=NVS, Log=esp_log, キューロック)
+components/watch_core/   ../core を ESP-IDF コンポーネントとして取り込む
+components/ui/           LVGL UI (Theme→Component→Screen の3段。日本語フォント同梱)
+components/ble_link/     NimBLE GATT サーバ (CONFIG_SAS_BLE_LINK)
 components/board/        ボード層 (BSP依存部品: buttons/pmic/rtc/imu/haptics/sleep)
-components/ui_min/       最小LVGL画面 (黒背景: 時刻HH:MM, 日付, 電池%, ボタン表示)
 components/diag/         起動時診断 (システム情報, I2Cスキャン)
 components/XPowersLib/   AXP2101ドライバ (公式サンプル 01_AXP2101 から vendor, MIT)
 partitions.csv           docs/plan.md I章の案 (OTA x2 + littlefs x2 + coredump)
 sdkconfig.defaults       esp32s3 / Flash 16MB / PSRAM Octal / NimBLE / PM / LVGL
 ```
+
+## 操作方法
+
+ボタン割り当てはスマホアプリの設定で変えられる (settings の `button.*`)。既定値:
+
+| 入力 | 動作 |
+|---|---|
+| BOOT 短押し | 画面の主アクション (タイマー開始/停止 など) |
+| BOOT 長押し | 開発者画面 (未実装) |
+| BOOT 2連打 | メモ録音 (未実装) |
+| PWR 短押し | 戻る (Home では画面OFF) |
+| PWR 長押し | 電源メニュー (スリープ/再起動/電源OFFの案内) |
+| 右スワイプ | 戻る |
+| 下スワイプ (Home) | クイック設定 (明るさ・画面OFF・アプリ/設定への入口) |
+| 上スワイプ (Home) | アプリ一覧 |
+| 画面長押し | 電源メニュー |
+
+画面が消えている間の入力は「画面を起こす」だけで、アクションとしては処理しない。
+無操作 → 薄暗く (20%) → 画面OFF の順で省電力になり、ボタン/タッチで復帰。
+画面OFFが `deep_sleep_after_s` (既定60秒) 続くと deep sleep (タイマー期限/BOOT/タッチで復帰)。
 
 依存は `main/idf_component.yml` 参照 (BSP `waveshare/esp32_s3_touch_amoled_2_06` ^2,
 `lvgl/lvgl` 9.5, `espressif/button`, `waveshare/qmi8658`, `waveshare/pcf85063a`)。
@@ -112,5 +136,6 @@ PWR 長押し 6 秒 → AXP2101 がハード電源 OFF するはず (要実機�
 - QMI8658 INT1 の極性・wake-on-motion の閾値 (`0x40` は例値)
 - 画面の向き・タッチ座標の一致
 - `panel_power` (ALDO2 カット) 後のディスプレイ再初期化時間
-- 本格的な PowerManager / light sleep / deep sleep (core/ と統合して作る)
-- 日本語フォント
+- `esp_lcd_panel_disp_on_off` が CO5300 ドライバで効くか (ディスプレイ消灯経路)
+- deep sleep 時の復帰 (タイマー期限/BOOT/タッチ) と IMU wake-on-motion の閾値
+- LVGL フォントが 4.9MB あるので flash/描画速度への影響 (要実機)
