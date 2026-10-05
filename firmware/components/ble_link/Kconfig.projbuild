@@ -1,0 +1,9 @@
+menu "SAS-Watch"
+    config SAS_BLE_LINK
+        bool "BLE link (Phone 接続, docs/protocol-v1.md)"
+        default y
+        depends on BT_ENABLED && BT_NIMBLE_ENABLED
+        help
+            NimBLE GATT サーバ (ctrl/event/bulk)。app_main は
+            #if CONFIG_SAS_BLE_LINK で ble_link_start() を呼ぶ。
+endmenu
