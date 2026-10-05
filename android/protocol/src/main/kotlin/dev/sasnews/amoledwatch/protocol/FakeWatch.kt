@@ -33,6 +33,9 @@ class FakeWatch(
 
     private var battery = 87
     private var charging = false
+
+    /** 今日の歩数（steps.get）。デモ用に初期値を持つ。 */
+    var stepsToday = 2450
     private var memoId = 0
     private var timerSeconds = 0
     private var timerTask: java.util.concurrent.ScheduledFuture<*>? = null
@@ -507,6 +510,15 @@ class FakeWatch(
                 }
                 Res.okCbor()
             }
+            "steps.get" -> Res.okCbor(
+                Cbor.Cmap(
+                    mapOf(
+                        "steps" to Cbor.Cint(stepsToday.toLong()),
+                        "goal" to (settings[SettingsKeys.STEPS_GOAL]
+                            ?: SettingsKeys.DEFAULTS.getValue(SettingsKeys.STEPS_GOAL)),
+                    ),
+                ),
+            )
             else -> Res.errCbor("unknown_method", "unknown method")
         }
     }
@@ -633,7 +645,7 @@ class FakeWatch(
         const val MAX_ALARMS = 5
         val CAPS = listOf(
             "timer", "stopwatch", "counter", "memo", "theme", "audio",
-            "alarm", "notify", "media", "wifi", "ota",
+            "alarm", "notify", "media", "wifi", "ota", "steps",
         )
     }
 }

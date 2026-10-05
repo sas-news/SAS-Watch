@@ -29,8 +29,35 @@ void arm_light_sleep_wake()
     ESP_LOGI(TAG, "light sleep wake: touch(GPIO38,LOW) boot(GPIO0,LOW) pwr(GPIO10,HIGH) rtc(GPIO39,LOW)");
 }
 
+void arm_light_sleep_imu()
+{
+    // INT1(GPIO21) は HIGH アクティブ想定。
+    // TODO(hw): 実機で極性を確認 (逆なら GPIO_INTR_LOW_LEVEL)
+    gpio_wakeup_enable(pins::kImuInt1, GPIO_INTR_HIGH_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+}
+
+void disarm_light_sleep_imu()
+{
+    gpio_wakeup_disable(pins::kImuInt1);
+}
+
+bool woke_by_imu()
+{
+    // esp_sleep_get_gpio_wakeup_status() は IDF v5.5 に無い。
+    // WoM の INT1 は STATUS1 読取まで保持されるレベル出力（QMI8658C DS §6.1）
+    // なので起床時にピンが HIGH なら IMU 起因とみなす。
+    // TODO(hw): 実機で確認（短いパルスなら取りこぼす可能性あり）
+    return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO &&
+           gpio_get_level(pins::kImuInt1) == 1;
+}
+
 void enter_deep_sleep(uint64_t wake_after_us)
 {
+    // light sleep 用に貼り付けた歩数同期タイマー (imu_service が set) を
+    // deep sleep に持ち込まない。以降は wake_after_us だけが timer になる。
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+
     // BOOT(GPIO0, LOW) — ext0 (単一 RTC GPIO)
     esp_err_t ret = esp_sleep_enable_ext0_wakeup(pins::kButtonBoot, 0);
     if (ret != ESP_OK) {

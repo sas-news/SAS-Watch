@@ -15,6 +15,7 @@ lv_obj_t* s_off = nullptr;
 lv_obj_t* s_vol = nullptr;
 lv_obj_t* s_click_l = nullptr;
 lv_obj_t* s_vib_l = nullptr;
+lv_obj_t* s_raise_l = nullptr;
 bool s_updating = false;
 
 const char* action_jp(const char* name) {
@@ -69,6 +70,18 @@ lv_obj_t* build(lv_obj_t* scr) {
                  static_cast<uint32_t>(lv_slider_get_value(s)));
       },
       nullptr));
+
+  lv_obj_t* sen = ui::c::card(col);
+  ui::c::line(sen, "センサー");
+  s_raise_l = ui::c::list_row(
+      sen, "腕を上げて画面オン",
+      st.raise_to_wake ? "ON" : "OFF",
+      [](lv_event_t*) {
+        const watch::Settings& cur = *ui::ctx().settings;
+        ui::emit(watch::ActionType::SetRaiseToWake,
+                 cur.raise_to_wake ? 0u : 1u);
+      },
+      nullptr);
 
   lv_obj_t* snd = ui::c::card(col);
   ui::c::line(snd, "音と振動");
@@ -171,6 +184,10 @@ void on_event(lv_obj_t*, const watch::Event& e) {
   if (s_vib_l) {
     lv_obj_t* sub = lv_obj_get_child(s_vib_l, 1);
     if (sub) lv_label_set_text(sub, st.notify_vibrate ? "ON" : "OFF");
+  }
+  if (s_raise_l) {
+    lv_obj_t* sub = lv_obj_get_child(s_raise_l, 1);
+    if (sub) lv_label_set_text(sub, st.raise_to_wake ? "ON" : "OFF");
   }
   s_updating = false;
 }

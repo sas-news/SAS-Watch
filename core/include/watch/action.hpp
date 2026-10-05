@@ -54,6 +54,12 @@ enum class ActionType : uint16_t {
   NotifyClearAll, // 通知一覧を全消し
   // Settings / System (追加)
   SetNotifyVibrate, // arg0 = 0/1 (通知受信時の振動)
+  // Sensors (Phase 10)
+  ImuSample,        // arg0 = x|y<<16, arg1 = z (int16 mg)。source=System で
+                    // 投げること (測定は「操作」ではないので電源を蹴らない)
+  SetRaiseToWake,   // arg0 = 0/1 (腕を上げて画面オン)
+  StepsHwSync,      // arg0 = HW pedometer の累積歩数 (24bit 生値)。
+                    // firmware が定期/起床時に読んで投げる。source=System 必須
 };
 
 enum class ActionSource : uint8_t {

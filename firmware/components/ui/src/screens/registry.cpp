@@ -9,6 +9,7 @@ extern const ScreenOps kMoreScreen;
 extern const ScreenOps kTimerScreen;
 extern const ScreenOps kStopwatchScreen;
 extern const ScreenOps kCounterScreen;
+extern const ScreenOps kStepsScreen;
 extern const ScreenOps kMemoScreen;
 extern const ScreenOps kSettingsScreen;
 extern const ScreenOps kOtaScreen;
@@ -25,6 +26,7 @@ const ScreenOps* screen_ops(watch::Route r) {
     case watch::Route::Timer: return &kTimerScreen;
     case watch::Route::Stopwatch: return &kStopwatchScreen;
     case watch::Route::Counter: return &kCounterScreen;
+    case watch::Route::Steps: return &kStepsScreen;
     case watch::Route::Memo: return &kMemoScreen;
     case watch::Route::Settings: return &kSettingsScreen;
     case watch::Route::Ota: return &kOtaScreen;

@@ -7,6 +7,7 @@
 #include "watch/features/media.hpp"
 #include "watch/features/memo.hpp"
 #include "watch/features/notify.hpp"
+#include "watch/features/steps.hpp"
 #include "watch/features/stopwatch.hpp"
 #include "watch/features/timer.hpp"
 
@@ -15,8 +16,8 @@ namespace watch {
 namespace {
 const FeatureDescriptor* const kBuiltin[] = {
     &features::kClock,   &features::kTimer, &features::kStopwatch,
-    &features::kCounter, &features::kMemo,  &features::kAlarm,
-    &features::kNotify,  &features::kMedia,
+    &features::kCounter, &features::kSteps, &features::kMemo,
+    &features::kAlarm,   &features::kNotify, &features::kMedia,
 };
 }
 

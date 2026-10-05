@@ -31,6 +31,8 @@ enum class EventType : uint16_t {
   AlarmRinging,          // arg0 = alarm id。鳴動開始 (繰り返し再通知も出る)
   AlarmChanged,          // 一覧変更・鳴動停止・スヌーズ設定など表示更新用
   AgentStatusChanged,
+  StepsChanged,          // arg0 = 今日の歩数
+  RaiseDetected,         // 腕上げ判定 (firmware が画面ONに使う。arg0=0)
   OtaProgress,           // arg0 = 0-100 (状態詳細は firmware 側参照)
 };
 

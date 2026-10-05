@@ -130,6 +130,13 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
         return true;
       }
       return false;
+    case ActionType::SetRaiseToWake:
+      if (settings_set_u32(settings_, &ctx.storage, "raise_to_wake",
+                           a.arg0 ? 1 : 0)) {
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
     case ActionType::SetTheme:
       // theme id は [a-z0-9-]{1,31} (docs/theme-format.md)。
       // 実在するかは適用層が判定し、失敗時は standard にフォールバックする。

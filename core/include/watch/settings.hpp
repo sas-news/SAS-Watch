@@ -32,6 +32,9 @@ struct Settings {
   uint32_t audio_click = 1;    // 0/1
   // 通知を受け取ったときの振動 (0/1)。
   uint32_t notify_vibrate = 1;
+  // センサー (Phase 10)。腕上げ検出と歩数目標。
+  uint32_t raise_to_wake = 1;  // 腕を上げて画面オン (0/1)
+  uint32_t steps_goal = 8000;  // 1日の歩数目標
 };
 
 struct SettingKey {

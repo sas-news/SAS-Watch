@@ -17,6 +17,7 @@ enum class Route : uint8_t {
   Timer,
   Stopwatch,
   Counter,
+  Steps,
   Memo,
   More,
   Settings,

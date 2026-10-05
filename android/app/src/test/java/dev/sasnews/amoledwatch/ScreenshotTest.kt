@@ -10,6 +10,7 @@ import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
+import dev.sasnews.amoledwatch.protocol.StepsInfo
 import dev.sasnews.amoledwatch.protocol.ThemePackage
 import dev.sasnews.amoledwatch.ui.screens.AlarmContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesContent
@@ -168,10 +169,14 @@ class ScreenshotTest {
                         SettingsKeys.BUTTON_PWR_LONG to Cbor.Ctext("power_menu"),
                         SettingsKeys.BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
                         SettingsKeys.THEME to Cbor.Ctext("standard"),
+                        SettingsKeys.RAISE_TO_WAKE to Cbor.Cint(1),
+                        SettingsKeys.STEPS_GOAL to Cbor.Cint(8000),
                     ),
+                    steps = StepsInfo(2450, 8000),
                     connected = true,
                     onLoad = {},
                     onSave = {},
+                    onRefreshSteps = {},
                 )
             }
         }

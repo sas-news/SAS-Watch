@@ -558,6 +558,7 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::TimerFinished, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::StopwatchChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::CounterChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::StepsChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::MemoSaved, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::MemoDeleted, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::BrightnessChanged, bus_cb, nullptr);
