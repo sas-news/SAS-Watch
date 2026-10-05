@@ -2,7 +2,8 @@
 
 `docs/plan.md` H 章 (Theme) と I 章 (Asset) の実装形式。
 スマホから BLE BULK (`kind:"theme"`) で時計に送られ、`assets` パーティション
-(littlefs) の `/themes/<id>/` に展開される。
+(littlefs、VFS では `/assets` にマウント) の `themes/<id>/` に展開される。
+VFS パスで言うと `/assets/themes/<id>/`。
 
 ## パッケージ (`.zip`, stored のみ)
 
@@ -18,7 +19,9 @@
 ```
 
 エントリ名は `[a-z0-9._-]` のみ・ディレクトリ不可・`..` 不可・最大 16 個。
-パッケージ全体は **3 MiB まで** (受信時の PSRAM 作業領域上限)。
+パッケージ全体は **3 MiB まで** (受信側がリジェクトする上限)。
+時計は zip をメモリに置かず littlefs 上の `.theme.bulk` から
+エントリごとにストリーミング展開する。
 
 ## manifest.cbor (CBOR map)
 
@@ -90,8 +93,8 @@ offset  size  内容
 
 - `RGB565`   : `w*h*2` バイト (1px=2B LE)。不透明。
 - `RGB565A8` : `w*h*2` バイトの色配列 + `w*h` バイトの α 配列。`data_size = w*h*3`。
-- 全エントリの画素データ合計で **2.5 MiB まで**
-  (PSRAM 上に連続確保して `lv_image_dsc_t.data` が指す)。
+- 全スロットの画素データ合計で **2.5 MiB まで**
+  (適用時に PSRAM のテーマ用アリーナ 3 MiB に読み込まれ、`lv_image_dsc_t.data` が指す)。
 
 受信側チェック: magic / cf / `stride==w*2` /
 `data_size == w*h*(cf==0x14 ? 3 : 2)` / スロットごとの寸法上限。
@@ -101,7 +104,7 @@ offset  size  内容
 1. Phone → `BULK_START{id,kind:"theme",size,sha256,chunk}` (protocol-v1.md BULK 章)。
    再開時は同じ `id` で `BULK_ACK{next}` に続きから送る。
 2. 時計は `/assets/.theme.bulk` に受け、`BULK_END` で sha256 照合。
-   一致 → zip 検査 (上記) → `/themes/<id>/` へ展開 → theme id を適用待ちに。
+   一致 → zip 検査 (上記) → `/assets/themes/<id>/` へ展開 → theme id を適用待ちに。
 3. `settings.set {theme:"<id>"}` でも切替え可 (BLE かウォッチ UI)。
    どちらの経路も `SetTheme` Action → `ThemeChanged` Event →
    適用層が `themes/<id>/` または内蔵テーマを読み直す。
@@ -123,8 +126,8 @@ offset  size  内容
 
 | 項目 | 上限 | 根拠 |
 |---|---|---|
-| パッケージ | 3 MiB | PSRAM 作業領域 (zip を丸ごと展開前に持つ) |
-| 画素データ計 | 2.5 MiB | 受信領域と同じ arena を再利用 |
+| パッケージ | 3 MiB | 受信上限 (theme_store::kPkgMax) |
+| 画素データ計 | 2.5 MiB | 画像は LVGL 適用時に PSRAM のテーマ用アリーナ (3 MiB) に保持 |
 | エントリ数 | 16 | ディレクトリ表の固定長 |
-| `/themes/` 使用量 | 6 MiB | assets パーティション |
+| `themes/` 使用量 | 6 MiB | assets パーティション |
 | 画像1枚 | 410x502 まで | 画面サイズ |
