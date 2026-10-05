@@ -202,7 +202,7 @@ MAME_TOKENS = {
     "accent": "0x8FD98F", "danger": "0xFF6E6E", "ok": "0x7ED4A0",
     "accent2": "0xE8D7B0", "accent3": "0x7ED4A0", "accent4": "0xB08DFF",
     "accent5": "0xFF9DBB",
-    "bubble_bg": "0xFFF8EC", "bubble_text": "0x4A3626",
+    "bubble_bg": "0xFFF8EC", "bubble_text": "0x2B1D45",
     "radius_sm": 12, "radius_lg": 20, "space": 8, "anim_ms": 200,
     "font_body": 20, "font_title": 26, "font_digits": 96,
     "font_digits_sm": 56,

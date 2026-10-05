@@ -218,10 +218,10 @@ int main(int argc, char** argv) {
   if (s_content) {
     lv_obj_scroll_to_y(s_content, 780, LV_ANIM_OFF);   // 文字盤カード
     pump(200);
-    ok &= save(out, "29_settings_faces");
+    ok &= save(out, "30_settings_faces");
     lv_obj_scroll_to_y(s_content, 1150, LV_ANIM_OFF);  // フォントカード
     pump(200);
-    ok &= save(out, "30_settings_fonts");
+    ok &= save(out, "31_settings_fonts");
   }
 
   nav_to(watch::Route::PowerMenu);
@@ -298,10 +298,10 @@ int main(int argc, char** argv) {
   ui::emit_text(watch::ActionType::SetTheme, "standard");
   pump(400);
   const char* kFaceShots[][2] = {
-      {"bold", "23_face_bold"},
-      {"analog", "24_face_analog"},
-      {"hud", "25_face_hud"},
-      {"minimal", "26_face_minimal"},
+      {"bold", "24_face_bold"},
+      {"analog", "25_face_analog"},
+      {"hud", "26_face_hud"},
+      {"minimal", "27_face_minimal"},
   };
   for (const auto& fs : kFaceShots) {
     ui::emit_text(watch::ActionType::SetFace, fs[0]);
@@ -313,10 +313,10 @@ int main(int argc, char** argv) {
   pump(500);
   ui::emit_text(watch::ActionType::SetFace, "chara_side");
   pump(300);
-  ok &= save(out, "27_face_chara_side");
+  ok &= save(out, "28_face_chara_side");
   ui::emit_text(watch::ActionType::SetFace, "chara_bubble");
   pump(300);
-  ok &= save(out, "28_face_chara_bubble");
+  ok &= save(out, "29_face_chara_bubble");
   // 元に戻す。
   ui::emit_text(watch::ActionType::SetFace, "bold");
   ui::emit_text(watch::ActionType::SetTheme, "standard");

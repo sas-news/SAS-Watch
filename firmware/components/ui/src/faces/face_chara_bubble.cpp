@@ -55,12 +55,31 @@ void draw_bubble(lv_event_t* e) {
   lv_draw_triangle(layer, &tri);
 }
 
-// 星 (右上の空に小さな点4個、見本どおり)。
+// 画像の最初の不透明行 (透過マージンを除いた実際の頭頂) を探す。
+int32_t first_opaque_row(const lv_image_dsc_t* d) {
+  const int32_t w = d->header.w;
+  const int32_t h = d->header.h;
+  if (d->header.cf == LV_COLOR_FORMAT_RGB565A8) {
+    // RGB565A8: RGB565平面 (w*h*2) の後ろに A8平面 (w*h)。
+    const uint8_t* a = d->data + static_cast<size_t>(w) * h * 2;
+    for (int32_t y = 0; y < h; ++y) {
+      const uint8_t* row = a + static_cast<size_t>(y) * w;
+      for (int32_t x = 0; x < w; ++x) {
+        if (row[x] > 16) return y;
+      }
+    }
+    return h;
+  }
+  return 0;  // 透過チャンネルなし = 全面不透明とみなす
+}
+
+// 星 (時刻とふきだしの間の空き領域に小さな点4個。
+// ふきだし・文字の領域には置かない)。
 void draw_stars(lv_event_t* e) {
   lv_layer_t* layer = lv_event_get_layer(e);
   const ui::Theme& t = ui::theme();
   const struct { int x, y, r; } st[4] = {
-      {40, 300, 2}, {120, 360, 2}, {75, 430, 3}, {160, 300, 2}};
+      {36, 222, 2}, {130, 232, 2}, {80, 246, 2}, {180, 214, 2}};
   lv_draw_arc_dsc_t d;
   lv_draw_arc_dsc_init(&d);
   d.color = t.accent2;
@@ -172,27 +191,32 @@ lv_obj_t* build(lv_obj_t* scr) {
   s.has_img = (img != nullptr);
 
   if (s.has_img) {
-    // 背景は単色 (全面グラデはバンディングが出る) + 下部だけ小さく
-    // グラデを敷く (見本: #000 → #1b1236)。accent4 をbgに混ぜる。
+    // 背景は単色 (下部グラデも横縞が残るので全面単色)。
     lv_obj_set_style_bg_color(scr, t.bg, 0);
-    lv_obj_t* floor = lv_obj_create(scr);
-    lv_obj_set_size(floor, 410, 130);
-    lv_obj_set_pos(floor, 0, 372);
-    lv_obj_set_style_bg_color(floor, t.bg, 0);
-    lv_obj_set_style_bg_grad_color(floor, lv_color_mix(t.accent4, t.bg, 80), 0);
-    lv_obj_set_style_bg_grad_dir(floor, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_bg_opa(floor, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(floor, 0, 0);
-    lv_obj_remove_flag(floor, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(floor, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    // 立ち絵 (右下)。ふきだし・文字より先 = 奥。
+    // 星は背景レイヤー (キャラより後ろ)。ふきだし・文字の領域には置かない。
+    lv_obj_t* sky = lv_obj_create(scr);
+    lv_obj_set_size(sky, 410, 502);
+    lv_obj_set_pos(sky, 0, 0);
+    lv_obj_set_style_bg_opa(sky, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(sky, 0, 0);
+    lv_obj_remove_flag(sky, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(sky, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(sky, draw_stars, LV_EVENT_DRAW_MAIN, nullptr);
+
+    // 立ち絵 (右下、原寸)。基本は下端合わせだが、頭頂 (不透明先頭行)
+    // が日付 (下端~196) にかかるなら画像を下げる。足元がはみ出る分は
+    // 見本どおり下辺で切れるだけなので許容。
     lv_obj_t* im = lv_image_create(scr);
     lv_image_set_src(im, img);
-    lv_obj_align(im, LV_ALIGN_BOTTOM_RIGHT, -6, -24);
+    const int32_t ctop = first_opaque_row(img);
+    int32_t im_y = 496 - static_cast<int32_t>(img->header.h);
+    constexpr int32_t kHeadMinY = 208;
+    if (im_y + ctop < kHeadMinY) im_y = kHeadMinY - ctop;
+    lv_obj_set_pos(im, 410 - 6 - static_cast<int32_t>(img->header.w), im_y);
     lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    // 星 + ふきだしは1つの draw オブジェクトにまとめる (キャラより手前)。
+    // ふきだしは draw オブジェクト (キャラより手前を保証)。
     lv_obj_t* deco = lv_obj_create(scr);
     lv_obj_set_size(deco, 410, 502);
     lv_obj_set_pos(deco, 0, 0);
@@ -200,8 +224,8 @@ lv_obj_t* build(lv_obj_t* scr) {
     lv_obj_set_style_border_width(deco, 0, 0);
     lv_obj_remove_flag(deco, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(deco, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_event_cb(deco, draw_stars, LV_EVENT_DRAW_MAIN, nullptr);
     lv_obj_add_event_cb(deco, draw_bubble, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_move_foreground(deco);
   } else {
     lv_obj_set_style_bg_color(scr, t.bg, 0);
   }
