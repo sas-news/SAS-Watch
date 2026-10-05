@@ -81,16 +81,13 @@ void save(FeatureContext& ctx) {
 }
 
 void restore(FeatureContext& ctx) {
-  // GCC13 の -Wdangling-pointer 対策: h のアドレスは KV に渡さない。
-  uint8_t raw[sizeof(Header)] = {};
+  // スタック変数のアドレスを KV 読み出しに渡すと GCC13 の
+  // -Wdangling-pointer を踏むので、初期化時のみの復元先は静的にする。
+  static Header h;
+  h = Header{};
   size_t n = 0;
-  if (!ctx.storage.get(kHdrKey, raw, sizeof(raw), &n) ||
-      n < sizeof(Header)) {
-    return;
-  }
-  Header h{};
-  std::memcpy(&h, raw, sizeof(h));
-  if (h.version != kPersistVersion || h.head >= kMemoMaxEntries ||
+  if (!ctx.storage.get(kHdrKey, &h, sizeof(h), &n) || n < sizeof(h) ||
+      h.version != kPersistVersion || h.head >= kMemoMaxEntries ||
       h.count > kMemoMaxEntries) {
     return;
   }
@@ -102,21 +99,16 @@ void restore(FeatureContext& ctx) {
         static_cast<uint16_t>((g_head + i) % kMemoMaxEntries);
     char key[32];
     slot_key(slot, key, sizeof(key));
-    uint8_t rawb[sizeof(SlotBlob)] = {};
+    static SlotBlob b;
+    b = SlotBlob{};
     size_t bn = 0;
-    bool ok_slot = false;
-    if (ctx.storage.get(key, rawb, sizeof(rawb), &bn) && bn >= 6) {
-      SlotBlob b{};
-      std::memcpy(&b, rawb, sizeof(b));
-      if (b.len <= kMemoMaxText) {
-        g_entries[slot].id = b.id;
-        g_entries[slot].len = b.len;
-        std::memcpy(g_entries[slot].text, b.text, b.len);
-        g_entries[slot].text[b.len] = '\0';
-        ok_slot = true;
-      }
-    }
-    if (!ok_slot) {
+    if (ctx.storage.get(key, &b, sizeof(b), &bn) && bn >= 6 &&
+        b.len <= kMemoMaxText) {
+      g_entries[slot].id = b.id;
+      g_entries[slot].len = b.len;
+      std::memcpy(g_entries[slot].text, b.text, b.len);
+      g_entries[slot].text[b.len] = '\0';
+    } else {
       // 壊れていたらそのスロットは空扱い。
       g_entries[slot] = MemoEntry{};
     }

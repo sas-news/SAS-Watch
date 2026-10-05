@@ -83,15 +83,13 @@ void save(FeatureContext& ctx) {
 }
 
 void restore(FeatureContext& ctx) {
-  // GCC13 の -Wdangling-pointer 対策: p のアドレスは KV に渡さない。
-  uint8_t raw[sizeof(Persist)] = {};
+  // スタック変数のアドレスを KV 読み出しに渡すと GCC13 の
+  // -Wdangling-pointer を踏むので、初期化時のみの復元先は静的にする。
+  static Persist p;
+  p = Persist{};
   size_t n = 0;
-  if (!ctx.storage.get(kKey, raw, sizeof(raw), &n) || n < sizeof(Persist)) {
-    return;
-  }
-  Persist p{};
-  std::memcpy(&p, raw, sizeof(p));
-  if (p.version != kPersistVersion) {
+  if (!ctx.storage.get(kKey, &p, sizeof(p), &n) || n < sizeof(p) ||
+      p.version != kPersistVersion) {
     return;
   }
   g_st.acc_ms = p.acc_ms;

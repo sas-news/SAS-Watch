@@ -40,11 +40,12 @@ void save(FeatureContext& ctx) {
 }
 
 void restore(FeatureContext& ctx) {
-  uint8_t raw[sizeof(int32_t)] = {};
+  // スタック変数のアドレスを KV 読み出しに渡すと GCC13 の
+  // -Wdangling-pointer を踏むので、初期化時のみの復元先は静的にする。
+  static int32_t v;
+  v = 0;
   size_t n = 0;
-  if (ctx.storage.get(kKey, raw, sizeof(raw), &n) && n == sizeof(int32_t)) {
-    int32_t v;
-    std::memcpy(&v, raw, sizeof(v));
+  if (ctx.storage.get(kKey, &v, sizeof(v), &n) && n == sizeof(v)) {
     g_value = v;
   }
 }
