@@ -40,7 +40,8 @@ void draw_bubble(lv_event_t* e) {
   r.bg_opa = LV_OPA_90;
   r.radius = 14;
   r.border_width = 0;
-  lv_area_t a = {30, 262, 214, 392};  // 挨拶+歩数 (最大3行) が入る高さ
+  // 左寄せ (右端はキャラに近づかない程度に)。
+  lv_area_t a = {14, 262, 198, 392};  // 挨拶+歩数 (最大3行) が入る高さ
   lv_draw_rect(layer, &r, &a);
 
   // しっぽ (右下向きの小さな三角)。
@@ -48,9 +49,9 @@ void draw_bubble(lv_event_t* e) {
   lv_draw_triangle_dsc_init(&tri);
   tri.color = t.bubble_bg;
   tri.opa = LV_OPA_90;
-  tri.p[0].x = 80;  tri.p[0].y = 392;
-  tri.p[1].x = 66;  tri.p[1].y = 408;
-  tri.p[2].x = 66;  tri.p[2].y = 392;
+  tri.p[0].x = 64;  tri.p[0].y = 392;
+  tri.p[1].x = 50;  tri.p[1].y = 408;
+  tri.p[2].x = 50;  tri.p[2].y = 392;
   lv_draw_triangle(layer, &tri);
 }
 
@@ -171,13 +172,27 @@ lv_obj_t* build(lv_obj_t* scr) {
   s.has_img = (img != nullptr);
 
   if (s.has_img) {
-    // 床の縦グラデーション (見本: #000 → #1b1236)。accent4 をbgに混ぜて
-    // どのテーマでも破綻しない暗い床にする。
+    // 背景は単色 (全面グラデはバンディングが出る) + 下部だけ小さく
+    // グラデを敷く (見本: #000 → #1b1236)。accent4 をbgに混ぜる。
     lv_obj_set_style_bg_color(scr, t.bg, 0);
-    lv_obj_set_style_bg_grad_color(scr, lv_color_mix(t.accent4, t.bg, 60), 0);
-    lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_VER, 0);
+    lv_obj_t* floor = lv_obj_create(scr);
+    lv_obj_set_size(floor, 410, 130);
+    lv_obj_set_pos(floor, 0, 372);
+    lv_obj_set_style_bg_color(floor, t.bg, 0);
+    lv_obj_set_style_bg_grad_color(floor, lv_color_mix(t.accent4, t.bg, 80), 0);
+    lv_obj_set_style_bg_grad_dir(floor, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(floor, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(floor, 0, 0);
+    lv_obj_remove_flag(floor, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(floor, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    // 星 + ふきだしは1つの draw オブジェクトにまとめる。
+    // 立ち絵 (右下)。ふきだし・文字より先 = 奥。
+    lv_obj_t* im = lv_image_create(scr);
+    lv_image_set_src(im, img);
+    lv_obj_align(im, LV_ALIGN_BOTTOM_RIGHT, -6, -24);
+    lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    // 星 + ふきだしは1つの draw オブジェクトにまとめる (キャラより手前)。
     lv_obj_t* deco = lv_obj_create(scr);
     lv_obj_set_size(deco, 410, 502);
     lv_obj_set_pos(deco, 0, 0);
@@ -187,12 +202,6 @@ lv_obj_t* build(lv_obj_t* scr) {
     lv_obj_add_flag(deco, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(deco, draw_stars, LV_EVENT_DRAW_MAIN, nullptr);
     lv_obj_add_event_cb(deco, draw_bubble, LV_EVENT_DRAW_MAIN, nullptr);
-
-    // 立ち絵 (右下、ふきだしより後 = 手前)。
-    lv_obj_t* im = lv_image_create(scr);
-    lv_image_set_src(im, img);
-    lv_obj_align(im, LV_ALIGN_BOTTOM_RIGHT, -4, 42);
-    lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
   } else {
     lv_obj_set_style_bg_color(scr, t.bg, 0);
   }
@@ -207,9 +216,9 @@ lv_obj_t* build(lv_obj_t* scr) {
   if (s.has_img) {
     // ふきだしの中身 (deco の上に別 label、幅を限定して折り返し)。
     s.bubble_l = ui::face::label(scr, "", t.font_body, t.bubble_text);
-    lv_obj_set_width(s.bubble_l, 170);
+    lv_obj_set_width(s.bubble_l, 166);
     lv_label_set_long_mode(s.bubble_l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(s.bubble_l, 40, 272);
+    lv_obj_set_pos(s.bubble_l, 24, 272);
   } else {
     s.bubble_l = lv_label_create(scr);
     lv_obj_add_flag(s.bubble_l, LV_OBJ_FLAG_HIDDEN);

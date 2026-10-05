@@ -71,7 +71,8 @@ void draw_face(lv_event_t* e) {
     a.end_angle = static_cast<lv_value_precise_t>(kStart + sweep);
     lv_draw_arc(layer, &a);
   }
-  // 端点の白丸。
+  // 端点の白丸 (弧の中心線上 = 半径 kR の位置に中心を置く。
+  // 弧幅10に対して丸は少し大きめ r8 で端がはみ出さない程度に)。
   if (sweep > 0.5f) {
     const float rad = (kStart + sweep) * 0.0174532925f;
     const float dx = kCx + kR * cosf(rad);
@@ -80,8 +81,8 @@ void draw_face(lv_event_t* e) {
     lv_draw_arc_dsc_init(&dot);
     dot.center.x = static_cast<lv_coord_t>(dx);
     dot.center.y = static_cast<lv_coord_t>(dy);
-    dot.radius = 9;
-    dot.width = 9;
+    dot.radius = 8;
+    dot.width = 8;
     dot.start_angle = 0;
     dot.end_angle = 360;
     dot.color = t.text;

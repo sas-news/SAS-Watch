@@ -29,7 +29,29 @@ struct S {
   bool screen_off = false;
 };
 S s;
-lv_grad_dsc_t s_glow;  // style が参照するので静的に持つ
+
+// 背後のグロー: 大きい円から小さい円へ不透明度を上げて重ねると、
+// 1枚ずつの円の輪郭が見えてしまう。半径を数px刻みで多数重ねて
+// なめらかな放射状に見せる (静的装飾: 描画は1回だけ)。
+void draw_glow(lv_event_t* e) {
+  lv_layer_t* layer = lv_event_get_layer(e);
+  const ui::Theme& t = ui::theme();
+  constexpr int kMaxR = 170;
+  constexpr int kStep = 4;
+  lv_draw_rect_dsc_t r;
+  lv_draw_rect_dsc_init(&r);
+  r.bg_color = t.accent4;
+  r.radius = LV_RADIUS_CIRCLE;
+  r.border_width = 0;
+  for (int rad = kMaxR; rad > kStep; rad -= kStep) {
+    // 中心に近いほど濃く (二乗でなだらかに減衰)。
+    const float f = 1.f - static_cast<float>(rad) / kMaxR;
+    r.bg_opa = static_cast<lv_opa_t>(LV_OPA_10 +
+                                     f * f * (LV_OPA_70 - LV_OPA_10));
+    lv_area_t a = {295 - rad, 226 - rad, 295 + rad - 1, 226 + rad - 1};
+    lv_draw_rect(layer, &r, &a);
+  }
+}
 
 void refresh_data() {
   const ui::face_data::Snapshot d = ui::face_data::get();
@@ -86,22 +108,16 @@ lv_obj_t* build(lv_obj_t* scr) {
   s.has_img = (img != nullptr);
 
   if (s.has_img) {
-    // 背後の放射グロー (見本: 右寄り・accent4→透明)。grad はローカル座標。
-    const lv_color_t cols[2] = {t.accent4, t.bg};
-    const lv_opa_t opas[2] = {LV_OPA_60, LV_OPA_TRANSP};
-    const uint8_t fr[2] = {0, 255};
-    lv_grad_init_stops(&s_glow, cols, opas, fr, 2);
-    lv_grad_radial_init(&s_glow, 170, 170, 340, 170, LV_GRAD_EXTEND_PAD);
+    // 背後のグロー (見本: 右寄り・accent4が中心)。draw イベントで
+    // 半径を細かく刻んだ同心円を重ねて輪郭の出ない放射状にする。
     lv_obj_t* glow = lv_obj_create(scr);
-    lv_obj_set_size(glow, 340, 340);
-    lv_obj_align(glow, LV_ALIGN_TOP_LEFT, 295 - 170, 226 - 170);
-    lv_obj_set_style_radius(glow, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(glow, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(glow, t.bg, 0);
-    lv_obj_set_style_bg_grad(glow, &s_glow, 0);
+    lv_obj_set_size(glow, 410, 502);
+    lv_obj_set_pos(glow, 0, 0);
+    lv_obj_set_style_bg_opa(glow, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(glow, 0, 0);
     lv_obj_remove_flag(glow, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(glow, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(glow, draw_glow, LV_EVENT_DRAW_MAIN, nullptr);
 
     // 立ち絵 (右下)。
     lv_obj_t* im = lv_image_create(scr);

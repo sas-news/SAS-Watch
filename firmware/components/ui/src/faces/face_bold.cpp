@@ -15,7 +15,7 @@ namespace {
 using ui::face::Now;
 
 constexpr int kRingCx[3] = {105, 205, 305};
-constexpr int kRingCy = 440;
+constexpr int kRingCy = 420;
 // 通知リングの満杯カウント (8通で 100%)。
 constexpr int kNotifMax = 8;
 
@@ -96,7 +96,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   // 日付 (曜日だけアクセント色にしたいので flex 行で2ラベル)。
   lv_obj_t* row = lv_obj_create(scr);
   lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 34);
+  lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 22);
   lv_obj_set_layout(row, LV_LAYOUT_FLEX);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
@@ -112,14 +112,14 @@ lv_obj_t* build(lv_obj_t* scr) {
 
   // 時 (太) / 分 (細・アクセント色)。
   s.hour = ui::face::label(scr, "00", ui::face::digits(150), t.text);
-  lv_obj_align(s.hour, LV_ALIGN_TOP_MID, 0, 62);
+  lv_obj_align(s.hour, LV_ALIGN_TOP_MID, 0, 78);
   lv_obj_set_style_text_letter_space(s.hour, -2, 0);
   s.min = ui::face::label(scr, "00", ui::face::digits_thin(150), t.accent);
-  lv_obj_align(s.min, LV_ALIGN_TOP_MID, 0, 214);
+  lv_obj_align(s.min, LV_ALIGN_TOP_MID, 0, 230);
   lv_obj_set_style_text_letter_space(s.min, -2, 0);
 
   // 間の細線。
-  ui::face::rect(scr, 60, 212, 350 - 60, 2, t.surface2, 0);
+  ui::face::rect(scr, 60, 228, 350 - 60, 2, t.surface2, 0);
 
   // リングメーター3個: 電池/歩数/通知。
   const lv_color_t ring_col[3] = {t.ok, t.accent, t.primary};
@@ -149,7 +149,7 @@ lv_obj_t* build(lv_obj_t* scr) {
 
     lv_obj_t* nm = ui::face::label(scr, ring_name[i], t.font_body,
                                    t.text_dim);
-    lv_obj_align(nm, LV_ALIGN_TOP_MID, kRingCx[i] - 205, 476);
+    lv_obj_align(nm, LV_ALIGN_TOP_MID, kRingCx[i] - 205, 456);
   }
 
   tick_time();

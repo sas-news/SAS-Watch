@@ -127,13 +127,14 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_align(s.en, LV_ALIGN_TOP_LEFT, 44, 56);
 
   s.ble = ui::face::label(scr, "BLE", t.font_body, t.text_dim);
-  lv_obj_align(s.ble, LV_ALIGN_TOP_RIGHT, -76, 56);
+  lv_obj_align(s.ble, LV_ALIGN_TOP_RIGHT, -70, 56);
   s.ble_dot = lv_obj_create(scr);
   lv_obj_set_size(s.ble_dot, 12, 12);
   lv_obj_set_style_radius(s.ble_dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_opa(s.ble_dot, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s.ble_dot, 0, 0);
-  lv_obj_align(s.ble_dot, LV_ALIGN_TOP_RIGHT, -50, 62);
+  // 文字の縦中央に合わせる。
+  lv_obj_align_to(s.ble_dot, s.ble, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
   lv_obj_set_style_bg_color(s.ble_dot, t.text_dim, 0);
   lv_obj_add_flag(s.ble_dot, LV_OBJ_FLAG_EVENT_BUBBLE);
 
@@ -147,26 +148,26 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_align(s.jp, LV_ALIGN_TOP_LEFT, 56, 238);
 
   // 区切り線。
-  ui::face::rect(scr, 40, 300, 370 - 40, 2,
+  ui::face::rect(scr, 40, 284, 370 - 40, 2,
                  lv_color_mix(t.accent3, t.bg, 30), 0);
 
   // 電池バー + 数値 (digit font は % 非収録なので値は font_body)。
   lv_obj_t* bl = ui::face::label(scr, "電池", t.font_body, t.text_dim);
-  lv_obj_align(bl, LV_ALIGN_TOP_LEFT, 60, 326);
-  ui::face::rect(scr, 60, 356, 200, 10,
+  lv_obj_align(bl, LV_ALIGN_TOP_LEFT, 60, 310);
+  ui::face::rect(scr, 60, 340, 200, 10,
                  lv_color_mix(t.accent3, t.bg, 46), 5);  // トラック
-  s.batt_fill = ui::face::rect(scr, 60, 356, 0, 10, t.accent3, 5);
+  s.batt_fill = ui::face::rect(scr, 60, 340, 0, 10, t.accent3, 5);
   s.batt_v = ui::face::label(scr, "--", t.font_body, t.text);
-  lv_obj_align(s.batt_v, LV_ALIGN_TOP_LEFT, 276, 350);
+  lv_obj_align(s.batt_v, LV_ALIGN_TOP_LEFT, 276, 334);
 
   // 歩数バー + 数値。
   lv_obj_t* sl = ui::face::label(scr, "歩数", t.font_body, t.text_dim);
-  lv_obj_align(sl, LV_ALIGN_TOP_LEFT, 60, 376);
-  ui::face::rect(scr, 60, 406, 200, 10,
+  lv_obj_align(sl, LV_ALIGN_TOP_LEFT, 60, 360);
+  ui::face::rect(scr, 60, 390, 200, 10,
                  lv_color_mix(t.accent, t.bg, 46), 5);
-  s.steps_fill = ui::face::rect(scr, 60, 406, 0, 10, t.accent, 5);
+  s.steps_fill = ui::face::rect(scr, 60, 390, 0, 10, t.accent, 5);
   s.steps_v = ui::face::label(scr, "--", t.font_body, t.text);
-  lv_obj_align(s.steps_v, LV_ALIGN_TOP_LEFT, 276, 400);
+  lv_obj_align(s.steps_v, LV_ALIGN_TOP_LEFT, 276, 384);
 
   tick_time();
   refresh_data();
