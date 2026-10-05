@@ -96,6 +96,17 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
         return true;
       }
       return false;
+    case ActionType::SetScreenOffAfter: {
+      const uint32_t s = a.arg0 < 5 ? 5 : a.arg0 > 600 ? 600 : a.arg0;
+      if (settings_set_u32(settings_, &ctx.storage, "screen_off_after_s", s)) {
+        // しきい値の変更は即 PowerPolicy に反映 (画面OFFまでの秒数の設定画面)。
+        power_.configure(settings_.dim_after_s, settings_.screen_off_after_s,
+                         settings_.deep_sleep_after_s);
+        bus_.publish({EventType::SettingsChanged, 0});
+        return true;
+      }
+      return false;
+    }
     case ActionType::SetTheme:
       if (settings_set_str(settings_, &ctx.storage, "theme", a.text)) {
         bus_.publish({EventType::ThemeChanged, 0});

@@ -28,6 +28,9 @@ bool memo_find(uint32_t id, MemoEntry* out);
 // 直接の作成 API (protocol の memo.create が使う)。id>=0、失敗は -1。
 int32_t memo_create(const char* text, size_t len, FeatureContext& ctx);
 
+// id のメモを消す。無ければ false (UI の削除アクションが使う)。
+bool memo_delete(uint32_t id, FeatureContext& ctx);
+
 // 内部状態を初期値に戻す (主にテストと工場リセット用)。KV は消さない。
 void memo_reset_state();
 

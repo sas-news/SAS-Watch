@@ -29,6 +29,7 @@ enum class ActionType : uint16_t {
   CounterReset,
   // Memo
   MemoCreate,       // text = 本文
+  MemoDelete,       // arg0 = memo id (閲覧画面の削除)
   MemoRecordStart,  // 録音開始 (firmware 側で Audio Lease + 録音)
   MemoRecordStop,
   // Agent (将来)
@@ -37,6 +38,7 @@ enum class ActionType : uint16_t {
   AgentReject,
   // Settings / System
   SetBrightness,  // arg0 = 0-100
+  SetScreenOffAfter, // arg0 = 画面OFFまでの秒数 (5-600 にクランプ)
   SetTheme,       // text = theme id
   TimeSync,       // arg0/arg1 = epoch 秒 (low/high)
   MediaCommand,   // arg0 = MediaCmd

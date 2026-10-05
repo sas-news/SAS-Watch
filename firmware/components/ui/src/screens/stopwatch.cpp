@@ -1,0 +1,108 @@
+// stopwatch.cpp — ストップウォッチ: 開始/停止、ラップ(最大20)、リセット。
+#include "../components.hpp"
+#include "../theme.hpp"
+
+#include <cstdio>
+#include "screens.hpp"
+#include "ui/port.hpp"
+#include "ui/ui.hpp"
+#include "watch/features/stopwatch.hpp"
+
+namespace {
+
+struct S {
+  lv_obj_t* disp = nullptr;
+  lv_obj_t* toggle = nullptr;
+  lv_obj_t* toggle_l = nullptr;
+  lv_obj_t* laps_col = nullptr;
+  lv_timer_t* tick = nullptr;
+};
+S s;
+
+void fmt(char* buf, size_t cap, int64_t ms) {
+  const int total_cs = static_cast<int>(ms / 10);
+  std::snprintf(buf, cap, "%02d:%02d.%02d", total_cs / 6000,
+                (total_cs / 100) % 60, total_cs % 100);
+}
+
+void tick_cb(lv_timer_t*) {
+  char buf[16];
+  fmt(buf, sizeof(buf),
+      watch::features::stopwatch_elapsed_ms(ui::port::now_ms()));
+  lv_label_set_text(s.disp, buf);
+}
+
+void rebuild_laps(lv_obj_t* col) {
+  if (!s.laps_col) return;
+  lv_obj_clean(s.laps_col);
+  const watch::features::StopwatchState& st =
+      watch::features::stopwatch_state();
+  char buf[48];
+  char name[24];
+  for (size_t i = 0; i < st.lap_count; ++i) {
+    fmt(buf, sizeof(buf), st.laps[i]);
+    std::snprintf(name, sizeof(name), "ラップ %u", (unsigned)(i + 1));
+    ui::c::list_row(s.laps_col, name, buf, nullptr, nullptr);
+  }
+}
+
+void sync(lv_obj_t* col) {
+  const watch::features::StopwatchState& st =
+      watch::features::stopwatch_state();
+  lv_label_set_text(s.toggle_l, st.running ? "停止" : "開始");
+  if (st.running) {
+    if (!s.tick) s.tick = lv_timer_create(tick_cb, 50, nullptr);
+  } else if (s.tick) {
+    lv_timer_delete(s.tick);
+    s.tick = nullptr;
+  }
+  tick_cb(nullptr);
+  rebuild_laps(col);
+}
+
+lv_obj_t* build(lv_obj_t* scr) {
+  const ui::Theme& t = ui::theme();
+  lv_obj_set_style_bg_color(scr, t.bg, 0);
+  ui::c::header(scr, "ストップウォッチ", true);
+  lv_obj_t* col = ui::c::content(scr);
+  s = S{};
+
+  lv_obj_t* card = ui::c::card(col);
+  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  s.disp = lv_label_create(card);
+  lv_obj_set_style_text_font(s.disp, t.font_digits_sm, 0);
+  lv_obj_set_style_text_color(s.disp, t.text, 0);
+
+  s.toggle = ui::c::button_primary(card, "開始",
+                                 [](lv_event_t*) {
+                                   ui::emit(watch::ActionType::StopwatchToggle);
+                                 },
+                                 nullptr);
+  s.toggle_l = lv_obj_get_child(s.toggle, 0);
+  ui::c::button(card, "ラップ",
+                [](lv_event_t*) { ui::emit(watch::ActionType::StopwatchLap); },
+                nullptr);
+  ui::c::button(card, "リセット",
+                [](lv_event_t*) {
+                  ui::emit(watch::ActionType::StopwatchReset);
+                },
+                nullptr);
+
+  s.laps_col = ui::c::card(col);
+  sync(col);
+  return scr;
+}
+
+void on_event(lv_obj_t* root, const watch::Event& e) {
+  if (e.type == watch::EventType::StopwatchChanged) {
+    // ラップ数の変更・開始停止・リセットを全部まとめて反映。
+    sync(root);
+  }
+}
+
+}  // namespace
+
+namespace ui {
+extern const ScreenOps kStopwatchScreen = {watch::Route::Stopwatch, build, on_event};
+}

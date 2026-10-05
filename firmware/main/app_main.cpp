@@ -1,5 +1,7 @@
-// SAS-Watch firmware: Phase 2 の最小形 (docs/plan.md R 章)
-// 起動 -> 診断ログ -> board 初期化 -> 時計画面 -> ボタン/タッチで復帰の簡易電源管理
+// SAS-Watch firmware: Phase 4-6 MVP (docs/plan.md R 章)
+// 起動 -> 診断 -> board -> 表示/LVGL -> watch_app (core Runtime タスク) -> UI 組立
+// BLE は別セッションの ble_link コンポーネント。未導入でもビルドできるよう
+// weak スタブ + CONFIG_SAS_BLE_LINK ガードで呼び出す。
 #include <stdio.h>
 #include <time.h>
 
@@ -7,48 +9,46 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
-#include "esp_timer.h"
-#include "esp_err.h"
+#include "esp_lvgl_port.h"
 
 #include "board/board.hpp"
 #include "diag/diag.hpp"
-#include "ui_min/ui_min.hpp"
+#include "platform_esp/platform_esp.hpp"
+#include "ui/ui.hpp"
+#include "watch_app/watch_app.hpp"
+#include "watch/event.hpp"
 
 static const char* TAG = "app";
 
-// 簡易電源管理 (本格的な PowerManager は core と統合するときに作る: plan.md L 章)
-static constexpr int64_t kScreenOffAfterUs = 10LL * 1000 * 1000;  // 無操作 10 秒で画面オフ
-static int64_t s_last_activity_us = 0;
+// platform 実体は静的確保。
+static platform_esp::EspClock s_clock;
+static platform_esp::NvsKv s_kv;
 
-static void kick_activity()
-{
-    s_last_activity_us = esp_timer_get_time();
-    if (!ui_min::is_screen_on()) {
-        ui_min::set_screen_on(true);
+#if CONFIG_SAS_BLE_LINK
+#include "ble_link.h"
+#endif
+
+// 電池ポーリング (AXP IRQ 線が無いので定期 — plan.md A-3)。
+// 変化があったときだけ Event を出す。
+static void battery_poll(void*) {
+  int last_pct = -2;
+  bool last_chg = false;
+  while (true) {
+    const int pct = board::pmic::battery_percent();
+    const bool chg = board::pmic::is_charging();
+    if (pct != last_pct) {
+      last_pct = pct;
+      watch_app::bus().publish(
+          {watch::EventType::BatteryChanged,
+           static_cast<uint32_t>(pct < 0 ? 0 : pct)});
     }
-}
-
-static void on_button(board::Button b, board::ButtonEvent e)
-{
-    const char* bname = (b == board::Button::Boot) ? "BOOT" : "PWR";
-    const char* ename =
-        e == board::ButtonEvent::ShortPress ? "short" :
-        e == board::ButtonEvent::LongPress  ? "long" : "double";
-    ESP_LOGI(TAG, "button %s %s", bname, ename);
-
-    char msg[32];
-    snprintf(msg, sizeof(msg), "%s %s", bname, ename);
-    ui_min::notify(msg);
-    kick_activity();
-}
-
-static void idle_check(void*)
-{
-    if (ui_min::is_screen_on() &&
-        esp_timer_get_time() - s_last_activity_us > kScreenOffAfterUs) {
-        ESP_LOGI(TAG, "idle %llds -> screen off", kScreenOffAfterUs / 1000000);
-        ui_min::set_screen_on(false);
+    if (chg != last_chg) {
+      last_chg = chg;
+      watch_app::bus().publish(
+          {watch::EventType::ChargingChanged, chg ? 1u : 0u});
     }
+    vTaskDelay(pdMS_TO_TICKS(30000));
+  }
 }
 
 extern "C" void app_main(void)
@@ -64,35 +64,44 @@ extern "C" void app_main(void)
     setenv("TZ", "JST-9", 1);
     tzset();
 
+    platform_esp::install_log();
     ESP_LOGI(TAG, "=== SAS-Watch firmware boot ===");
     diag::print_system_info();
 
     ESP_ERROR_CHECK(board::init());
     diag::i2c_scan();
 
-    if (ui_min::init() == nullptr) {
-        ESP_LOGE(TAG, "ui_min init failed");
+    if (!s_kv.init()) {
+        // NVS が読めなくても既定値で動く。エラーは init 内でログ済み。
+        ESP_LOGW(TAG, "kv init failed; running with defaults");
     }
-    ui_min::set_battery(board::pmic::battery_percent(), board::pmic::is_charging());
 
-    board::buttons::set_callback(on_button);
-    ui_min::set_on_activity(kick_activity);
-    kick_activity();
-
-    const esp_timer_create_args_t idle_args = {
-        .callback = &idle_check,
-        .arg = nullptr,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "idle_check",
-        .skip_unhandled_events = false,
-    };
-    esp_timer_handle_t idle_timer = nullptr;
-    ESP_ERROR_CHECK(esp_timer_create(&idle_args, &idle_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(idle_timer, 1000 * 1000));
-
-    // AXP IRQ 線は無いので電池状態は定期ポーリング (plan.md A-3)
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(30000));
-        ui_min::set_battery(board::pmic::battery_percent(), board::pmic::is_charging());
+    // 表示・LVGLタスク・タッチを起こす。
+    if (ui::init_display() == nullptr) {
+        ESP_LOGE(TAG, "display init failed");
+        return;  // 表示なしでは時計として成立しないので止める
     }
+
+    // core Runtime タスク (キュー・電源・Feature)。
+    if (!watch_app::start({&s_clock, &s_kv})) {
+        ESP_LOGE(TAG, "watch_app start failed");
+        return;
+    }
+
+    // UI 組み立て (LVGL を触るのでロック内)。
+    if (lvgl_port_lock(2000)) {
+        ui::create({&watch_app::bus(), &watch_app::navigator(),
+                    &watch_app::settings()});
+        lvgl_port_unlock();
+    } else {
+        ESP_LOGE(TAG, "lvgl lock timeout; UI not created");
+    }
+
+#if CONFIG_SAS_BLE_LINK
+    // パスキー確認の「はい/いいえ」→ NimBLE へ
+    ui::set_passkey_confirm([](bool ok) { ble_link_confirm_passkey(ok); });
+    ble_link_start(watch_app::ble_config());
+#endif
+
+    xTaskCreate(battery_poll, "batt", 2048, nullptr, 3, nullptr);
 }

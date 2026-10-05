@@ -60,6 +60,8 @@ bool handle(const Action& a, FeatureContext& ctx) {
   switch (a.type) {
     case ActionType::MemoCreate:
       return memo_create(a.text, std::strlen(a.text), ctx) >= 0;
+    case ActionType::MemoDelete:
+      return memo_delete(a.arg0, ctx);
     case ActionType::MemoRecordStart:
       // 録音は firmware 側 (Audio Lease + codec)。core は握らない。
       // TODO(hw): 実機で確認 - 録音パイプラインは services/audio に。
@@ -139,6 +141,35 @@ int32_t memo_create(const char* text, size_t len, FeatureContext& ctx) {
   persist_header(ctx.storage);
   ctx.bus.publish({EventType::MemoSaved, e.id});
   return static_cast<int32_t>(e.id);
+}
+
+// id のエントリを消す。リング順を保ったまま後続を前に詰め、
+// 末尾スロットの KV を消す。無ければ false。
+bool memo_delete(uint32_t id, FeatureContext& ctx) {
+  for (size_t i = 0; i < g_count; ++i) {
+    const uint16_t slot =
+        static_cast<uint16_t>((g_head + i) % kMemoMaxEntries);
+    if (g_entries[slot].id != id) continue;
+    for (size_t j = i; j + 1 < g_count; ++j) {
+      const uint16_t dst =
+          static_cast<uint16_t>((g_head + j) % kMemoMaxEntries);
+      const uint16_t src =
+          static_cast<uint16_t>((g_head + j + 1) % kMemoMaxEntries);
+      g_entries[dst] = g_entries[src];
+      persist_slot(ctx.storage, dst);
+    }
+    --g_count;
+    const uint16_t last =
+        static_cast<uint16_t>((g_head + g_count) % kMemoMaxEntries);
+    g_entries[last] = MemoEntry{};
+    char key[32];
+    slot_key(last, key, sizeof(key));
+    ctx.storage.erase(key);
+    persist_header(ctx.storage);
+    ctx.bus.publish({EventType::MemoDeleted, id});
+    return true;
+  }
+  return false;
 }
 
 size_t memo_count() { return g_count; }
