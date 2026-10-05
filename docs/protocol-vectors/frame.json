@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "kind": "frame",
+  "cases": [
+    {
+      "name": "req_small",
+      "description": "小さい REQ は1フレーム",
+      "type": "REQ",
+      "msg_id": 1,
+      "payload_hex": "a2616d6a74696d65722e73746f706170a0",
+      "frames": [
+        "0101000001001100a2616d6a74696d65722e73746f706170a0ac75"
+      ]
+    },
+    {
+      "name": "res_small",
+      "description": "RES も同じ形式 (type=0x02)",
+      "type": "RES",
+      "msg_id": 1,
+      "payload_hex": "a2626f6bf56172a0",
+      "frames": [
+        "0102000001000800a2626f6bf56172a0c527"
+      ]
+    },
+    {
+      "name": "evt_battery",
+      "description": "EVT は type=0x03、msg_id は送信側の連番",
+      "type": "EVT",
+      "msg_id": 41,
+      "payload_hex": "a2616567626174746572796164a2656c6576656c1857686368617267696e67f4",
+      "frames": [
+        "0103000029002000a2616567626174746572796164a2656c6576656c1857686368617267696e67f48e37"
+      ]
+    },
+    {
+      "name": "fragmented_res",
+      "description": "MTU 100 に収まらない payload はフラグメント分割 (flags bit0=more, seq 連番)",
+      "type": "RES",
+      "msg_id": 4660,
+      "payload_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7",
+      "frames": [
+        "0102010034125700000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f5051525354555674f0",
+        "01020101341257005758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacade0e5",
+        "0102000234121a00aeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7b12e"
+      ],
+      "mtu": 100
+    },
+    {
+      "name": "bulk_chunk_raw",
+      "description": "BULK_CHUNK の payload は生バイト (id:u16 + offset:u32 + data)",
+      "type": "BULK_CHUNK",
+      "msg_id": 5,
+      "payload_hex": "070000000000000102030405060708090a0b0c0d0e0f",
+      "frames": [
+        "0111000005001600070000000000000102030405060708090a0b0c0d0e0fd9a3"
+      ]
+    },
+    {
+      "name": "err_too_short",
+      "description": "ヘッダ+CRC に満たないフレームは拒否",
+      "expect_error": "too_short",
+      "raw_hex": "010203"
+    },
+    {
+      "name": "err_bad_version",
+      "description": "ver != 1 は拒否 (CRC が合っていても)",
+      "expect_error": "bad_version",
+      "raw_hex": "02010000010000004d70"
+    },
+    {
+      "name": "err_bad_length",
+      "description": "len と実サイズが合わないフレームは拒否",
+      "expect_error": "bad_length",
+      "raw_hex": "0101000001000101a038af"
+    },
+    {
+      "name": "err_bad_crc",
+      "description": "CRC-16 が一致しないフレームは拒否",
+      "expect_error": "bad_crc",
+      "raw_hex": "01020000070003000102036bbb"
+    }
+  ]
+}

@@ -173,39 +173,81 @@ sealed interface Evt {
 
 // ---------- settings keys ----------
 
+/** protocol-v1.md の settings キー表が唯一の正（core `settings.cpp` の `kKeys` と一致）。 */
 object SettingsKeys {
     const val BRIGHTNESS = "brightness"
     const val DIM_AFTER_S = "dim_after_s"
     const val SCREEN_OFF_AFTER_S = "screen_off_after_s"
+    const val DEEP_SLEEP_AFTER_S = "deep_sleep_after_s"
+    const val TZ_OFFSET_MIN = "tz_offset_min"
+    const val THEME = "theme"
     const val BUTTON_BOOT_SHORT = "button.boot.short"
     const val BUTTON_BOOT_LONG = "button.boot.long"
     const val BUTTON_BOOT_DOUBLE = "button.boot.double"
     const val BUTTON_PWR_SHORT = "button.pwr.short"
     const val BUTTON_PWR_LONG = "button.pwr.long"
-    const val THEME = "theme"
+    const val BUTTON_PWR_DOUBLE = "button.pwr.double"
 
+    /** kKeys と同じ順。 */
     val ALL = listOf(
-        BRIGHTNESS, DIM_AFTER_S, SCREEN_OFF_AFTER_S,
+        BRIGHTNESS, DIM_AFTER_S, SCREEN_OFF_AFTER_S, DEEP_SLEEP_AFTER_S,
+        TZ_OFFSET_MIN, THEME,
         BUTTON_BOOT_SHORT, BUTTON_BOOT_LONG, BUTTON_BOOT_DOUBLE,
-        BUTTON_PWR_SHORT, BUTTON_PWR_LONG, THEME,
+        BUTTON_PWR_SHORT, BUTTON_PWR_LONG, BUTTON_PWR_DOUBLE,
     )
 
-    /** settings の値に使う Action 名。protocol-v1.md は「Action 名文字列」とだけ書くので、
-     *  plan.md のボタン表＋ActionType から推測した一覧。
-     * // TODO(hw): 実機で確認 — 時計側の Action 名が決まったら揃える */
-    val BUTTON_ACTIONS = listOf(
-        "nav.back",
-        "nav.home",
-        "nav.quick",
-        "nav.dev",
-        "power.menu",
-        "screen.off",
-        "timer.toggle",
-        "stopwatch.toggle",
-        "counter.add",
-        "memo.record",
-        "none",
+    /** button.* のデフォルト値（core `settings.hpp` と一致）。 */
+    val DEFAULTS: Map<String, Cbor> = linkedMapOf(
+        BRIGHTNESS to Cbor.Cint(50),
+        DIM_AFTER_S to Cbor.Cint(8),
+        SCREEN_OFF_AFTER_S to Cbor.Cint(12),
+        DEEP_SLEEP_AFTER_S to Cbor.Cint(1800),
+        TZ_OFFSET_MIN to Cbor.Cint(0),
+        THEME to Cbor.Ctext("standard"),
+        BUTTON_BOOT_SHORT to Cbor.Ctext("primary"),
+        BUTTON_BOOT_LONG to Cbor.Ctext("nav.dev"),
+        BUTTON_BOOT_DOUBLE to Cbor.Ctext("memo.record"),
+        BUTTON_PWR_SHORT to Cbor.Ctext("back"),
+        BUTTON_PWR_LONG to Cbor.Ctext("power_menu"),
+        BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
     )
+}
+
+/**
+ * settings の `button.*` に設定できる Action 名。
+ * protocol-v1.md の「Action 名」表が唯一の正
+ * （core `input_mapper.cpp` の `named_actions()` と一致）。
+ * `labelJa` はアプリの設定画面に出す日本語ラベル。
+ */
+data class ActionSpec(val name: String, val labelJa: String)
+
+object ActionNames {
+    val ALL: List<ActionSpec> = listOf(
+        ActionSpec("none", "なし"),
+        ActionSpec("back", "戻る"),
+        ActionSpec("home", "ホーム"),
+        ActionSpec("primary", "主ボタン"),
+        ActionSpec("screen_off", "画面OFF"),
+        ActionSpec("wake", "復帰"),
+        ActionSpec("power_menu", "電源メニュー"),
+        ActionSpec("nav.quick", "クイック設定"),
+        ActionSpec("nav.notifications", "通知"),
+        ActionSpec("nav.more", "アプリ一覧"),
+        ActionSpec("nav.dev", "開発者"),
+        ActionSpec("nav.agent", "エージェント"),
+        ActionSpec("nav.settings", "設定"),
+        ActionSpec("nav.media", "メディア"),
+        ActionSpec("memo.record", "メモ録音"),
+        ActionSpec("timer.start", "タイマー開始"),
+        ActionSpec("timer.stop", "タイマー停止"),
+        ActionSpec("stopwatch.toggle", "ストップウォッチ"),
+        ActionSpec("counter.add", "カウンタ +1"),
+        ActionSpec("counter.sub", "カウンタ -1"),
+    )
+
+    val NAMES: List<String> = ALL.map { it.name }
+
+    fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
 }
 
 // ---------- 便利関数 ----------
