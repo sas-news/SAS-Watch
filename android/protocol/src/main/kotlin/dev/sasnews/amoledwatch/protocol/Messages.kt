@@ -298,6 +298,8 @@ object SettingsKeys {
     const val AUDIO_CLICK = "audio.click"
     const val RAISE_TO_WAKE = "raise_to_wake"
     const val STEPS_GOAL = "steps.goal"
+    const val FACE = "face"
+    const val CLOCK_FONT = "clock_font"
     const val AGENT_Q1 = "agent.q1"
     const val AGENT_Q2 = "agent.q2"
     const val AGENT_Q3 = "agent.q3"
@@ -310,6 +312,7 @@ object SettingsKeys {
         BUTTON_PWR_SHORT, BUTTON_PWR_LONG, BUTTON_PWR_DOUBLE,
         AUDIO_VOLUME, AUDIO_CLICK,
         RAISE_TO_WAKE, STEPS_GOAL,
+        FACE, CLOCK_FONT,
         AGENT_Q1, AGENT_Q2, AGENT_Q3,
     )
 
@@ -331,10 +334,40 @@ object SettingsKeys {
         AUDIO_CLICK to Cbor.Cint(1),
         RAISE_TO_WAKE to Cbor.Cint(1),
         STEPS_GOAL to Cbor.Cint(8000),
+        FACE to Cbor.Ctext("bold"),
+        CLOCK_FONT to Cbor.Ctext("auto"),
         AGENT_Q1 to Cbor.Ctext("今日の予定は？"),
         AGENT_Q2 to Cbor.Ctext("今の天気は？"),
         AGENT_Q3 to Cbor.Ctext(""),
     )
+}
+
+/** `face` に設定できる文字盤 id。watch 側の盤定義と一致。 */
+object FaceNames {
+    val ALL: List<ActionSpec> = listOf(
+        ActionSpec("bold", "ボールド"),
+        ActionSpec("analog", "アナログ"),
+        ActionSpec("hud", "HUD"),
+        ActionSpec("minimal", "ミニマル"),
+        ActionSpec("chara_side", "キャラ（横）"),
+        ActionSpec("chara_bubble", "キャラ（ふきだし）"),
+    )
+
+    fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
+}
+
+/** `clock_font` に設定できるフォント id。`auto` は文字盤ごとの既定。 */
+object ClockFontNames {
+    val ALL: List<ActionSpec> = listOf(
+        ActionSpec("auto", "自動（文字盤ごと）"),
+        ActionSpec("oswald", "Oswald"),
+        ActionSpec("bebas", "Bebas Neue"),
+        ActionSpec("orbitron", "Orbitron"),
+        ActionSpec("outfit", "Outfit"),
+        ActionSpec("chakra", "Chakra Petch"),
+    )
+
+    fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
 }
 
 /**

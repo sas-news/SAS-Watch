@@ -594,6 +594,8 @@ def main():
                     "audio.click": 1,
                     "raise_to_wake": 1,
                     "steps.goal": 8000,
+                    "face": "bold",
+                    "clock_font": "auto",
                     "agent.q1": "今日の予定は？",
                     "agent.q2": "今の天気は？",
                     "agent.q3": "",

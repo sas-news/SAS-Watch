@@ -71,6 +71,8 @@
     <string name="settings_steps_goal">歩数目標</string>
     <string name="settings_steps_today">今日の歩数</string>
     <string name="settings_steps_refresh">歩数を更新</string>
+    <string name="settings_face">文字盤</string>
+    <string name="settings_clock_font">時計の数字フォント</string>
     <string name="settings_raw_hint">設定値は時計の settings keys（protocol-v1.md）に対応しています。</string>
 
     <!-- AI設定 -->

@@ -41,6 +41,8 @@ import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.protocol.ActionNames
 import dev.sasnews.amoledwatch.protocol.ActionSpec
 import dev.sasnews.amoledwatch.protocol.Cbor
+import dev.sasnews.amoledwatch.protocol.ClockFontNames
+import dev.sasnews.amoledwatch.protocol.FaceNames
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
 import dev.sasnews.amoledwatch.protocol.StepsInfo
 import dev.sasnews.amoledwatch.protocol.bool
@@ -194,6 +196,12 @@ private fun SettingsEditor(
     var stepsGoal by remember(settings) {
         mutableFloatStateOf(settings[SettingsKeys.STEPS_GOAL]?.int?.toFloat() ?: 8000f)
     }
+    var face by remember(settings) {
+        mutableStateOf(settings[SettingsKeys.FACE]?.text ?: "bold")
+    }
+    var clockFont by remember(settings) {
+        mutableStateOf(settings[SettingsKeys.CLOCK_FONT]?.text ?: "auto")
+    }
     var agentQ1 by remember(settings) {
         mutableStateOf(settings[SettingsKeys.AGENT_Q1]?.text ?: "")
     }
@@ -233,6 +241,21 @@ private fun SettingsEditor(
                     onSelect = { buttons = buttons + (key to it) },
                 )
             }
+
+            ActionDropdown(
+                label = stringResource(R.string.settings_face),
+                selected = face,
+                options = FaceNames.ALL,
+                labelOf = FaceNames::label,
+                onSelect = { face = it },
+            )
+            ActionDropdown(
+                label = stringResource(R.string.settings_clock_font),
+                selected = clockFont,
+                options = ClockFontNames.ALL,
+                labelOf = ClockFontNames::label,
+                onSelect = { clockFont = it },
+            )
 
             OutlinedTextField(
                 value = theme,
@@ -297,6 +320,8 @@ private fun SettingsEditor(
                             SettingsKeys.THEME to Cbor.Ctext(theme),
                             SettingsKeys.RAISE_TO_WAKE to Cbor.Cint(if (raiseToWake) 1 else 0),
                             SettingsKeys.STEPS_GOAL to Cbor.Cint(stepsGoal.roundToInt().toLong()),
+                            SettingsKeys.FACE to Cbor.Ctext(face),
+                            SettingsKeys.CLOCK_FONT to Cbor.Ctext(clockFont),
                             SettingsKeys.AGENT_Q1 to Cbor.Ctext(agentQ1),
                             SettingsKeys.AGENT_Q2 to Cbor.Ctext(agentQ2),
                             SettingsKeys.AGENT_Q3 to Cbor.Ctext(agentQ3),
@@ -445,11 +470,12 @@ private fun ActionDropdown(
     selected: String,
     options: List<ActionSpec>,
     onSelect: (String) -> Unit,
+    labelOf: (String) -> String = ActionNames::label,
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = ActionNames.label(selected),
+            value = labelOf(selected),
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },

@@ -18,6 +18,12 @@ struct Theme {
   lv_color_t accent;      // 注意・数値ハイライト
   lv_color_t danger;      // 削除・警告
   lv_color_t ok;          // 正常・接続中
+  lv_color_t accent2;     // 第2アクセント (ウォーム系: analog の針・数字など)
+  lv_color_t accent3;     // 第3アクセント (ネオン系: HUD 飾り・バーなど)
+  lv_color_t accent4;     // 第4アクセント (バイオレット系: グロー・進捗など)
+  lv_color_t accent5;     // 第5アクセント (ピンク系: キャラ文字盤の強調)
+  lv_color_t bubble_bg;   // chara_bubble ふきだしの背景
+  lv_color_t bubble_text; // chara_bubble ふきだしの文字色
 
   const lv_font_t* font_body;     // 本文 (日本語 20px)
   const lv_font_t* font_title;    // ヘッダ/大きめ本文 (日本語 26px)
@@ -34,6 +40,11 @@ struct Theme {
   const lv_image_dsc_t* img_home_bg;    // Home 背景 (下帯)
   const lv_image_dsc_t* img_stand;      // Home 立ち絵
   const lv_image_dsc_t* img_timer_done; // タイマー終了アラート
+  const lv_image_dsc_t* img_face_chara; // 文字盤 chara_* 用立ち絵 (透過 ≤240x410)
+
+  // chara_bubble 文字盤のふきだし文言 (manifest "bubble" で上書き可)。
+  // 0:朝 1:昼 2:夕 3:夜 4:歩数目標の残り ({n}=残り歩数)。
+  const char* bubble[5];
 };
 
 // 現在有効な Theme (適用済みスナップショット)。

@@ -99,6 +99,8 @@ error code:
 | `audio.click` | u32 | 1 | ボタンのクリック音 ON/OFF (0/1) |
 | `raise_to_wake` | u32 | 1 | 腕を上げて画面オン (0/1) |
 | `steps.goal` | u32 | 8000 | 歩数目標 (歩数画面の達成率・steps.get の goal) |
+| `face` | text | `bold` | 文字盤 id (`bold`/`analog`/`hud`/`minimal`/`chara_side`/`chara_bubble`) |
+| `clock_font` | text | `auto` | 時計数字フォント id (`auto`/`oswald`/`bebas`/`orbitron`/`outfit`/`chakra`) |
 | `agent.q1` | text | `今日の予定は？` | AI の定型質問ボタン 1 (空 = 非表示、63バイトまで) |
 | `agent.q2` | text | `今の天気は？` | AI の定型質問ボタン 2 (同左) |
 | `agent.q3` | text | (空) | AI の定型質問ボタン 3 (同左) |

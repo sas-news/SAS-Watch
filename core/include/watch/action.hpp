@@ -44,6 +44,8 @@ enum class ActionType : uint16_t {
   SetAudioVolume, // arg0 = 0-100 (クリック音・ビープ・メモ再生の音量)
   SetAudioClick,  // arg0 = 0/1 (ボタンのクリック音 ON/OFF)
   SetTheme,       // text = theme id
+  SetFace,        // text = 文字盤 id ("bold" など)
+  SetClockFont,   // text = 時計数字フォント id ("auto" など)
   TimeSync,       // arg0/arg1 = epoch 秒 (low/high)
   MediaCommand,   // arg0 = MediaCmd
   // Sensors (Phase 10)

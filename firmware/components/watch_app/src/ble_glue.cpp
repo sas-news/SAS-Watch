@@ -42,6 +42,9 @@ constexpr const char* TAG = "watch_app.ble";
 //   key : -1 無し / 0-999999 表示中パスキー
 volatile int8_t s_pending_conn = -1;
 volatile int32_t s_pending_key = -1;
+// settings.set {face:...} / {clock_font:...} → app タスクで Action 化。
+char s_pending_face[16] = {};
+char s_pending_font[16] = {};
 
 // ---- bulk_out (時計→スマホの push 送信) ------------------------------------
 // Phone は受信側として BULK_ACK{next} を返す (8チャンクごと/END後)。
@@ -449,9 +452,19 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
   };
   svc.ctx = fctx();
   // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。
+  // face / clock_font も同じ経路 (dispatch 側で既に Settings へ保存済み、
+  // ここでは再描画用の Action だけ保留する)。
   svc.setting_changed = [](const char* key, void*) {
     if (std::strcmp(key, "theme") == 0) {
       theme_store::set_pending_theme(settings_mut().theme);
+    } else if (std::strcmp(key, "face") == 0) {
+      std::strncpy(s_pending_face, settings_mut().face,
+                   sizeof(s_pending_face) - 1);
+      s_pending_face[sizeof(s_pending_face) - 1] = '\0';
+    } else if (std::strcmp(key, "clock_font") == 0) {
+      std::strncpy(s_pending_font, settings_mut().clock_font,
+                   sizeof(s_pending_font) - 1);
+      s_pending_font[sizeof(s_pending_font) - 1] = '\0';
     }
   };
   svc.wifi_set = [](const char* ssid, const char* pass, void*) {
@@ -600,6 +613,23 @@ void ble_glue_poll() {
     a.type = watch::ActionType::SetTheme;
     a.source = watch::ActionSource::System;
     a.set_text(theme_id);
+    push_action(a);
+  }
+  // 文字盤・数字フォント (settings.set 経由) → Action で再描画。
+  if (s_pending_face[0]) {
+    watch::Action a{};
+    a.type = watch::ActionType::SetFace;
+    a.source = watch::ActionSource::System;
+    a.set_text(s_pending_face);
+    s_pending_face[0] = '\0';
+    push_action(a);
+  }
+  if (s_pending_font[0]) {
+    watch::Action a{};
+    a.type = watch::ActionType::SetClockFont;
+    a.source = watch::ActionSource::System;
+    a.set_text(s_pending_font);
+    s_pending_font[0] = '\0';
     push_action(a);
   }
 }
