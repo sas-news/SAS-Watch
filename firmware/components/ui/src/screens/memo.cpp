@@ -97,7 +97,7 @@ void rebuild_list() {
     } else {
       std::snprintf(label, sizeof(label), "%s", m.text);
     }
-    fit_in_card(ui::c::list_row(s.list_box, label, nullptr,
+    lv_obj_t* row = ui::c::list_row(s.list_box, label, nullptr,
                     [](lv_event_t* e) {
                       s.detail_id = static_cast<uint32_t>(
                           reinterpret_cast<uintptr_t>(
@@ -126,7 +126,13 @@ void rebuild_list() {
                       lv_obj_remove_flag(s.detail_box,
                                          LV_OBJ_FLAG_HIDDEN);
                     },
-                    reinterpret_cast<void*>(static_cast<uintptr_t>(m.id))));
+                    reinterpret_cast<void*>(static_cast<uintptr_t>(m.id)));
+    fit_in_card(row);
+    // 行内のラベルは kW 基準の固定幅で、カード内幅を超えて右端が欠ける。
+    // 行の内側幅に収めて折り返させる。
+    if (lv_obj_t* l = lv_obj_get_child(row, 0)) {
+      lv_obj_set_width(l, LV_PCT(100));
+    }
   }
 }
 
