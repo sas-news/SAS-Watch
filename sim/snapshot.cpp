@@ -208,9 +208,15 @@ int main(int argc, char** argv) {
   nav_to(watch::Route::Timer);
   ok &= save(out, "04_timer_setup");
 
-  ui::emit(watch::ActionType::TimerStart, 90);
-  pump(300);
+  // 3分タイマーを開始して 90 秒経過させる (残り 1:30 → リングが半周、
+  // 未充填トラックも写る状態で撮る)。無入力だと 12 秒で画面OFFになり、
+  // 消灯中の Action は「起こすだけ」で捨てられる (TimerReset が効かず
+  // タイマーが動き続ける) ため、間だけ PowerPolicy の消灯を延ばす。
+  s_power.configure(8, 300, 1800);
+  ui::emit(watch::ActionType::TimerStart, 180);
+  pump(90500);
   ok &= save(out, "05_timer_running");
+  s_power.configure(8, 12, 1800);
 
   ui::emit(watch::ActionType::TimerReset);
   back_home();

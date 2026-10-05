@@ -222,9 +222,11 @@ void show_timer_alert() {
 
   // 暖色グロー (ラジアルグラデーション。静的描画だけで毎フレーム再描画なし)。
   // mockup: radial-gradient(circle at 50% 30%, #5a2a0a → #000 70%)。
+  // 連続補間なので stop は2個で滑らか (同心円バンディングも出ない)。
+  // ※ stops は LV_GRADIENT_MAX_STOPS (=2) まで。超えると LV_ASSERT で止まる。
   static lv_grad_dsc_t s_glow;
   static const lv_color_t s_glow_cols[] = {lv_color_hex(0x5A2A0A),
-                                           lv_color_hex(0x000000)};
+                                         lv_color_hex(0x000000)};
   lv_grad_init_stops(&s_glow, s_glow_cols, nullptr, nullptr, 2);
   lv_grad_radial_init(&s_glow, LV_GRAD_CENTER, LV_PCT(30), LV_PCT(95),
                       LV_PCT(30), LV_GRAD_EXTEND_PAD);
@@ -257,7 +259,7 @@ void show_timer_alert() {
   lv_label_set_text(l, "タイマー終了");
   lv_obj_set_style_text_font(l, t.font_title, 0);
   lv_obj_set_style_text_color(l, t.text, 0);
-  lv_obj_align(l, LV_ALIGN_CENTER, 0, 48);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, 60);  // 00:00 との間に +12px
 
   // 止める (primary) / もう1分 (secondary: +60秒して再開)
   lv_obj_t* stop = alert_button(

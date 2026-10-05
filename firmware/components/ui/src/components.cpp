@@ -76,11 +76,10 @@ void divider_if_needed(lv_obj_t* grp) {
   lv_obj_set_style_bg_color(d, t.line, 0);
 }
 
-// 右端の › (モックの .ch)。専用フォントで描く。
+// 右端の › (モックの .ch #4A4F5C)。専用フォントで描く。
 lv_obj_t* chevron(lv_obj_t* row) {
   const Theme& t = theme();
-  lv_obj_t* ch = mk_label(row, "›", &font_chev_22,
-                          lv_color_mix(t.text_dim, t.bg, 140));
+  lv_obj_t* ch = mk_label(row, "›", &font_chev_22, t.edge);
   return ch;
 }
 
@@ -94,8 +93,9 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   lv_obj_set_pos(h, 0, 0);
   lv_obj_set_style_pad_left(h, kPad, 0);
   lv_obj_set_style_pad_right(h, kPad, 0);
-  lv_obj_set_style_pad_top(h, 14, 0);
-  lv_obj_set_style_pad_bottom(h, 14, 0);
+  // コンテンツ領域の中央がピル中心 ~41px になる pad (モック準拠)。
+  lv_obj_set_style_pad_top(h, 18, 0);
+  lv_obj_set_style_pad_bottom(h, 12, 0);
   lv_obj_set_style_pad_column(h, 12, 0);
   lv_obj_set_flex_flow(h, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(h, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
@@ -137,6 +137,8 @@ lv_obj_t* content(lv_obj_t* scr) {
                         LV_FLEX_ALIGN_START);
   lv_obj_set_scroll_dir(c, LV_DIR_VER);
   lv_obj_add_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+  // スクロールバーは出さない (腕時計 UI、カードの上に太く被さるため)。
+  lv_obj_set_scrollbar_mode(c, LV_SCROLLBAR_MODE_OFF);
   (void)t;
   return c;
 }
@@ -237,7 +239,9 @@ lv_obj_t* row_text(lv_obj_t* row, const char* text, const char* sub,
   lv_obj_t* cell = flat(row);
   lv_obj_set_size(cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_min_width(cell, 60, 0);  // flex_grow と組で右要素を右端へ
-  lv_obj_set_style_pad_row(cell, 2, 0);
+  // font_jp_20 は line_height 38 でグリフ (20px) より箱が大きいので、
+  // 負の行間でサブ行をタイトル直下に寄せる (視覚的に ~2-4px)。
+  lv_obj_set_style_pad_row(cell, -14, 0);
   lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
                         LV_FLEX_ALIGN_START);
@@ -319,12 +323,21 @@ lv_obj_t* mk_switch(lv_obj_t* row, bool on) {
   lv_obj_set_size(sw, kSwitchW, kSwitchH);
   lv_obj_set_style_radius(sw, LV_RADIUS_CIRCLE, LV_PART_MAIN);
   lv_obj_set_style_radius(sw, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-  // OFF トラック/ノブはテーマ由来の中間色 (標準で #3D4049 / #ADADB0 相当)。
-  lv_obj_set_style_bg_color(sw, lv_color_mix(t.text_dim, t.surface, 90),
+  // OFF: トラック≈#3A3E4A (edge×line)、ノブ≈#AAB8BB。ON: 塗り primary + 白ノブ。
+  // LVGL 既定テーマは CHECKED の INDICATOR を青にするので同じセレクタで上書き
+  // (汎用セレクタだけだと ON が青のまま・OFF のノブ脇に橙が滲む)。
+  lv_obj_set_style_bg_color(sw, lv_color_mix(t.edge, t.line, 128),
                             LV_PART_MAIN);
   lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(sw, t.primary, LV_PART_INDICATOR);
+  // OFF 時は INDICATOR もトラック色にして左端の滲みを消す (LVGL は
+  // OFF でもインジケータを少し描く)。ON だけ CHECKED セレクタで primary。
+  lv_obj_set_style_bg_color(sw, lv_color_mix(t.edge, t.line, 128),
+                            LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(sw, t.primary,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_opa(sw, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_CHECKED);
   lv_obj_set_style_bg_color(
       sw, lv_color_mix(t.text_dim, t.text, 170), LV_PART_KNOB);
   lv_obj_set_style_bg_color(sw, lv_color_hex(0xFFFFFF),

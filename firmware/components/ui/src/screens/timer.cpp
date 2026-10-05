@@ -21,10 +21,20 @@ struct T {
   lv_obj_t* remain_l = nullptr;
   lv_obj_t* cap_l = nullptr;
   lv_obj_t* pause_l = nullptr;  // 一時停止/再開ボタンのラベル
+  lv_obj_t* scr = nullptr;
   lv_timer_t* tick = nullptr;
   uint32_t setup_s = 60;
 };
 T s;
+
+// 画面破棄で tick を必ず殺す (実行中に離脱すると lv_timer が残って
+// 解放済みのラベルへ書きにいき落ちる)。tick は scr の user_data に
+// 持たせるので、リビルドで新画面の tick を誤って消さない。
+void kill_tick(lv_obj_t* scr) {
+  lv_timer_t* tk = static_cast<lv_timer_t*>(lv_obj_get_user_data(scr));
+  if (tk) lv_timer_delete(tk);
+  if (s.tick == tk) s.tick = nullptr;
+}
 
 void fmt_mmss(char* buf, size_t cap, int64_t ms) {
   const int total = static_cast<int>((ms + 500) / 1000);
@@ -82,11 +92,16 @@ void sync_view() {
   const bool run = st.running || st.paused;
   show_setup(!run);
   if (run) {
-    if (!s.tick) s.tick = lv_timer_create(tick_cb, 250, nullptr);
+    if (!s.tick) {
+      s.tick = lv_timer_create(tick_cb, 250, nullptr);
+      // 破棄時に確実に殺せるよう、自画面へのリンクを持たせる。
+      lv_obj_set_user_data(s.scr, s.tick);
+    }
     tick_cb(nullptr);
   } else if (s.tick) {
     lv_timer_delete(s.tick);
     s.tick = nullptr;
+    lv_obj_set_user_data(s.scr, nullptr);
   }
 }
 
@@ -104,6 +119,10 @@ lv_obj_t* build(lv_obj_t* scr) {
   ui::c::header(scr, "タイマー", true);
   lv_obj_t* col = ui::c::content(scr);
   s = T{};  // 画面再作成で状態リセット (setup_s も既定に)
+  s.scr = scr;
+  lv_obj_add_event_cb(
+      scr, [](lv_event_t* e) { kill_tick(lv_event_get_target_obj(e)); },
+      LV_EVENT_DELETE, nullptr);
   s.setup_s = watch::features::timer_state().duration_s;
 
   // --- 設定ビュー (大きな数字 + 調整/開始ボタン) ---
@@ -167,7 +186,10 @@ lv_obj_t* build(lv_obj_t* scr) {
   s.remain_l = lv_label_create(ring);
   lv_obj_add_flag(s.remain_l, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_label_set_text(s.remain_l, "00:00");
+  // 時計フォントのまま ~68% に縮小し、リング内に余白を持たせる (モック ~76px)。
   lv_obj_set_style_text_font(s.remain_l, ui::face::digits(112), 0);
+  lv_obj_set_style_transform_scale_x(s.remain_l, 174, 0);
+  lv_obj_set_style_transform_scale_y(s.remain_l, 174, 0);
   lv_obj_set_style_text_color(s.remain_l, t.text, 0);
   lv_obj_align(s.remain_l, LV_ALIGN_CENTER, 0, -12);
 

@@ -16,9 +16,18 @@ struct S {
   lv_obj_t* toggle = nullptr;
   lv_obj_t* toggle_l = nullptr;
   lv_obj_t* laps_col = nullptr;
+  lv_obj_t* scr = nullptr;
   lv_timer_t* tick = nullptr;
 };
 S s;
+
+// timer.cpp と同じく、実行中の離脱で残った lv_timer が解放済み
+// ラベルへ書くのを防ぐ。tick は scr の user_data に持たせる。
+void kill_tick(lv_obj_t* scr) {
+  lv_timer_t* tk = static_cast<lv_timer_t*>(lv_obj_get_user_data(scr));
+  if (tk) lv_timer_delete(tk);
+  if (s.tick == tk) s.tick = nullptr;
+}
 
 void fmt(char* buf, size_t cap, int64_t ms) {
   const int total_cs = static_cast<int>(ms / 10);
@@ -54,10 +63,14 @@ void sync(lv_obj_t* col) {
       watch::features::stopwatch_state();
   lv_label_set_text(s.toggle_l, st.running ? "停止" : "開始");
   if (st.running) {
-    if (!s.tick) s.tick = lv_timer_create(tick_cb, 50, nullptr);
+    if (!s.tick) {
+      s.tick = lv_timer_create(tick_cb, 50, nullptr);
+      lv_obj_set_user_data(s.scr, s.tick);
+    }
   } else if (s.tick) {
     lv_timer_delete(s.tick);
     s.tick = nullptr;
+    lv_obj_set_user_data(s.scr, nullptr);
   }
   tick_cb(nullptr);
   rebuild_laps(col);
@@ -69,6 +82,10 @@ lv_obj_t* build(lv_obj_t* scr) {
   ui::c::header(scr, "ストップウォッチ", true);
   lv_obj_t* col = ui::c::content(scr);
   s = S{};
+  s.scr = scr;
+  lv_obj_add_event_cb(
+      scr, [](lv_event_t* e) { kill_tick(lv_event_get_target_obj(e)); },
+      LV_EVENT_DELETE, nullptr);
 
   // 大きな数字は時計フォント (clock_font 設定)。
   s.disp = lv_label_create(col);

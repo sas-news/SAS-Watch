@@ -65,7 +65,8 @@ void rebuild_list() {
     lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cell, 0, 0);
     lv_obj_set_style_pad_all(cell, 0, 0);
-    lv_obj_set_style_pad_row(cell, 2, 0);
+    // 数字フォントと本文フォントの行高が大きいので負値で曜日行を近づける。
+    lv_obj_set_style_pad_row(cell, -10, 0);
     lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_grow(cell, 1);
     lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE);

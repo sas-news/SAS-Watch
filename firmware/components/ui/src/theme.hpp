@@ -27,6 +27,7 @@ struct Theme {
   // PR-A 追加 (manifest index は拡張しない = file テーマは standard 値を継承)。
   lv_color_t line;        // リスト区切り線・スライダーのトラック
   lv_color_t primary2;    // primary のグラデーション終端 (スライダー塗り)
+  lv_color_t edge;        // 行末 chevron・スイッチ OFF トラックの中間色
 
   const lv_font_t* font_body;     // 本文 (日本語 20px)
   const lv_font_t* font_title;    // ヘッダ/大きめ本文 (日本語 26px)
