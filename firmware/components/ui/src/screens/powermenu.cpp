@@ -6,6 +6,8 @@
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 
+#include <cstdio>
+
 namespace {
 
 lv_obj_t* build(lv_obj_t* scr) {
@@ -25,7 +27,11 @@ lv_obj_t* build(lv_obj_t* scr) {
 
   lv_obj_t* info = ui::c::card(col);
   ui::c::line(info, "電源を切るには:");
-  ui::c::line(info, "PWRボタンを10秒以上");
+  // 秒数は AXP2101 の設定値と同じ定数 (board::kPowerOffHoldSeconds) から出す。
+  char buf[48];
+  std::snprintf(buf, sizeof(buf), "PWRボタンを%d秒以上",
+                ui::port::power_off_hold_seconds());
+  ui::c::line(info, buf);
   ui::c::line(info, "長押しすると強制OFFです");
   // TODO(hw): 実機で確認 — PMU 長押し強制OFFの可否 (AXP2101 PWROK 設定)
   return scr;

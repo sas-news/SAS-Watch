@@ -3,6 +3,7 @@
 #include "sim_platform.hpp"
 #include "ui/port.hpp"
 #include "lvgl.h"
+#include "board/power_consts.h"
 
 #include <cstdio>
 #include <cstring>
@@ -34,6 +35,8 @@ size_t device_info(char* buf, size_t cap) {
                             LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR);
   return n > 0 ? static_cast<size_t>(n) : 0;
 }
+
+int power_off_hold_seconds() { return board::kPowerOffHoldSeconds; }
 
 void display_power(bool on) {
   std::printf("[sim] display_power %s\n", on ? "on" : "off");

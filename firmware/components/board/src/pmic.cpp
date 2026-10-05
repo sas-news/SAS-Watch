@@ -1,4 +1,5 @@
 #include "board/board.hpp"
+#include "board/power_consts.h"
 #include "pins.hpp"
 
 #include <string.h>
@@ -84,8 +85,19 @@ esp_err_t init()
     s_pmu.setChargerTerminationCurr(XPOWERS_AXP2101_CHG_ITERM_25MA);
     s_pmu.setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V2);
 
-    // PWR 長押し 6 秒でハード電源 OFF (plan.md G 章)
-    s_pmu.setPowerKeyPressOffTime(XPOWERS_POWEROFF_6S);
+    // PWR 長押しでハード電源 OFF (plan.md G 章)。秒数は power_consts.h
+    // の board::kPowerOffHoldSeconds から選ぶ (UI の案内文と同じ値)。
+    static_assert(board::kPowerOffHoldSeconds == 4 ||
+                      board::kPowerOffHoldSeconds == 6 ||
+                      board::kPowerOffHoldSeconds == 8 ||
+                      board::kPowerOffHoldSeconds == 10,
+                  "AXP2101 は 4/6/8/10s しか選べない");
+    constexpr xpowers_press_off_time_t kOffTime =
+        board::kPowerOffHoldSeconds <= 4  ? XPOWERS_POWEROFF_4S
+        : board::kPowerOffHoldSeconds <= 6 ? XPOWERS_POWEROFF_6S
+        : board::kPowerOffHoldSeconds <= 8 ? XPOWERS_POWEROFF_8S
+                                           : XPOWERS_POWEROFF_10S;
+    s_pmu.setPowerKeyPressOffTime(kOffTime);
 
     // IRQ 線は未接続だがステータスはクリアしておく
     s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);

@@ -45,5 +45,8 @@ add_executable(snapshot
     png.cpp
 )
 target_include_directories(snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# board/power_consts.h だけ sim からも見る (ESP非依存の定数ヘッダ)。
+target_include_directories(snapshot PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/components/board/include)
 target_link_libraries(snapshot PRIVATE watch_ui watch_core lvgl z)
 target_compile_options(snapshot PRIVATE -fno-exceptions -fno-rtti)

@@ -34,6 +34,9 @@ void vibrate(uint32_t ms);
 // 例 "ESP32-S3 / SAS-Watch dev / FW 0.1"。書いた文字数を返す。
 size_t device_info(char* buf, size_t cap);
 
+// PWR 長押しでハード電源OFFする秒数 (board::kPowerOffHoldSeconds と同じ)。
+int power_off_hold_seconds();
+
 // パネルの display on/off (ScreenOff 適用層が使う)。
 void display_power(bool on);
 

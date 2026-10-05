@@ -4,6 +4,7 @@
 #include "ui/port.hpp"
 
 #include "board/board.hpp"
+#include "board/power_consts.h"
 #include "esp_idf_version.h"
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
@@ -47,5 +48,7 @@ size_t device_info(char* buf, size_t cap) {
       static_cast<int>(ci.cores));
   return n > 0 ? static_cast<size_t>(n) : 0;
 }
+
+int power_off_hold_seconds() { return board::kPowerOffHoldSeconds; }
 
 }  // namespace ui::port
