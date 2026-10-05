@@ -32,7 +32,9 @@ void fmt_mmss(char* buf, size_t cap, int64_t ms) {
 }
 
 void fmt_ms(char* buf, size_t cap, uint32_t sec) {
-  std::snprintf(buf, cap, "%u:%02u", sec / 60, sec % 60);
+  // xtensa では uint32_t が unsigned long になるため unsigned long に揃える。
+  const unsigned long m = sec / 60, s_ = sec % 60;
+  std::snprintf(buf, cap, "%lu:%02lu", m, s_);
 }
 
 void show_setup(bool setup) {
