@@ -1,0 +1,40 @@
+name: firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+  pull_request:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware (ESP-IDF)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5
+          target: esp32s3
+          path: 'firmware'
+          # Registry の lvgl 9.6.0~1 manifest が $CONFIG{LV_USE_*} を使い、
+          # image 同梱の idf-component-manager 2.2.2 では依存解決が落ちる。
+          # ~=2.2 制約で許容される 2.5 系に更新してからビルドする。
+          command: 'pip install -q "idf-component-manager~=2.5" && idf.py build'
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin
+          path: |
+            firmware/build/*.bin
+            firmware/build/bootloader/*.bin
+            firmware/build/partition_table/*.bin
+            firmware/build/flasher_args.json
+          if-no-files-found: error
