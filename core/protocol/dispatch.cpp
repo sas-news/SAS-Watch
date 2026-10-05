@@ -69,7 +69,7 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(8)
+      .array(9)
       .text("timer")
       .text("stopwatch")
       .text("counter")
@@ -77,7 +77,8 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("theme")
       .text("audio")
       .text("wifi")
-      .text("ota");
+      .text("ota")
+      .text("steps");
   return DispatchError::Ok;
 }
 
@@ -526,6 +527,17 @@ DispatchError h_media_state(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// steps.get — 今日の歩数と目標。
+DispatchError h_steps_get(const cbor::Value&, Services& svc, cbor::Writer* r) {
+  if (!svc.steps_today || !svc.settings) return DispatchError::Internal;
+  r->map(2)
+      .text("steps")
+      .uint_v(svc.steps_today(svc.ctx))
+      .text("goal")
+      .uint_v(svc.settings->steps_goal);
+  return DispatchError::Ok;
+}
+
 struct Handler {
   const char* name;
   DispatchError (*fn)(const cbor::Value&, Services&, cbor::Writer*);
@@ -541,6 +553,7 @@ constexpr Handler kHandlers[] = {
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
     {"wifi.set", h_wifi_set},         {"wifi.status", h_wifi_status},
     {"ota.start", h_ota_start},       {"ota.status", h_ota_status},
+    {"steps.get", h_steps_get},
 };
 
 }  // namespace

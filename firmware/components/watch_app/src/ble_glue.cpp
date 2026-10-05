@@ -24,6 +24,7 @@
 #include "ui/ui.hpp"
 #include "wifi/wifi.hpp"
 #include "watch/features/memo.hpp"
+#include "watch/features/steps.hpp"
 #include "watch/protocol/bulk.hpp"
 #include "watch/protocol/dispatch.hpp"
 #include "watch/protocol/frame.hpp"
@@ -388,6 +389,9 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
   };
   svc.memo_audio_send = [](uint32_t id, void*) {
     return bulk_out_begin(id);
+  };
+  svc.steps_today = [](void*) {
+    return watch::features::steps_today();
   };
   svc.ctx = fctx();
   // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。

@@ -2,6 +2,7 @@ package dev.sasnews.amoledwatch.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -17,6 +18,7 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -36,6 +38,7 @@ import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.ClockFontNames
 import dev.sasnews.amoledwatch.protocol.FaceNames
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
+import dev.sasnews.amoledwatch.protocol.StepsInfo
 import dev.sasnews.amoledwatch.protocol.bool
 import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.text
@@ -45,12 +48,15 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(vm: WatchViewModel, modifier: Modifier = Modifier) {
     val settings by vm.settings.collectAsState()
+    val steps by vm.steps.collectAsState()
     val linkState by vm.linkState.collectAsState()
     SettingsContent(
         settings = settings,
+        steps = steps,
         connected = linkState is LinkState.Connected,
         onLoad = vm::refresh,
         onSave = vm::saveSettings,
+        onRefreshSteps = vm::refreshSteps,
         modifier = modifier,
     )
 }
@@ -59,9 +65,11 @@ fun SettingsScreen(vm: WatchViewModel, modifier: Modifier = Modifier) {
 @Composable
 fun SettingsContent(
     settings: Map<String, Cbor>?,
+    steps: StepsInfo?,
     connected: Boolean,
     onLoad: () -> Unit,
     onSave: (Map<String, Cbor>) -> Unit,
+    onRefreshSteps: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -88,6 +96,31 @@ fun SettingsContent(
                     stringResource(R.string.settings_raw_hint),
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+        }
+
+        // 今日の歩数 (steps.get)。設定ではなく表示なのでエディタの外。
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val s = steps
+                if (s != null) {
+                    val pct = if (s.goal > 0) s.steps * 100 / s.goal else 0
+                    Text(stringResource(R.string.settings_steps_today))
+                    Text(
+                        "${s.steps} / ${s.goal} 歩 ($pct%)",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                } else {
+                    Text(stringResource(R.string.settings_steps_today))
+                    Text("-")
+                }
+                OutlinedButton(
+                    onClick = onRefreshSteps,
+                    enabled = connected,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.settings_steps_refresh))
+                }
             }
         }
 
@@ -128,6 +161,12 @@ private fun SettingsEditor(
     }
     var theme by remember(settings) {
         mutableStateOf(settings[SettingsKeys.THEME]?.text ?: "standard")
+    }
+    var raiseToWake by remember(settings) {
+        mutableStateOf((settings[SettingsKeys.RAISE_TO_WAKE]?.int ?: 1L) != 0L)
+    }
+    var stepsGoal by remember(settings) {
+        mutableFloatStateOf(settings[SettingsKeys.STEPS_GOAL]?.int?.toFloat() ?: 8000f)
     }
     var face by remember(settings) {
         mutableStateOf(settings[SettingsKeys.FACE]?.text ?: "bold")
@@ -189,6 +228,24 @@ private fun SettingsEditor(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.settings_raise_to_wake),
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = raiseToWake, onCheckedChange = { raiseToWake = it })
+            }
+            SliderRow(
+                label = stringResource(R.string.settings_steps_goal),
+                value = stepsGoal,
+                range = 1000f..30000f,
+                steps = 58,  // 500 刻み
+                onChange = { stepsGoal = it },
+            )
+
             Button(
                 onClick = {
                     onSave(
@@ -197,6 +254,8 @@ private fun SettingsEditor(
                             SettingsKeys.DIM_AFTER_S to Cbor.Cint(dimAfter.roundToInt().toLong()),
                             SettingsKeys.SCREEN_OFF_AFTER_S to Cbor.Cint(screenOff.roundToInt().toLong()),
                             SettingsKeys.THEME to Cbor.Ctext(theme),
+                            SettingsKeys.RAISE_TO_WAKE to Cbor.Cint(if (raiseToWake) 1 else 0),
+                            SettingsKeys.STEPS_GOAL to Cbor.Cint(stepsGoal.roundToInt().toLong()),
                             SettingsKeys.FACE to Cbor.Ctext(face),
                             SettingsKeys.CLOCK_FONT to Cbor.Ctext(clockFont),
                         ) + buttons.mapValues { Cbor.Ctext(it.value) },
@@ -216,10 +275,11 @@ private fun SliderRow(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
+    steps: Int = 0,
 ) {
     Column {
         Text("$label: ${value.roundToInt()}")
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+        Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps)
     }
 }
 

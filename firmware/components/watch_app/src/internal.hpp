@@ -29,4 +29,7 @@ void ble_glue_init();
 // ble_glue.cpp: app タスクのループで保留分 (接続状態/パスキー/bulk送信) を処理する。
 void ble_glue_poll();
 
+// imu_service.cpp: QMI8658 の常時サービス (raise-to-wake + 歩数入力)。
+void imu_service_start();
+
 }  // namespace watch_app
