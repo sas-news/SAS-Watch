@@ -2,6 +2,7 @@ package dev.sasnews.amoledwatch.connection
 
 import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.Evt
+import dev.sasnews.amoledwatch.protocol.IncomingBulk
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.Res
 import kotlinx.coroutines.flow.SharedFlow
@@ -29,6 +30,13 @@ interface WatchLink {
 
     /** BULK 転送路（bulk 特性）。接続がこの経路を持たないときは null。 */
     val bulk: BulkChannel?
+
+    /**
+     * 時計→スマホに届いた BULK 転送 (sha256 検証済み)。
+     * `memo.audio.get` の応答 (kind="memo") と REQ に紐付かない push
+     * (kind="agent_audio" 等) の両方が流れる。
+     */
+    val incomingBulk: SharedFlow<IncomingBulk>
 
     /**
      * 時計→スマホの BULK 転送 (kind="memo") を受け取る。

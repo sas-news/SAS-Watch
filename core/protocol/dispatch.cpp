@@ -69,7 +69,7 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(12)
+      .array(13)
       .text("timer")
       .text("stopwatch")
       .text("counter")
@@ -81,7 +81,8 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
       .text("media")
       .text("wifi")
       .text("ota")
-      .text("steps");
+      .text("steps")
+      .text("agent");
   return DispatchError::Ok;
 }
 
@@ -472,6 +473,22 @@ DispatchError h_ota_status(const cbor::Value&, Services& svc,
   return DispatchError::Ok;
 }
 
+// agent.reply {id, text}: AI の返答。text は params 内部のポインタ (非NUL)。
+DispatchError h_agent_reply(const cbor::Value& params, Services& svc,
+                            cbor::Writer* r) {
+  if (!svc.agent_reply) return DispatchError::Internal;
+  int64_t id = -1;
+  const char* text = nullptr;
+  size_t tn = 0;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT16_MAX ||
+      !param_text(params, "text", &text, &tn)) {
+    return DispatchError::BadRequest;
+  }
+  svc.agent_reply(static_cast<uint16_t>(id), text, tn, svc.ctx);
+  r->map(0);
+  return DispatchError::Ok;
+}
+
 DispatchError h_notify_post(const cbor::Value& params, Services& svc,
                             cbor::Writer* r) {
   const char *app = nullptr, *title = nullptr, *body = nullptr;
@@ -621,6 +638,7 @@ constexpr Handler kHandlers[] = {
     {"wifi.set", h_wifi_set},         {"wifi.status", h_wifi_status},
     {"ota.start", h_ota_start},       {"ota.status", h_ota_status},
     {"steps.get", h_steps_get},
+    {"agent.reply", h_agent_reply},
 };
 
 }  // namespace

@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media","wifi","ota","steps"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media","wifi","ota","steps","agent"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -51,6 +51,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `alarm.list` | `{}` | `{alarms:[{id:<int>, hour:<0-23>, min:<0-59>, dow:<曜日bit bit0=日..bit6=土, 0=毎日>, on:<bool>}]}` (最大5件) |
 | `alarm.set` | `{hour, min}` + 省略可 `{id:<int>, dow:<int>, on:<bool>}` | `{id:<int>}` | `id` 省略/0 で新規 (満杯なら `busy`)、既存 id で更新 (`not_found`)。`dow` 0-0x7F 省略時 0、`on` 省略時 true |
 | `alarm.delete` | `{id:<int>}` | `{}` | 無い id は `not_found` |
+| `agent.reply` | `{id:<int>, text:<str>}` | `{}` | AI の返答。id は直前の `agent.request` / BULK kind=`"agent_audio"` の id と同じ。text は最大960バイト (UTF-8)。適用できない id でも `ok` |
 | `wifi.set` | `{ssid:<1-32文字>, pass:<0または8-63文字>}` | `{}` |
 | `wifi.status` | `{}` | `{configured:<bool>, ssid:<str>}` |
 | `ota.start` | `{url:<http(s)://〜 ≤255文字>, sha256:<bytes32>, version:<str>}` | `{}` |
@@ -104,6 +105,9 @@ error code:
 | `steps.goal` | u32 | 8000 | 歩数目標 (歩数画面の達成率・steps.get の goal) |
 | `face` | text | `bold` | 文字盤 id (`bold`/`analog`/`hud`/`minimal`/`chara_side`/`chara_bubble`) |
 | `clock_font` | text | `auto` | 時計数字フォント id (`auto`/`oswald`/`bebas`/`orbitron`/`outfit`/`chakra`) |
+| `agent.q1` | text | `今日の予定は？` | AI の定型質問ボタン 1 (空 = 非表示、63バイトまで) |
+| `agent.q2` | text | `今の天気は？` | AI の定型質問ボタン 2 (同左) |
+| `agent.q3` | text | (空) | AI の定型質問ボタン 3 (同左) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正
@@ -124,7 +128,7 @@ error code:
 | `nav.notifications` | 通知 | 通知画面を開く |
 | `nav.more` | アプリ一覧 | アプリ一覧画面を開く |
 | `nav.dev` | 開発者 | 開発者画面を開く |
-| `nav.agent` | エージェント | エージェント画面を開く (将来) |
+| `nav.agent` | エージェント | AI (エージェント) 画面を開く |
 | `nav.settings` | 設定 | 設定画面を開く |
 | `nav.media` | メディア | メディア画面を開く |
 | `nav.alarm` | アラーム | アラーム画面を開く |
@@ -150,7 +154,7 @@ event の一覧はこの表が唯一の正。
 | `memo.deleted` | `{id}` |
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
 | `alarm.ringing` | `{id}` (鳴動中のアラーム id) |
-| `agent.request` | `{id, text}` (将来) |
+| `agent.request` | `{id, text}` AI の定型質問。id は返答の `agent.reply` の id と同じ |
 | `ota.progress` | `{pct:<0-100>, stage:<str>}` OTA 進捗 (wifi/download/verify) |
 | `ota.result` | `{ok:<bool>, msg:<str>}` OTA 終了 (ok=true なら直後に再起動) |
 
@@ -172,11 +176,13 @@ core (GoogleTest) と android (JUnit) の両方がこのファイルを読んで
 結果一致を検査する。形式は `docs/protocol-vectors/README.md`、
 再生成は `tools/gen_protocol_vectors.py`。
 
-## BULK (双方向: Asset / OTA / 音声メモ)
+## BULK (双方向: Asset / OTA / 音声メモ / AI音声)
 BULK_START payload (CBOR): `{id, kind:<str ≤15文字>, size, sha256:<bytes32>, chunk:<int>}`
-kind は `"theme"|"asset"|"ota"|"memo"|"firmware"`。`"firmware"` はファーム更新
+kind は `"theme"|"asset"|"ota"|"memo"|"firmware"|"agent_audio"`。
+`"firmware"` はファーム更新
 (Wi-Fi が使えないときの代替経路): 時計が /assets に一旦受け取り、
 sha256 検証後に OTA パーティションへ書き込んで再起動する。
+`"agent_audio"` は AI への質問の録音 (ADP1)。
 BULK_CHUNK payload: `transfer_id:u16 | offset:u32 | bytes...`
 BULK_ACK payload (CBOR): `{id, next:<offset>}`
 BULK_END payload (CBOR): `{id}`
@@ -192,6 +198,21 @@ BULK_END payload (CBOR): `{id}`
   `BULK_ACK{next}` を bulk char へ write-without-response で返し、
   `BULK_END` 受信・sha256 一致後に最終 `BULK_ACK{next=size}` を返す。
   (Phone は ctrl に notify を送れないので RES ではなくこの ACK が完了の合図)
+- Watch → Phone (kind `"agent_audio"`): 「話しかける」の録音 (ADP1, 最大30秒)。
+  kind `"memo"` と同じ手順だが REQ に紐付かない push 型で、id は AI の要求 id
+  (時計側の連番)。返答は `agent.reply` REQ で同じ id とともに返す。
+
+## Agent (AI)
+時計はオフライン。スマホが OpenAI 互換 API に中継する。
+
+1. 「話しかける」: 録音 (ADP1, 最大30秒) → BULK kind=`"agent_audio"` id=<要求id>
+   を push。スマホは STT → LLM に投げ、`agent.reply{id, text}` を返す。
+2. 定型質問ボタン (settings `agent.q1..3`、空欄は非表示): EVT
+   `agent.request{id, text}` を送り、同じく `agent.reply` を待つ。
+
+要求 id は時計側の連番 (BULK transfer id と同じ値)。返答は `agent.reply` REQ で、
+時計は「録音中→送信中→考え中→返答」の状態を表示する。送信開始から60秒で
+タイムアウト (エラー表示)。返答 text は最大960バイト。
 
 切断後は送信側が `BULK_START` を同じ id で再送し、受信側は `BULK_ACK{next}`
 で再開位置を返す。

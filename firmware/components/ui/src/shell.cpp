@@ -578,6 +578,8 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::MediaStateChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::OtaProgress, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::FaceChanged, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::AgentStatusChanged, bus_cb,
+                         nullptr);
   }
   // 設定されたテーマを最初の画面構築より先に適用する。
   if (s_ctx.settings) theme_apply(s_ctx.settings->theme);

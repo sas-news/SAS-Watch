@@ -56,6 +56,10 @@ android {
 
 dependencies {
     implementation(project(":protocol"))
+    implementation(project(":agent"))
+
+    // AI設定: API キーを EncryptedSharedPreferences に入れるために使う
+    implementation("androidx.security:security-crypto:1.1.0-alpha07")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")

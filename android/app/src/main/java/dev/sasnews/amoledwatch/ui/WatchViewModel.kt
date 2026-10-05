@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import dev.sasnews.amoledwatch.FirmwareRepo
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.WatchApp
+import dev.sasnews.amoledwatch.agent.AgentConfig
+import dev.sasnews.amoledwatch.agent.AgentEngine
 import dev.sasnews.amoledwatch.ble.BleScanner
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.notif.NotificationForwarder
@@ -51,6 +53,12 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     val enabledPackages: StateFlow<Set<String>> = watchApp.prefs.enabledPackages
     val nowPlaying: StateFlow<dev.sasnews.amoledwatch.media.MediaBridge.NowPlaying?> =
         watchApp.mediaBridge.nowPlaying
+
+    /** AI設定 (Base URL・モデル名。API キーはこの画面経由でだけ見る)。 */
+    val agentConfig: StateFlow<AgentConfig> = watchApp.agentBridge.config
+    /** AI の会話履歴 (直近10往復)。 */
+    val agentHistory: StateFlow<List<AgentEngine.Turn>> = watchApp.agentBridge.history
+    val agentBusy: StateFlow<Int> = watchApp.agentBridge.busy
 
     /** 画面表示用に EVT を文字列化して溜める。 */
     private val _recentEvents = MutableStateFlow<List<String>>(emptyList())
@@ -151,6 +159,17 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     fun fakeVoiceMemo() = manager.simulateVoiceMemo()
 
     fun consumeNotice() = manager.consumeNotice()
+
+    // ---------------- AI ----------------
+
+    fun saveAgentConfig(c: AgentConfig) = watchApp.agentBridge.updateConfig(c)
+    fun clearAgentHistory() = watchApp.agentBridge.clearHistory()
+
+    /** デバッグ: 仮想時計が定型質問を投げたことにする。 */
+    fun fakeAgentRequest(text: String) =
+        manager.fakeConnection()?.fake?.simulateAgentRequest(text)
+    /** デバッグ: 仮想時計が「話しかけた」ことにする (ADP1 を BULK push)。 */
+    fun fakeAgentAudio() = manager.fakeConnection()?.fake?.simulateAgentAudio()
 
     // ---------------- メモ ----------------
 

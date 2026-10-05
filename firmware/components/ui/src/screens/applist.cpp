@@ -30,6 +30,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   row(col, "通知", watch::Route::Notifications);
   row(col, "音楽", watch::Route::Media);
   row(col, "歩数", watch::Route::Steps);
+  row(col, "AI", watch::Route::Agent);
   row(col, "設定", watch::Route::Settings);
   return scr;
 }

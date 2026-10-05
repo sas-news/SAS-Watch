@@ -16,6 +16,7 @@
 #include "ui/ui.hpp"
 #include "watch/features/alarm.hpp"
 #include "watch/features/media.hpp"
+#include "watch/features/agent.hpp"
 #include "watch/features/memo.hpp"
 #include "watch/features/notify.hpp"
 #include "watch/features/steps.hpp"
@@ -400,6 +401,38 @@ int main(int argc, char** argv) {
   ui::emit_text(watch::ActionType::SetTheme, "standard");
   pump(300);
 
+
+  // ---- AI (Agent) ----
+  // sim には BLE が無いので、ble_connected を立てておき、送信完了/返答は
+  // feature の API を直接叩く (実機では ble_glue が agent_pending を拾う)。
+  s_power.set_ble_connected(true);
+  back_home();
+  nav_to(watch::Route::Agent);
+  ok &= save(out, "50_agent");
+
+  ui::emit(watch::ActionType::AgentRecordToggle);
+  pump(2500);
+  ok &= save(out, "51_agent_recording");
+  ui::emit(watch::ActionType::AgentRecordToggle);  // 停止→送信中
+  pump(300);
+
+  // 定型質問で「考え中→返答」まで再現する。
+  watch::features::agent_reset_state();
+  ui::emit(watch::ActionType::AgentAsk, 0);  // agent.q1
+  pump(300);
+  watch::features::AgentPending ap;
+  if (watch::features::agent_pending(&ap)) {
+    watch::features::agent_send_started(ap.id);
+    watch::features::agent_sent(ap.id, true, *s_fctx);
+  }
+  pump(100);
+  ok &= save(out, "52_agent_thinking");
+  const char* reply =
+      "今日は 15 時にミーティング、19 時にジムの予定があります。";
+  watch::features::agent_on_reply(ap.id, reply, std::strlen(reply),
+                                  *s_fctx);
+  pump(300);
+  ok &= save(out, "53_agent_reply");
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

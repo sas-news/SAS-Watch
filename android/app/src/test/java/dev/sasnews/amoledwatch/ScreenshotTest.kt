@@ -3,6 +3,8 @@ package dev.sasnews.amoledwatch
 import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.roborazziSystemPropertyOutputDirectory
+import dev.sasnews.amoledwatch.agent.AgentConfig
+import dev.sasnews.amoledwatch.agent.AgentEngine
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.media.MediaBridge
 import dev.sasnews.amoledwatch.protocol.AlarmEntry
@@ -171,12 +173,23 @@ class ScreenshotTest {
                         SettingsKeys.THEME to Cbor.Ctext("standard"),
                         SettingsKeys.RAISE_TO_WAKE to Cbor.Cint(1),
                         SettingsKeys.STEPS_GOAL to Cbor.Cint(8000),
+                        SettingsKeys.AGENT_Q1 to Cbor.Ctext("今日の予定は？"),
+                        SettingsKeys.AGENT_Q2 to Cbor.Ctext("今の天気は？"),
+                        SettingsKeys.AGENT_Q3 to Cbor.Ctext(""),
                     ),
                     steps = StepsInfo(2450, 8000),
                     connected = true,
                     onLoad = {},
                     onSave = {},
                     onRefreshSteps = {},
+                    agentConfig = AgentConfig(),
+                    agentHistory = listOf(
+                        AgentEngine.Turn("今日の天気は？", "晴れです"),
+                        AgentEngine.Turn("今日の予定は？", "15時に会議があります"),
+                    ),
+                    agentBusy = 0,
+                    onSaveAgent = {},
+                    onClearAgentHistory = {},
                 )
             }
         }

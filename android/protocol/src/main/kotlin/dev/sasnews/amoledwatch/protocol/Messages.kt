@@ -158,6 +158,18 @@ sealed interface Req {
         override fun params() = Cbor.Cmap(emptyMap())
     }
 
+    /**
+     * AI の返答を時計へ送る (agent.request / BULK kind="agent_audio" に対する応答)。
+     * id は要求と同じ値。text は最大960バイト (UTF-8)。
+     */
+    data class AgentReply(val id: Int, val text: String) : Req {
+        override val method get() = "agent.reply"
+        override fun params() = Cbor.Cmap(
+            mapOf("id" to Cbor.Cint(id.toLong()), "text" to Cbor.Ctext(text)),
+        )
+    }
+
+
     /** 型を足していない method をそのまま送るとき用。 */
     data class Raw(val m: String, val p: Cbor.Cmap = Cbor.Cmap(emptyMap())) : Req {
         override val method get() = m
@@ -324,6 +336,9 @@ object SettingsKeys {
     const val STEPS_GOAL = "steps.goal"
     const val FACE = "face"
     const val CLOCK_FONT = "clock_font"
+    const val AGENT_Q1 = "agent.q1"
+    const val AGENT_Q2 = "agent.q2"
+    const val AGENT_Q3 = "agent.q3"
 
     /** kKeys と同じ順。 */
     val ALL = listOf(
@@ -334,6 +349,7 @@ object SettingsKeys {
         AUDIO_VOLUME, AUDIO_CLICK, NOTIFY_VIBRATE,
         RAISE_TO_WAKE, STEPS_GOAL,
         FACE, CLOCK_FONT,
+        AGENT_Q1, AGENT_Q2, AGENT_Q3,
     )
 
     /** button.* のデフォルト値（core `settings.hpp` と一致）。 */
@@ -357,6 +373,9 @@ object SettingsKeys {
         STEPS_GOAL to Cbor.Cint(8000),
         FACE to Cbor.Ctext("bold"),
         CLOCK_FONT to Cbor.Ctext("auto"),
+        AGENT_Q1 to Cbor.Ctext("今日の予定は？"),
+        AGENT_Q2 to Cbor.Ctext("今の天気は？"),
+        AGENT_Q3 to Cbor.Ctext(""),
     )
 }
 

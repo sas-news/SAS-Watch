@@ -43,6 +43,9 @@ constexpr SettingKey kKeys[] = {
     WATCH_SSET_U32("steps.goal", steps_goal),
     WATCH_SSET_STR("face", face),
     WATCH_SSET_STR("clock_font", clock_font),
+    WATCH_SSET_STR("agent.q1", agent_q1),
+    WATCH_SSET_STR("agent.q2", agent_q2),
+    WATCH_SSET_STR("agent.q3", agent_q3),
 };
 
 char* field_ptr(Settings& s, const SettingKey& k) {

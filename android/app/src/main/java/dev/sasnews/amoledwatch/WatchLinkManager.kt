@@ -159,7 +159,11 @@ class WatchLinkManager(private val app: WatchApp) {
             }
         }
         scope.launch {
-            l.events.collect { evt -> onEvent(evt) }
+            l.events.collect { evt -> onEvent(l, evt) }
+        }
+        scope.launch {
+            // 時計→スマホの BULK 完成品。kind="agent_audio" は AI の録音。
+            l.incomingBulk.collect { t -> app.agentBridge.onBulk(l, t) }
         }
     }
 
@@ -187,7 +191,7 @@ class WatchLinkManager(private val app: WatchApp) {
 
     // ---------------- EVT ----------------
 
-    private fun onEvent(evt: Evt) {
+    private fun onEvent(l: WatchLink, evt: Evt) {
         log("EVT ${evt.name}")
         when (evt) {
             is Evt.Battery -> _deviceInfo.value = _deviceInfo.value?.copy(battery = evt.level, charging = evt.charging)
@@ -220,7 +224,7 @@ class WatchLinkManager(private val app: WatchApp) {
                     version = _otaStatus.value?.version ?: "",
                 )
             }
-            is Evt.AgentRequest -> {}
+            is Evt.AgentRequest -> app.agentBridge.onRequest(l, evt.id, evt.text)
             is Evt.Unknown -> {}
         }
     }

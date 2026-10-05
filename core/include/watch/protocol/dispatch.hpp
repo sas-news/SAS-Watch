@@ -79,6 +79,11 @@ struct Services {
   // ota.status: {active,stage,pct,msg,version} を w に書く。未対応は false。
   bool (*ota_status)(cbor::Writer& w, void* ctx) = nullptr;
 
+  // agent.reply: AI の返答 {id, text}。表示中の要求に適用できたら true
+  // (無視された id でも呼び出し元は RES ok を返してよい)。
+  bool (*agent_reply)(uint16_t id, const char* text, size_t len,
+                      void* ctx) = nullptr;
+
   // 任意の通知 (未設定でも RES ok を返す)
   void (*notify_posted)(const char* app, const char* title, const char* body,
                         void* ctx) = nullptr;

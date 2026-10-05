@@ -16,10 +16,12 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,8 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.sasnews.amoledwatch.R
+import dev.sasnews.amoledwatch.agent.AgentConfig
+import dev.sasnews.amoledwatch.agent.AgentEngine
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.protocol.ActionNames
 import dev.sasnews.amoledwatch.protocol.ActionSpec
@@ -50,6 +56,9 @@ fun SettingsScreen(vm: WatchViewModel, modifier: Modifier = Modifier) {
     val settings by vm.settings.collectAsState()
     val steps by vm.steps.collectAsState()
     val linkState by vm.linkState.collectAsState()
+    val agentConfig by vm.agentConfig.collectAsState()
+    val agentHistory by vm.agentHistory.collectAsState()
+    val agentBusy by vm.agentBusy.collectAsState()
     SettingsContent(
         settings = settings,
         steps = steps,
@@ -57,6 +66,11 @@ fun SettingsScreen(vm: WatchViewModel, modifier: Modifier = Modifier) {
         onLoad = vm::refresh,
         onSave = vm::saveSettings,
         onRefreshSteps = vm::refreshSteps,
+        agentConfig = agentConfig,
+        agentHistory = agentHistory,
+        agentBusy = agentBusy,
+        onSaveAgent = vm::saveAgentConfig,
+        onClearAgentHistory = vm::clearAgentHistory,
         modifier = modifier,
     )
 }
@@ -71,6 +85,11 @@ fun SettingsContent(
     onSave: (Map<String, Cbor>) -> Unit,
     onRefreshSteps: () -> Unit,
     modifier: Modifier = Modifier,
+    agentConfig: AgentConfig = AgentConfig(),
+    agentHistory: List<AgentEngine.Turn> = emptyList(),
+    agentBusy: Int = 0,
+    onSaveAgent: (AgentConfig) -> Unit = {},
+    onClearAgentHistory: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -124,9 +143,18 @@ fun SettingsContent(
             }
         }
 
+        AgentConfigCard(
+            config = agentConfig,
+            busy = agentBusy,
+            onSave = onSaveAgent,
+        )
+
+
         if (settings != null) {
             SettingsEditor(settings = settings, onSave = onSave)
         }
+
+        AgentHistoryCard(history = agentHistory, onClear = onClearAgentHistory)
     }
 }
 
@@ -173,6 +201,15 @@ private fun SettingsEditor(
     }
     var clockFont by remember(settings) {
         mutableStateOf(settings[SettingsKeys.CLOCK_FONT]?.text ?: "auto")
+    }
+    var agentQ1 by remember(settings) {
+        mutableStateOf(settings[SettingsKeys.AGENT_Q1]?.text ?: "")
+    }
+    var agentQ2 by remember(settings) {
+        mutableStateOf(settings[SettingsKeys.AGENT_Q2]?.text ?: "")
+    }
+    var agentQ3 by remember(settings) {
+        mutableStateOf(settings[SettingsKeys.AGENT_Q3]?.text ?: "")
     }
 
     Card(Modifier.fillMaxWidth()) {
@@ -246,6 +283,33 @@ private fun SettingsEditor(
                 onChange = { stepsGoal = it },
             )
 
+            OutlinedTextField(
+                value = agentQ1,
+                onValueChange = { agentQ1 = it },
+                label = { Text(stringResource(R.string.agent_q1)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = agentQ2,
+                onValueChange = { agentQ2 = it },
+                label = { Text(stringResource(R.string.agent_q2)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = agentQ3,
+                onValueChange = { agentQ3 = it },
+                label = { Text(stringResource(R.string.agent_q3)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                stringResource(R.string.agent_questions_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+
             Button(
                 onClick = {
                     onSave(
@@ -258,12 +322,128 @@ private fun SettingsEditor(
                             SettingsKeys.STEPS_GOAL to Cbor.Cint(stepsGoal.roundToInt().toLong()),
                             SettingsKeys.FACE to Cbor.Ctext(face),
                             SettingsKeys.CLOCK_FONT to Cbor.Ctext(clockFont),
+                            SettingsKeys.AGENT_Q1 to Cbor.Ctext(agentQ1),
+                            SettingsKeys.AGENT_Q2 to Cbor.Ctext(agentQ2),
+                            SettingsKeys.AGENT_Q3 to Cbor.Ctext(agentQ3),
                         ) + buttons.mapValues { Cbor.Ctext(it.value) },
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.settings_save))
+            }
+        }
+    }
+}
+
+/** AI 設定カード (Base URL / API キー / モデル名)。値はアプリ側に保存される。 */
+@Composable
+private fun AgentConfigCard(
+    config: AgentConfig,
+    busy: Int,
+    onSave: (AgentConfig) -> Unit,
+) {
+    var baseUrl by remember(config) { mutableStateOf(config.baseUrl) }
+    var apiKey by remember(config) { mutableStateOf(config.apiKey) }
+    var chatModel by remember(config) { mutableStateOf(config.chatModel) }
+    var sttModel by remember(config) { mutableStateOf(config.sttModel) }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                stringResource(R.string.agent_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text(stringResource(R.string.agent_base_url)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text(stringResource(R.string.agent_api_key)) },
+                placeholder = { Text("sk-…") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = chatModel,
+                onValueChange = { chatModel = it },
+                label = { Text(stringResource(R.string.agent_chat_model)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = sttModel,
+                onValueChange = { sttModel = it },
+                label = { Text(stringResource(R.string.agent_stt_model)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                stringResource(R.string.agent_key_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (busy > 0) {
+                Text(
+                    stringResource(R.string.agent_busy),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Button(
+                onClick = {
+                    onSave(
+                        AgentConfig(
+                            baseUrl = baseUrl.trim(),
+                            apiKey = apiKey.trim(),
+                            chatModel = chatModel.trim(),
+                            sttModel = sttModel.trim(),
+                        ),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.agent_save))
+            }
+        }
+    }
+}
+
+/** 会話履歴カード (直近10往復、新しいものが下)。 */
+@Composable
+private fun AgentHistoryCard(
+    history: List<AgentEngine.Turn>,
+    onClear: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.agent_history_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (history.isEmpty()) {
+                Text(
+                    stringResource(R.string.agent_history_empty),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                for (t in history) {
+                    Text("Q: ${t.question}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "A: ${t.answer}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
+                TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.agent_history_clear))
+                }
             }
         }
     }

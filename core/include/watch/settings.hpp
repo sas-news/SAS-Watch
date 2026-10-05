@@ -39,6 +39,10 @@ struct Settings {
   // 未知の値は適用側が既定 ("bold" / "auto") にフォールバックする。
   char face[16] = "bold";
   char clock_font[16] = "auto";
+  // AI (Agent)。定型質問ボタンの文言 (空 = ボタン非表示)。
+  char agent_q1[64] = "今日の予定は？";
+  char agent_q2[64] = "今の天気は？";
+  char agent_q3[64] = "";
 };
 
 struct SettingKey {
