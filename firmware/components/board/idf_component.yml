@@ -1,0 +1,7 @@
+## IDF Component Manager Manifest File
+dependencies:
+  idf: ">=5.5.0"
+  waveshare/esp32_s3_touch_amoled_2_06: "^2.0.0"
+  espressif/button: "^4.2.0"
+  waveshare/qmi8658: "^2.0.1"
+  waveshare/pcf85063a: "^2.0.0"

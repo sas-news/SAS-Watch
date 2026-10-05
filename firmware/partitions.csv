@@ -1,0 +1,11 @@
+# Name,   Type, SubType,  Offset,  Size,   Flags
+# docs/plan.md I 章の案 (16MB Flash として)
+nvs,      data, nvs,      0x9000,  0x6000,
+otadata,  data, ota,      ,        0x2000,
+phy_init, data, phy,      ,        0x1000,
+ota_0,    app,  ota_0,    ,        4M,
+ota_1,    app,  ota_1,    ,        4M,
+assets,   data, littlefs, ,        6M,
+# plan.md 案のままだと16MBを約40KBオーバーするため storage を1900K→1800Kに縮小
+storage,  data, littlefs, ,        1800K,
+coredump, data, coredump, ,        64K,
