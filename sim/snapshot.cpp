@@ -23,6 +23,7 @@
 #include "watch/input_mapper.hpp"
 #include "watch/power.hpp"
 #include "watch/runtime.hpp"
+#include "components.hpp"
 
 namespace {
 
@@ -119,6 +120,130 @@ void feed_walk(int n) {
     s_rt.queue().push(a);
     pump(50);
   }
+}
+
+// ---- parts ギャラリー ----------------------------------------------
+// 全スキンパーツを 1 画面に並べるデバッグ画面。LV_STATE_* を強制付与して
+// state 画像差替え (pressed/checked/disabled) を目視確認する。
+
+lv_obj_t* gbox(lv_obj_t* p, int32_t w, int32_t h) {
+  lv_obj_t* o = lv_obj_create(p);
+  lv_obj_set_size(o, w, h);
+  lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(o, 0, 0);
+  lv_obj_set_style_pad_all(o, 0, 0);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+  return o;
+}
+
+lv_obj_t* grow3(lv_obj_t* p, int32_t h) {
+  lv_obj_t* r = gbox(p, 366, h);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(r, 6, 0);
+  return r;
+}
+
+void glabel(lv_obj_t* p, const char* s) {
+  lv_obj_t* l = lv_label_create(p);
+  lv_label_set_text(l, s);
+  lv_obj_set_style_text_font(l, ui::theme().font_body, 0);
+  lv_obj_center(l);
+}
+
+lv_obj_t* gpart(lv_obj_t* p, watch::ThemeSkinPartId part, int32_t w,
+                int32_t h, lv_state_t st, const char* text) {
+  lv_obj_t* o = gbox(p, w, h);
+  ui::c::skin_obj(o, part);
+  if (st) lv_obj_add_state(o, st);
+  if (text) glabel(o, text);
+  return o;
+}
+
+void parts_gallery(const char* out_dir, const char* theme_id, int num,
+                   bool* ok) {
+  lv_obj_t* prev = lv_screen_active();
+  lv_obj_t* g = gbox(nullptr, kW, kH);
+  lv_obj_set_style_bg_color(g, ui::theme().bg, 0);
+  lv_obj_set_style_bg_opa(g, LV_OPA_COVER, 0);
+  ui::c::header(g, "パーツ", true);  // header_bar + back_pill
+
+  lv_obj_t* col = gbox(g, 366, kH - 78);
+  lv_obj_set_pos(col, 22, 78);
+  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(col, 3, 0);
+
+  ui::c::caption(col, "ボタン / スイッチ / スライダー");
+
+  // ボタン 3 種 x normal/pressed/disabled。
+  using MkBtn = lv_obj_t* (*)(lv_obj_t*, const char*, lv_event_cb_t, void*);
+  const struct {
+    MkBtn mk;
+    const char* tx;
+  } btns[3] = {{ui::c::button_primary, "主"},
+               {ui::c::button, "副"},
+               {ui::c::button_danger, "危"}};
+  const lv_state_t sts[3] = {LV_STATE_DEFAULT, LV_STATE_PRESSED,
+                             LV_STATE_DISABLED};
+  for (const auto& b : btns) {
+    lv_obj_t* r = grow3(col, 30);
+    for (int i = 0; i < 3; ++i) {
+      lv_obj_t* o = b.mk(r, b.tx, nullptr, nullptr);
+      lv_obj_set_size(o, 118, 30);
+      if (sts[i]) lv_obj_add_state(o, sts[i]);
+    }
+  }
+
+  // スイッチ off/on/disabled + icon_tile + toast。
+  lv_obj_t* ra = grow3(col, 36);
+  lv_obj_t* sw1 = ui::c::mk_switch(ra, false);
+  lv_obj_t* sw2 = ui::c::mk_switch(ra, true);
+  lv_obj_t* sw3 = ui::c::mk_switch(ra, true);
+  lv_obj_add_state(sw3, LV_STATE_DISABLED);
+  (void)sw1;
+  (void)sw2;
+  gpart(ra, watch::kSkinIconTile, 36, 36, LV_STATE_DEFAULT, "タ");
+  gpart(ra, watch::kSkinToast, 142, 36, LV_STATE_DEFAULT, "通知");
+
+  // back_pill x 3 state。
+  lv_obj_t* rb = grow3(col, 30);
+  gpart(rb, watch::kSkinBackPill, 96, 30, LV_STATE_DEFAULT, "戻る");
+  gpart(rb, watch::kSkinBackPill, 96, 30, LV_STATE_PRESSED, "戻る");
+  gpart(rb, watch::kSkinBackPill, 96, 30, LV_STATE_DISABLED, "戻る");
+
+  // スライダー (track/fill/knob)。
+  ui::c::slider_row(col, "明るさ", "%", 0, 100, 60, nullptr, nullptr);
+
+  // グループ: list_group + row + divider + icon_tile。
+  lv_obj_t* grp = ui::c::group(col);
+  lv_obj_t* ri = ui::c::row_icon(grp, "時", lv_color_hex(0x445566), "アプリ",
+                               "sub", true, nullptr, nullptr);
+  lv_obj_set_style_min_height(ri, 44, 0);
+  lv_obj_t* rp = ui::c::row(grp, "押下状態", nullptr, "v", true, nullptr,
+                            nullptr);
+  lv_obj_set_style_min_height(rp, 34, 0);
+  lv_obj_add_state(rp, LV_STATE_PRESSED);
+  lv_obj_t* rd = ui::c::row(grp, "無効状態", nullptr, nullptr, false, nullptr,
+                            nullptr);
+  lv_obj_set_style_min_height(rd, 34, 0);
+  lv_obj_add_state(rd, LV_STATE_DISABLED);
+
+  // card + bubble。
+  lv_obj_t* rc = grow3(col, 44);
+  lv_obj_t* cd = ui::c::card(rc);
+  lv_obj_set_size(cd, 172, 44);
+  glabel(cd, "カード");
+  gpart(rc, watch::kSkinBubble, 188, 44, LV_STATE_DEFAULT, "ふきだし");
+
+  lv_screen_load(g);
+  pump(400);
+  char nm[64];
+  std::snprintf(nm, sizeof(nm), "%d_theme_%s_parts", num, theme_id);
+  *ok &= save(out_dir, nm);
+  lv_screen_load(prev);
+  lv_obj_delete(g);
+  pump(200);
 }
 
 }  // namespace
@@ -539,6 +664,9 @@ int main(int argc, char** argv) {
     shot("alert");
     tap(205, 387);  // 止める
     pump(300);
+
+    // 全パーツ x 全 state のギャラリー (77 / 87)。
+    parts_gallery(out, theme_id, n++, &ok);
 
     std::printf("%s skin bytes: %u\n", theme_id,
                 static_cast<unsigned>(ui::theme_skin_bytes()));

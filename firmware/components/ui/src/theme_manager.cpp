@@ -182,6 +182,10 @@ bool load_file_theme(const char* id, Theme* out) {
     if (!(m.skin_set & (1u << i))) continue;
     t.skin[i] = theme_res::skin_load(id, m.skin_part[i]);
     // 読めない part は nullptr のまま → ベクタ描画フォールバック。
+#ifndef ESP_PLATFORM
+    std::fprintf(stderr, "skin[%s] %s -> %s\n", watch::kThemeSkinPartNames[i],
+                 m.skin_part[i].img, t.skin[i] ? "ok" : "NULL");
+#endif
   }
   t.skin_bytes = theme_res::skin_bytes();
 

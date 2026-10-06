@@ -208,11 +208,16 @@ const SkinImg* img_load_sliced(const char* id, const char* file,
   if (!tmp) return nullptr;
   const uint16_t w = full.header.w;
   const uint16_t h = full.header.h;
-  // slice を画像内に収める (入らなければそのパーツは描かない)。
+  // slice を画像内に収める (入らなければ描画側と同じく縮める。
+  // 角が潰れてもパーツごとベクタに落ちるよりマシ)。
   uint8_t sl[4] = {slice[0], slice[1], slice[2], slice[3]};
-  if (sl[0] + sl[2] > w || sl[1] + sl[3] > h) {
-    ui::port::theme_tmp_free(tmp);
-    return nullptr;
+  if (static_cast<uint16_t>(sl[0]) + sl[2] > w) {
+    sl[0] = static_cast<uint8_t>(w / 2);
+    sl[2] = static_cast<uint8_t>(w - sl[0]);
+  }
+  if (static_cast<uint16_t>(sl[1]) + sl[3] > h) {
+    sl[1] = static_cast<uint8_t>(h / 2);
+    sl[3] = static_cast<uint8_t>(h - sl[1]);
   }
   SkinImg* si = reinterpret_cast<SkinImg*>(
       ui::port::theme_asset_alloc(sizeof(SkinImg)));

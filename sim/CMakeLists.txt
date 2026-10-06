@@ -48,5 +48,8 @@ target_include_directories(snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # board/power_consts.h だけ sim からも見る (ESP非依存の定数ヘッダ)。
 target_include_directories(snapshot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/components/board/include)
+# parts ギャラリー用に ui::c コンポーネント定義を直接見る。
+target_include_directories(snapshot PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/components/ui/src)
 target_link_libraries(snapshot PRIVATE watch_ui watch_core lvgl z)
 target_compile_options(snapshot PRIVATE -fno-exceptions -fno-rtti)
