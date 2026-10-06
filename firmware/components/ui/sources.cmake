@@ -2,6 +2,7 @@
 set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/theme.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/theme_manager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/theme_res.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/components.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/shell.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/face_data.cpp
@@ -12,6 +13,7 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_minimal.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_chara_side.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_chara_bubble.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/faces/face_theme.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/registry.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/home.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/quick.cpp

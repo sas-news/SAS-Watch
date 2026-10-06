@@ -53,6 +53,16 @@ lv_obj_t* row_icon(lv_obj_t* grp, const char* icon, lv_color_t icon_bg,
                    const char* text, const char* sub, bool chevron,
                    lv_event_cb_t cb, void* ud);
 
+// row_icon の画像版 (テーマ icons)。imgd==nullptr なら文字タイル。
+lv_obj_t* row_icon_img(lv_obj_t* grp, const lv_image_dsc_t* imgd,
+                       const char* icon, lv_color_t icon_bg,
+                       const char* text, const char* sub, bool chevron,
+                       lv_event_cb_t cb, void* ud);
+
+// 画面隅のマスコット (manifest mascot。screen_index は kThemeScreenNames 順)。
+// 有効画面でなければ nullptr。タップで表情とセリフが切り替わる。
+lv_obj_t* mascot(lv_obj_t* scr, int screen_index);
+
 // 右にスイッチを置く行 (行タップで cb。ON/OFF の見た目はスイッチ任せ)。
 lv_obj_t* row_switch(lv_obj_t* grp, const char* text, const char* sub,
                      bool on, lv_event_cb_t cb, void* ud);

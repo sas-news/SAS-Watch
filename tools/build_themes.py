@@ -337,7 +337,35 @@ def gen_face_chara():
 
 # ---------------------------------------------------------------- 出力
 
-def build():
+def emit_assets(id, files, names_map=None):
+    """files: {name: (w,h, rgba_or_raw)} を <id>/ 展開と <id>.zip に書く。
+    names_map: {name: エントリ名} (png 等、既定は name+".bin")。"""
+    sim_dir = os.path.join(REPO, "sim", "themes", id)
+    os.makedirs(sim_dir, exist_ok=True)
+    entries = {}
+    for name, item in files.items():
+        w, h, data = item
+        ename = (names_map or {}).get(name, name + ".bin")
+        blob = data if isinstance(data, (bytes, bytearray)) else \
+            rgb565a8_bin(data, w, h)
+        entries[ename] = blob
+        print(f"  {ename}  {w}x{h}  {len(blob)} B")
+
+    for out_zip in (
+        os.path.join(REPO, "android", "app", "src", "main", "assets",
+                     "themes", id + ".zip"),
+        os.path.join(REPO, "tools", "themes", id + ".zip"),
+    ):
+        os.makedirs(os.path.dirname(out_zip), exist_ok=True)
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_STORED) as z:
+            for ename, blob in entries.items():
+                z.writestr(ename, blob)
+        print(f"  {os.path.relpath(out_zip, REPO)}  "
+              f"{os.path.getsize(out_zip)} B (stored)")
+    return entries
+
+
+def build_mame():
     imgs = {
         "home_bg": gen_home_bg(),        # 410x240
         "stand": gen_stand(),            # 160x200
@@ -413,5 +441,577 @@ def build():
     print(f"  pixels total {total} B <= 2.5MiB: {total <= 2621440}")
 
 
+# ================================================================ cosmos
+# テーマ v2 サンプル「cosmos」: 宇宙×HUD。アートは全部このスクリプトが
+# Canvas で描く自作 PNG (2x/4x SSAA)。フォントは tools/themes/cosmos/
+# の lv_font_conv 生成 .bin を同梱 (JetBrains Mono Bold, SIL OFL)。
+
+COS_TOKENS = {
+    "bg": "0x050A18", "surface": "0x0C1628", "surface2": "0x16233C",
+    "line": "0x27405E", "edge": "0x3E5578",
+    "text": "0xEAF6FF", "text_dim": "0x7E95B8",
+    "primary": "0x55C8FF", "primary2": "0x9AE8FF",
+    "on_primary": "0x02101F", "danger": "0xFF6E7A", "ok": "0x4BE3A8",
+    "accent": "0xFFB45C", "accent2": "0x8FA8FF", "accent3": "0x4BE3A8",
+    "accent4": "0xFF8FB8", "accent5": "0x6CE0FF",
+    "bubble_bg": "0x10233F", "bubble_text": "0xCFEAFF",
+    "radius_sm": 8, "radius_lg": 14, "space": 8, "anim_ms": 160,
+    "font_body": 20, "font_title": 26, "font_digits": 96,
+    "font_digits_sm": 56,
+}
+
+# パレット
+SPACE_HI = (14, 22, 46, 255)     # 画面上部の濃紺
+SPACE_LO = (4, 7, 18, 255)       # 下部のほぼ黒
+NEBULA_P = (96, 60, 160, 26)     # 紫の星雲
+NEBULA_C = (40, 120, 180, 22)    # 青い星雲
+STAR_W = (220, 240, 255, 255)    # 星
+HUD = (85, 200, 255, 120)        # シアンの HUD 線
+HUD_DIM = (85, 200, 255, 46)
+PLANET = (30, 60, 110, 255)      # 青い惑星
+PLANET_HI = (90, 160, 220, 255)
+SUN = (255, 150, 70, 255)        # オレンジの恒星
+BOT = (210, 235, 255, 255)       # 星ロボ本体
+BOT_SH = (120, 170, 220, 255)
+BOT_INK = (10, 24, 44, 255)
+BOT_EYE = (70, 220, 255, 255)
+
+
+def cv_gradient(cv, top, bottom):
+    """縦方向の線形グラデーションで全面を塗る。"""
+    s = cv.ss
+    for y in range(cv.H):
+        t = y / max(1, cv.H - 1)
+        c = tuple(int(top[k] + (bottom[k] - top[k]) * t) for k in range(4))
+        cv.rect(0, y, cv.W, y + 1, c)
+
+
+def cv_line(cv, x0, y0, x1, y1, thick, c):
+    """太さ thick の直線 (サンプル刻みで丸を敷く)。"""
+    dx, dy = x1 - x0, y1 - y0
+    n = int(max(abs(dx), abs(dy))) + 1
+    r = max(1, int(thick / 2))
+    for i in range(n + 1):
+        t = i / n
+        cv.circle(x0 + dx * t, y0 + dy * t, r, c)
+
+
+def cv_sparkle(cv, cx, cy, r, c):
+    """十字キラ星。"""
+    cv_line(cv, cx - r, cy, cx + r, cy, cv.ss, c)
+    cv_line(cv, cx, cy - r, cx, cy + r, cv.ss, c)
+    cv.circle(cx, cy, r * 0.35, c)
+
+
+def cv_ellipse_ring(cv, cx, cy, rx, ry, thick, c):
+    """楕円の輪郭を角度サンプリングで描く。"""
+    n = int(max(rx, ry) * 6.3) + 1
+    for i in range(n + 1):
+        a = 2 * math.pi * i / n
+        cv.circle(cx + rx * math.cos(a), cy + ry * math.sin(a),
+                  thick / 2, c)
+
+
+def scatter_stars(cv, seed, count, x1=None, y1=None, excl=None):
+    """決定的な疑似乱数で星を散らす (x1,y1 未満の領域)。
+
+    excl=(x1,y1,x2,y2) は最終ピクセル座標の除外矩形 — テキストや
+    UI の領域に飾りを重ねないために使う。"""
+    rng = seed
+    x1 = x1 or cv.W
+    y1 = y1 or cv.H
+    ex = None if excl is None else tuple(v * cv.ss for v in excl)
+
+    def blocked(sx, sy):
+        return ex is not None and ex[0] <= sx <= ex[2] and ex[1] <= sy <= ex[3]
+
+    for _ in range(count):
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        sx = rng % x1
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        sy = rng % y1
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        rr = 1 + rng % 3
+        a = 90 + rng % 160
+        if not blocked(sx, sy):
+            cv.circle(sx, sy, rr * cv.ss / 2, (220, 240, 255, a))
+    # 大きめのキラ星を数個
+    for i in range(6):
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        sx = rng % x1
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        sy = rng % (y1 * 3 // 4)
+        if not blocked(sx, sy):
+            cv_sparkle(cv, sx, sy, 6 * cv.ss, (190, 230, 255, 200))
+
+
+def draw_planet(cv, cx, cy, r, base, hi, ring=False):
+    """惑星: 球 + 明暗 + (任意) リング。"""
+    cv.circle(cx, cy, r, base)
+    # 明暗: 左上に薄いハイライト
+    cv.ellipse(cx - r * 0.35, cy - r * 0.4, r * 0.5, r * 0.35,
+               (hi[0], hi[1], hi[2], 70))
+    # 模様の帯
+    cv.ellipse(cx - r * 0.1, cy - r * 0.15, r * 0.95, r * 0.28,
+               (hi[0], hi[1], hi[2], 40))
+    cv.ellipse(cx + r * 0.2, cy + r * 0.35, r * 0.8, r * 0.2,
+               (hi[0], hi[1], hi[2], 28))
+    if ring:
+        cv_ellipse_ring(cv, cx, cy + r * 0.1, r * 1.6, r * 0.5,
+                        2 * cv.ss, (120, 190, 240, 140))
+
+
+def draw_hud_frame(cv):
+    """四隅の HUD ブラケット + 上下の細線。"""
+    s = cv.ss
+    w, h = cv.W, cv.H
+    m = 16 * s   # 丸角にかからない内側オフセット
+    ln = 30 * s  # ブラケットの腕長さ
+    th = 2 * s
+    # 上ブラケットはヘッダ (高さ 76px) と被らないよう下げる。
+    top_y = m + 66 * s
+    for (bx, by, sx, sy) in (
+        (m, top_y, 1, 1), (w - m, top_y, -1, 1),
+        (m, h - m - 12 * s, 1, -1), (w - m, h - m - 12 * s, -1, -1),
+    ):
+        cv_line(cv, bx, by, bx + sx * ln, by, th, HUD)
+        cv_line(cv, bx, by, bx, by + sy * ln, th, HUD)
+    # 上下中央の薄い水平線
+    cv_line(cv, w * 0.35, m + 4 * s, w * 0.65, m + 4 * s, s, HUD_DIM)
+    cv_line(cv, w * 0.35, h - m - 4 * s, w * 0.65, h - m - 4 * s, s, HUD_DIM)
+
+
+def gen_cosmos_bg():
+    """410x502: 濃紺グラデ + 星 + 星雲 + 右下の惑星 + HUD ブラケット。"""
+    cv = Canvas(410, 502)
+    s = cv.ss
+    cv_gradient(cv, SPACE_HI, SPACE_LO)
+    cv.ellipse(120 * s, 130 * s, 180 * s, 70 * s, NEBULA_P)
+    cv.ellipse(300 * s, 300 * s, 160 * s, 60 * s, NEBULA_C)
+    scatter_stars(cv, 42, 170)
+    draw_planet(cv, 340 * s, 430 * s, 110 * s, PLANET, PLANET_HI, ring=True)
+    draw_hud_frame(cv)
+    return cv.downsampled()
+
+
+def gen_cosmos_timer_bg():
+    """410x502: 同じ宇宙だが軌道リング中心 + 下部に恒星。"""
+    cv = Canvas(410, 502)
+    s = cv.ss
+    cv_gradient(cv, (10, 16, 40, 255), SPACE_LO)
+    cv.ellipse(205 * s, 240 * s, 200 * s, 120 * s, (60, 80, 160, 20))
+    scatter_stars(cv, 7, 160)
+    # 軌道リング (中心に同心楕円 3 本 + 惑星)
+    for k, rx in enumerate((90, 130, 170)):
+        cv_ellipse_ring(cv, 205 * s, 240 * s, rx * s, rx * 0.32 * s,
+                        s, HUD_DIM)
+    draw_planet(cv, 205 * s, 240 * s, 60 * s, (60, 100, 160, 255),
+                (140, 200, 255, 255))
+    draw_planet(cv, 205 * s + 130 * s, 240 * s - 42 * s, 10 * s,
+                SUN, (255, 210, 140, 255))
+    draw_hud_frame(cv)
+    return cv.downsampled()
+
+
+def gen_cosmos_alert_bg():
+    """410x502: 警戒の赤系。巨大な赤い惑星が昇る。"""
+    cv = Canvas(410, 502)
+    s = cv.ss
+    cv_gradient(cv, (30, 10, 18, 255), (10, 4, 10, 255))
+    cv.ellipse(205 * s, 380 * s, 260 * s, 150 * s, (200, 60, 60, 30))
+    cv.ellipse(205 * s, 430 * s, 300 * s, 200 * s, (255, 110, 70, 26))
+    # 00:00 (~y185-260) と タイマー終了 (~y295-330) の文字領域には星を置かない。
+    scatter_stars(cv, 99, 140, excl=(30, 170, 380, 350))
+    draw_planet(cv, 205 * s, 560 * s, 190 * s, (120, 30, 40, 255),
+                (255, 140, 100, 255))
+    draw_hud_frame(cv)
+    return cv.downsampled()
+
+
+def draw_bot(cv, cx, cy, scale, face="normal"):
+    """星ロボ。cx,cy は体の中心 (SSAA 座標)。face: normal|smile|wink"""
+    s = cv.ss
+    r = 36 * scale * s
+    # アンテナ
+    cv.rect(cx - 1.5 * scale * s, cy - r - 16 * scale * s,
+            cx + 1.5 * scale * s, cy - r + 2 * scale * s, BOT_SH)
+    cv.circle(cx, cy - r - 18 * scale * s, 5 * scale * s, SUN)
+    cv.circle(cx, cy - r - 18 * scale * s, 8 * scale * s,
+              (255, 180, 90, 60))
+    # 体 (球: 白〜水色)
+    cv.circle(cx, cy, r, BOT)
+    cv.ellipse(cx - r * 0.3, cy - r * 0.35, r * 0.45, r * 0.3,
+               (255, 255, 255, 120))                 # ハイライト
+    cv.ellipse(cx + r * 0.25, cy + r * 0.5, r * 0.55, r * 0.35,
+               BOT_SH)                               # 右下の陰
+    cv.circle(cx, cy, r, BOT)
+    # バイザー (上半分の暗い帯)
+    cv.ellipse(cx, cy - r * 0.18, r * 0.72, r * 0.4, BOT_INK)
+    # 目
+    ey = cy - r * 0.2
+    if face == "wink":
+        cv.circle(cx - r * 0.3, ey, 3.5 * scale * s, BOT_EYE)
+        cv_line(cv, cx + r * 0.2, ey + scale * s, cx + r * 0.4,
+                ey + scale * s, 2 * scale * s, BOT_EYE)  # ウィンク
+    else:
+        cv.circle(cx - r * 0.3, ey, 3.5 * scale * s, BOT_EYE)
+        cv.circle(cx + r * 0.3, ey, 3.5 * scale * s, BOT_EYE)
+        if face == "smile":
+            # 目を湾曲させる (円 + 上を消す)
+            cv.ellipse(cx - r * 0.3, ey - 1.5 * scale * s,
+                       4 * scale * s, 3.5 * scale * s, BOT_INK)
+            cv.ellipse(cx + r * 0.3, ey - 1.5 * scale * s,
+                       4 * scale * s, 3.5 * scale * s, BOT_INK)
+    # 口 (バイザー内)
+    if face == "smile" or face == "wink":
+        cv.ellipse(cx, cy + r * 0.02, 6 * scale * s, 4 * scale * s, BOT_EYE)
+        cv.ellipse(cx, cy - r * 0.02, 6 * scale * s, 4 * scale * s, BOT_INK)
+    else:
+        cv_line(cv, cx - 3 * scale * s, cy + r * 0.05, cx + 3 * scale * s,
+                cy + r * 0.05, 2 * scale * s, BOT_EYE)
+    # 下部のパネル線 + 胸のランプ
+    cv_line(cv, cx - r * 0.5, cy + r * 0.5, cx + r * 0.5, cy + r * 0.5,
+            scale * s, (140, 190, 230, 200))
+    cv.circle(cx, cy + r * 0.62, 3 * scale * s, SUN)
+
+
+def gen_cosmos_mascot(face):
+    """96x96 透過のマスコット表情差分。"""
+    cv = Canvas(96, 96)
+    s = cv.ss
+    draw_bot(cv, 48 * s, 54 * s, 1.0, face)
+    return cv.downsampled()
+
+
+def gen_cosmos_face_chara():
+    """240x410 透過: 大きめの星ロボ + 軌道リング + キラ星。"""
+    cv = Canvas(240, 410)
+    s = cv.ss
+    cv_ellipse_ring(cv, 120 * s, 240 * s, 100 * s, 34 * s, s,
+                    (85, 200, 255, 90))
+    draw_bot(cv, 120 * s, 215 * s, 2.6, "smile")
+    cv_sparkle(cv, 40 * s, 90 * s, 8 * s, (190, 230, 255, 220))
+    cv_sparkle(cv, 200 * s, 140 * s, 6 * s, (190, 230, 255, 180))
+    return cv.downsampled()
+
+
+def gen_cosmos_timer_done():
+    """200x140 透過: 手を振る星ロボ + キラ星。"""
+    cv = Canvas(200, 140)
+    s = cv.ss
+    draw_bot(cv, 100 * s, 80 * s, 1.35, "smile")
+    cv_sparkle(cv, 30 * s, 30 * s, 7 * s, (190, 230, 255, 220))
+    cv_sparkle(cv, 170 * s, 45 * s, 6 * s, (255, 210, 140, 220))
+    return cv.downsampled()
+
+
+# ---- icons (36x36): 中身は白/シアンの記号。各アプリ id 用 ----
+
+def _icon_bg(cv, color):
+    """アイコンの下地 (丸角矩形相当を円で近似: 角丸の見た目)。"""
+    s = cv.ss
+    w = cv.W
+    for y in range(w):
+        for x in range(w):
+            # 中心からの矩形距離で角丸 11px を再現
+            rr = 11 * s
+            dx = max(abs(x - w / 2 + 0.5) - (w / 2 - rr), 0)
+            dy = max(abs(y - w / 2 + 0.5) - (w / 2 - rr), 0)
+            if dx * dx + dy * dy <= rr * rr:
+                cv.blend(x, y, color)
+
+
+def gen_icon(app_id):
+    """36x36 アイコンを生成。白グリフ + 薄シアン縁。"""
+    cv = Canvas(36, 36, ss=4)
+    s = cv.ss
+    W = 18 * s  # 中心
+    INK = (240, 250, 255, 255)
+    CY = (120, 220, 255, 255)
+    th = 2.4 * s
+    g = {
+        "timer": lambda: [
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(10, 8), (26, 8), (18, 18)]], INK),
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(10, 28), (26, 28), (18, 18)]], INK),
+        ],
+        "stopwatch": lambda: [
+            cv.ring(W, 20 * s, 10 * s, th, INK),
+            cv.rect(14 * s, 5 * s, 22 * s, 9 * s, INK),
+            cv_line(cv, W, 20 * s, 24 * s, 15 * s, th, INK),
+        ],
+        "counter": lambda: [
+            cv.rect(6 * s, 14 * s, 16 * s, 17 * s, INK),
+            cv.rect(10 * s, 11 * s, 13 * s, 20 * s, INK),
+            cv.rect(20 * s, 20 * s, 30 * s, 23 * s, INK),
+        ],
+        "memo": lambda: [
+            cv.rect(8 * s, 6 * s, 28 * s, 30 * s,
+                    (240, 250, 255, 60)),
+            cv.rect(8 * s, 6 * s, 28 * s, 30 * s, (0, 0, 0, 0)),
+        ] + [
+            cv_line(cv, 12 * s, y * s, 24 * s, y * s, 1.6 * s, INK)
+            for y in (12, 17, 22, 27)
+        ],
+        "alarm": lambda: [
+            cv.ellipse(W, 20 * s, 9 * s, 10 * s, INK),
+            cv.rect(9 * s, 24 * s, 27 * s, 27 * s, INK),
+            cv.circle(W, 25 * s, 2 * s, INK),
+            cv_line(cv, 6 * s, 8 * s, 11 * s, 11 * s, th, INK),
+            cv_line(cv, 30 * s, 8 * s, 25 * s, 11 * s, th, INK),
+        ],
+        "notifications": lambda: [
+            cv.rect(5 * s, 10 * s, 31 * s, 26 * s, (240, 250, 255, 50)),
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(5, 10), (31, 10), (18, 19)]], INK),
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(5, 11), (18, 20), (5, 20)]], INK),
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(31, 11), (18, 20), (31, 20)]], INK),
+        ],
+        "media": lambda: [
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(13, 8), (28, 18), (13, 28)]], INK),
+        ],
+        "steps": lambda: [
+            cv.ellipse(14 * s, 14 * s, 5 * s, 9 * s, INK),
+            cv.ellipse(24 * s, 24 * s, 4.5 * s, 7 * s, INK),
+            cv.circle(11 * s, 5.5 * s, 1.5 * s, INK),
+            cv.circle(15 * s, 4.5 * s, 1.3 * s, INK),
+            cv.circle(21 * s, 14 * s, 1.5 * s, INK),
+            cv.circle(25 * s, 15 * s, 1.3 * s, INK),
+        ],
+        "agent": lambda: [
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(18, 4), (21, 15), (32, 18), (21, 21),
+                         (18, 32), (15, 21), (4, 18), (15, 15)]], INK),
+            cv.circle(28 * s, 8 * s, 2 * s, CY),
+        ],
+        "settings": lambda: [
+            cv.polygon([(x * s, y * s) for x, y in
+                        [(18, 6), (21.4, 7.4), (25.4, 8), (27.4, 10.9),
+                         (30, 13.4), (30.8, 16.8), (29.6, 20.2),
+                         (27.6, 23), (27.6, 26.6), (24.6, 29.6),
+                         (20.8, 30.8), (17.4, 29.6), (14, 30.8),
+                         (10.4, 29.6), (7.4, 26.6), (7.4, 23),
+                         (5.4, 20.2), (4.2, 16.8), (5, 13.4),
+                         (7.6, 10.9), (9.6, 8), (13.6, 7.4)]], INK),
+            cv.circle(W, 18 * s, 3.5 * s, (10, 22, 40, 255)),
+        ],
+    }[app_id]()
+    return cv.downsampled()
+
+
+def build_cosmos():
+    """cosmos テーマ: v2 の全キー (screens/style/icons/fonts/mascot/
+    face_layout) を行使する。"""
+    files = {
+        # 画面背景 (PNG: ロード時に RGB565A8 デコード)
+        "bg": (410, 502, gen_cosmos_bg()),
+        "timer_bg": (410, 502, gen_cosmos_timer_bg()),
+        "alert_bg": (410, 502, gen_cosmos_alert_bg()),
+        # 文字盤/アラート画像
+        "face_chara": (240, 410, gen_cosmos_face_chara()),
+        "timer_done": (200, 140, gen_cosmos_timer_done()),
+        # マスコット表情
+        "m_n": (96, 96, gen_cosmos_mascot("normal")),
+        "m_s": (96, 96, gen_cosmos_mascot("smile")),
+        "m_w": (96, 96, gen_cosmos_mascot("wink")),
+        # アプリアイコン (id → ic_<id>.png)
+        **{f"ic_{a}": (36, 36, gen_icon(a)) for a in (
+            "timer", "stopwatch", "counter", "memo", "alarm",
+            "notifications", "media", "steps", "agent", "settings")},
+    }
+    # フォント (.bin は tools/themes/cosmos/ にコミット済みの
+    # lv_font_conv 生成物を同梱)。
+    for fn in ("digits.bin", "digits_sm.bin"):
+        p = os.path.join(REPO, "tools", "themes", "cosmos", fn)
+        files[fn[:-4]] = (0, 0, open(p, "rb").read())
+
+    # エントリ名 (.png は PNG として書き出す)
+    png_names = {n: n + ".png" for n in files if not n.endswith(".bin")
+                 and n not in ("digits", "digits_sm")}
+    png_names.update({"digits": "digits.bin", "digits_sm": "digits_sm.bin"})
+    png_blobs = {}
+    for n, (w, h, data) in files.items():
+        if not png_names[n].endswith(".png"):
+            continue
+        # PNG 化 (write_png の中身をバイト列として得る版)
+        png_blobs[png_names[n]] = (w, h, png_bytes(data, w, h))
+    entries = dict(png_blobs)
+    for n in ("digits", "digits_sm"):
+        entries[n + ".bin"] = (0, 0, files[n][2])
+
+    # ---- manifest.cbor ----
+    def t(x):
+        return cbor_text(x)
+    def u(x):
+        return cbor_uint(x)
+
+    def color_map(pairs):
+        return cbor_map([(k, t(v) if isinstance(v, str) else u(v))
+                         for k, v in pairs])
+
+    style = cbor_map([
+        ("card_radius", u(12)), ("card_opa", u(150)),
+        ("border_w", u(1)), ("border", t("0x3A5F8A")),
+        ("glow_color", t("0x2A6FC0")), ("glow_w", u(14)),
+        ("btn_radius", u(8)), ("header", t("flat")),
+    ])
+    screens = cbor_map([
+        ("*", cbor_map([("bg", t("bg.png")), ("scrim", u(110))])),
+        ("timer", cbor_map([("bg", t("timer_bg.png")),
+                            ("scrim", u(60))])),
+        ("alert", cbor_map([("bg", t("alert_bg.png")),
+                            ("scrim", u(70))])),
+        ("settings", cbor_map([("scrim", u(150))])),
+        ("more", cbor_map([("scrim", u(150))])),
+        ("memo", cbor_map([("scrim", u(150))])),
+    ])
+    icons = cbor_map([(a, t(f"ic_{a}.png")) for a in (
+        "timer", "stopwatch", "counter", "memo", "alarm",
+        "notifications", "media", "steps", "agent", "settings")])
+    fonts = cbor_map([
+        ("digits", t("digits.bin")), ("digits_sm", t("digits_sm.bin")),
+    ])
+    # 負数座標対応の int エンコード (cbor_head(1, -1-v))。
+    def ci(v):
+        return cbor_head(0, v) if v >= 0 else cbor_head(1, -1 - v)
+    mascot = cbor_map([
+        ("x", ci(300)), ("y", ci(380)),
+        ("expr", cbor_map([("normal", t("m_n.png")),
+                            ("smile", t("m_s.png")),
+                            ("wink", t("m_w.png"))])),
+        ("lines", cbor_head(4, 4) + b"".join(cbor_text(x) for x in (
+            "宇宙を見てるよ", "おつかれさま", "きらきら〜",
+            "タップありがと"))),
+        ("screens", cbor_head(4, 3) + b"".join(cbor_text(x) for x in (
+            "more", "memo", "timer"))),
+        # home は chara と重なるので外す。alert は固定配置ボタンがあり
+        # 退避パディングの効かない画面なので外す。
+    ])
+    face_layout = cbor_map([
+        ("time", cbor_map([("x", ci(30)), ("y", ci(96)),
+                           ("font", u(96)), ("color", t("0x9AE8FF"))])),
+        ("date", cbor_map([("x", ci(32)), ("y", ci(200)),
+                           ("font", u(20)), ("color", t("0x7E95B8"))])),
+        ("steps", cbor_map([("x", ci(32)), ("y", ci(228)),
+                            ("font", u(20)), ("color", t("0x7E95B8"))])),
+        ("battery", cbor_map([("x", ci(-30)), ("y", ci(96)),
+                              ("font", u(20)), ("color", t("0x7E95B8"))])),
+        ("notify", cbor_map([("x", ci(-30)), ("y", ci(124)),
+                             ("font", u(20)), ("color", t("0xFFB45C"))])),
+        ("bubble", cbor_map([("x", ci(30)), ("y", ci(32)),
+                             ("font", u(20)), ("color", t("0xCFEAFF"))])),
+        ("chara", cbor_map([("x", ci(176)), ("y", ci(120)),
+                            ("img", t("face_chara.png"))])),
+    ])
+    images = cbor_map([
+        ("timer_done", t("timer_done.png")),
+        # chara_side/chara_bubble など既存文字盤でも使えるようスロットにも入れる
+        ("face_chara", t("face_chara.png")),
+    ])
+    bubble = cbor_map([
+        ("morning", t("おはよう、宇宙の時間だよ")),
+        ("noon", t("こんにちは")),
+        ("evening", t("おつかれさま")),
+        ("night", t("おやすみなさい")),
+        ("steps", t("あと{n}歩")),
+    ])
+    manifest = cbor_map([
+        ("id", t("cosmos")), ("api", u(1)), ("name", t("cosmos")),
+        ("version", u(1)),
+        ("tokens", cbor_map([(k, t(v) if isinstance(v, str) else u(v))
+                             for k, v in COS_TOKENS.items()])),
+        ("images", images),
+        ("bubble", bubble),
+        ("screens", screens),
+        ("style", style),
+        ("icons", icons),
+        ("fonts", fonts),
+        ("mascot", mascot),
+        ("face_layout", face_layout),
+    ])
+
+    # ---- 出力 ----
+    sim_dir = os.path.join(REPO, "sim", "themes", "cosmos")
+    os.makedirs(sim_dir, exist_ok=True)
+    with open(os.path.join(sim_dir, "manifest.cbor"), "wb") as f:
+        f.write(manifest)
+    total = len(manifest)
+    for ename, (w, h, blob) in entries.items():
+        total += len(blob)
+        with open(os.path.join(sim_dir, ename), "wb") as f:
+            f.write(blob)
+        print(f"  {ename}  {len(blob)} B")
+
+    for out_zip in (
+        os.path.join(REPO, "android", "app", "src", "main", "assets",
+                     "themes", "cosmos.zip"),
+        os.path.join(REPO, "tools", "themes", "cosmos.zip"),
+        os.path.join(REPO, "sim", "themes", "cosmos.zip"),  # zip 直読み検証
+    ):
+        os.makedirs(os.path.dirname(out_zip), exist_ok=True)
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_STORED) as z:
+            z.writestr("manifest.cbor", manifest)
+            for ename, (w, h, blob) in sorted(entries.items()):
+                z.writestr(ename, blob)
+        print(f"  {os.path.relpath(out_zip, REPO)}  "
+              f"{os.path.getsize(out_zip)} B (stored)")
+
+    # プレビュー: 背景3枚 + chara + mascot + アイコン列
+    pw = 410 * 3 + 240 + 96 * 3 + 36 * 10 + 60
+    prev = Canvas(pw, 502, ss=1)
+    prev.rect(0, 0, pw, 502, (6, 10, 20, 255))
+    x = 0
+    for n in ("bg", "timer_bg", "alert_bg", "face_chara",
+              "m_n", "m_s", "m_w"):
+        rgba = files[n][2]
+        w, h = files[n][0], files[n][1]
+        for y in range(h):
+            for xx in range(w):
+                i = (y * w + xx) * 4
+                a = rgba[i + 3]
+                if a:
+                    prev.blend(x + xx, y,
+                               (rgba[i], rgba[i + 1], rgba[i + 2], a))
+        x += w + 10
+    xi = 0
+    for a in ("timer", "stopwatch", "counter", "memo", "alarm",
+              "notifications", "media", "steps", "agent", "settings"):
+        rgba = files[f"ic_{a}"][2]
+        for y in range(36):
+            for xx in range(36):
+                i = (y * 36 + xx) * 4
+                al = rgba[i + 3]
+                if al:
+                    prev.blend(x + xi * 46 + xx, 240 + y,
+                               (rgba[i], rgba[i + 1], rgba[i + 2], al))
+        xi += 1
+    write_png(os.path.join(REPO, "tools", "themes",
+                           "cosmos_preview.png"), prev.px, pw, 502)
+    print(f"  tools/themes/cosmos_preview.png")
+    print(f"  package total {total} B <= 4MiB: {total <= 4*1024*1024}")
+
+
+def png_bytes(rgba, w, h):
+    """RGBA バイト列 → PNG バイト列 (ファイルを介さない write_png 版)。"""
+    def chunk(tag, data):
+        c = tag + data
+        return struct.pack(">I", len(data)) + c + struct.pack(
+            ">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)
+        raw += rgba[y * w * 4:(y + 1) * w * 4]
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
 if __name__ == "__main__":
-    build()
+    build_mame()
+    build_cosmos()

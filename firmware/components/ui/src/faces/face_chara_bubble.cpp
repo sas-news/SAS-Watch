@@ -50,7 +50,7 @@ void draw_bubble(lv_event_t* e) {
   tri.color = t.bubble_bg;
   tri.opa = LV_OPA_90;
   tri.p[0].x = 64;  tri.p[0].y = 392;
-  tri.p[1].x = 50;  tri.p[1].y = 408;
+  tri.p[1].x = 50;  tri.p[1].y = 400;  // 電池行と 10px 以上あけるため短めに
   tri.p[2].x = 50;  tri.p[2].y = 392;
   lv_draw_triangle(layer, &tri);
 }
@@ -254,7 +254,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   // 下: 電池。
   s.batt = ui::face::label(scr, "", t.font_body, t.text_dim);
   if (s.has_img) {
-    lv_obj_align(s.batt, LV_ALIGN_TOP_LEFT, 30, 420);
+    lv_obj_align(s.batt, LV_ALIGN_TOP_LEFT, 30, 430);  // しっぽ先端との隙間確保
   } else {
     lv_obj_align(s.batt, LV_ALIGN_BOTTOM_MID, 0, -20);
   }

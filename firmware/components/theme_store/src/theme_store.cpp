@@ -1,7 +1,8 @@
 // theme_store.cpp — /assets littlefs 上のテーマ資産管理。
-//   zip は丸ごとメモリに持たず、littlefs 上の .theme.bulk から
-//   セントラルディレクトリ→各エントリをストリーミングで読んで展開する
-//   (PSRAM のテーマ用アリーナは現テーマの画像が使っているので触らない)。
+//   受信した zip は展開せず /assets/themes/<id>.zip としてそのまま保持し、
+//   エントリは ui 側 (port) がセントラルディレクトリから遅延読みする。
+//   旧式 (v1 で <id>/ に展開された資産) は port 側がフォールバックで読み、
+//   再インストール時にここで掃除する。
 #include "theme_store/theme_store.hpp"
 
 #include <sys/stat.h>
@@ -14,6 +15,7 @@
 #include "esp_vfs.h"
 #include "watch/theme/manifest.hpp"
 #include "watch/theme/package.hpp"
+#include "watch/theme/zipfile.hpp"
 
 namespace theme_store {
 namespace {
@@ -22,185 +24,62 @@ constexpr const char* TAG = "theme_store";
 constexpr const char* kRoot = "/assets";
 constexpr const char* kThemesDir = "/assets/themes";
 constexpr const char* kBulkFile = "/assets/.theme.bulk";
-constexpr uint32_t kPkgMax = 3 * 1024 * 1024;
+// 4 MiB: assets パーティション 6MiB − 他データ/旧資産の予約 (~2MiB)。
+// zip を展開しないので「staging+展開済み」の2倍占有が消え、上限はほぼ
+// パーティションの空きそのものになる (docs/theme-format.md 予算表)。
+constexpr uint32_t kPkgMax = 4 * 1024 * 1024;
 constexpr int kMaxEntries = watch::kThemePackageMaxEntries;
 constexpr size_t kManifestMax = 32 * 1024;
-constexpr size_t kCopyBufSize = 4096;
-// スロットごとの画像サイズ上限 (docs/theme-format.md)。
-constexpr uint16_t kMaxDim[watch::kThemeImageSlots][2] = {
-    {410, 502}, {240, 360}, {410, 320}};
 
 FILE* s_f = nullptr;          // 受信中の .theme.bulk
 uint32_t s_size = 0;          // 期待サイズ
 char s_pending[32] = {};      // 適用待ち theme id (volatile 共有)
 volatile bool s_has_pending = false;
 
-uint16_t le16(const uint8_t* p) {
-  return static_cast<uint16_t>(p[0] | (p[1] << 8));
-}
-uint32_t le32(const uint8_t* p) {
-  return static_cast<uint32_t>(p[0] | (p[1] << 8) | (p[2] << 16) |
-                               (static_cast<uint32_t>(p[3]) << 24));
-}
-
-struct Entry {
-  char name[48];
-  uint32_t lho;
-  uint32_t size;
-  uint32_t crc;
-};
-
-// local file header からデータ位置を取る。
-bool data_offset(FILE* f, uint32_t lho, const char* name, uint32_t* off) {
-  uint8_t h[30];
-  if (std::fseek(f, lho, SEEK_SET) != 0 || std::fread(h, 1, 30, f) != 30) {
-    return false;
-  }
-  if (le32(h) != 0x04034b50u || le16(h + 8) != 0) return false;
-  const uint16_t nl = le16(h + 26);
-  const uint16_t el = le16(h + 28);
-  const size_t nn = std::strlen(name);
-  if (nl != nn) return false;
-  char buf[48];
-  if (std::fread(buf, 1, nn, f) != nn || std::memcmp(buf, name, nn) != 0) {
-    return false;
-  }
-  *off = lho + 30 + nl + el;
-  return true;
-}
-
 // NimBLE タスク上だけで動くため、大きいバッファは static に置いて
 // スタックを食わない (単一スレッド前提で再入なし)。
 uint8_t s_tail[4096];
-Entry s_list[kMaxEntries];
+watch::ThemePackageEntry s_list[kMaxEntries];
 
-// セントラルディレクトリを走査して Entry 表を作る。
-int list_entries(FILE* f, Entry* out, int cap) {
-  // EOCD を末尾から探す (末尾 4KB だけ見る — 自作 zip はコメント無し)。
-  uint8_t* tail = s_tail;
-  if (std::fseek(f, 0, SEEK_END) != 0) return -1;
-  const long fsz = std::ftell(f);
-  const long tn = fsz < static_cast<long>(sizeof(tail))
-                      ? fsz
-                      : static_cast<long>(sizeof(tail));
-  if (tn < 22) return -1;
-  if (std::fseek(f, fsz - tn, SEEK_SET) != 0 ||
-      std::fread(tail, 1, tn, f) != static_cast<size_t>(tn)) {
-    return -1;
-  }
-  const uint8_t* eocd = watch::theme_package_eocd(tail, tn);
-  if (!eocd) return -1;
-  const uint16_t entries = le16(eocd + 10);
-  const uint32_t cd_off = le32(eocd + 16);
-  const uint32_t cd_size = le32(eocd + 12);
-  if (entries == 0 || entries > cap) return -1;
-  if (cd_off + cd_size > static_cast<uint32_t>(fsz)) return -1;
-
-  uint8_t rec[46];
-  char name[48];
-  uint32_t pos = cd_off;
-  int count = 0;
-  for (int i = 0; i < entries; ++i) {
-    if (std::fseek(f, pos, SEEK_SET) != 0 ||
-        std::fread(rec, 1, 46, f) != 46) {
-      return -1;
-    }
-    if (le32(rec) != 0x02014b50u) return -1;
-    const uint16_t method = le16(rec + 10);
-    const uint16_t nl = le16(rec + 28);
-    const uint16_t el = le16(rec + 30);
-    const uint16_t cl = le16(rec + 32);
-    if (method != 0 || le32(rec + 20) != le32(rec + 24)) return -1;
-    if (nl == 0 || nl >= sizeof(name) ||
-        std::fread(name, 1, nl, f) != nl) {
-      return -1;
-    }
-    name[nl] = '\0';
-    if (!watch::theme_package_name_ok(name, nl)) return -1;
-    Entry& e = out[count++];
-    std::strncpy(e.name, name, sizeof(e.name) - 1);
-    e.lho = le32(rec + 42);
-    e.size = le32(rec + 24);
-    e.crc = le32(rec + 16);
-    if (e.lho + 30 > static_cast<uint32_t>(fsz)) return -1;
-    pos += 46 + nl + el + cl;
-    if (pos > cd_off + cd_size) return -1;
-  }
-  return count;
+bool file_at(void* user, uint32_t off, uint8_t* dst, uint32_t n) {
+  FILE* f = static_cast<FILE*>(user);
+  return std::fseek(f, static_cast<long>(off), SEEK_SET) == 0 &&
+         std::fread(dst, 1, n, f) == n;
 }
 
-const Entry* find_entry(const Entry* list, int count, const char* name) {
-  for (int i = 0; i < count; ++i) {
-    if (std::strcmp(list[i].name, name) == 0) return &list[i];
-  }
-  return nullptr;
-}
-
-// エントリを dest へストリーミングコピーしつつ crc32 を検算する。
-bool copy_entry(FILE* src, const Entry& e, const char* dest) {
-  uint32_t off = 0;
-  if (!data_offset(src, e.lho, e.name, &off)) return false;
-  FILE* d = std::fopen(dest, "wb");
-  if (!d) return false;
-  if (std::fseek(src, off, SEEK_SET) != 0) {
-    std::fclose(d);
-    return false;
-  }
-  static uint8_t buf[kCopyBufSize];
-  uint32_t crc = 0xFFFFFFFFu;
-  // crc32 の中間計算 (theme_crc32 は完成形なので自前ループ)。
-  uint32_t left = e.size;
-  bool ok = true;
-  while (left > 0) {
-    const uint32_t n = left < sizeof(buf) ? left : sizeof(buf);
-    if (std::fread(buf, 1, n, src) != n) {
-      ok = false;
-      break;
-    }
-    for (uint32_t i = 0; i < n; ++i) {
-      // テーブルは package.cpp と同じ多項式の簡易ループ。
-      crc ^= buf[i];
-      for (int k = 0; k < 8; ++k) {
-        crc = (crc & 1) ? (crc >> 1) ^ 0xEDB88320u : (crc >> 1);
-      }
-    }
-    if (std::fwrite(buf, 1, n, d) != n) {
-      ok = false;
-      break;
-    }
-    left -= n;
-  }
-  std::fclose(d);
-  if (ok && (crc ^ 0xFFFFFFFFu) != e.crc) ok = false;
-  if (!ok) std::remove(dest);
-  return ok;
-}
-
-// .theme.bulk を検証して /assets/themes/<id>/ へ展開。id を out に。
+// .theme.bulk を検証して /assets/themes/<id>.zip へ rename する。
+// 同じ id の旧式展開ディレクトリ (<id>/) はエントリ単位で掃除する。
 bool install(const char* tmp, char* out_id, size_t cap) {
   FILE* f = std::fopen(tmp, "rb");
   if (!f) return false;
-  Entry* list = s_list;
-  const int cnt = list_entries(f, list, kMaxEntries);
+  std::fseek(f, 0, SEEK_END);
+  const long fsz = std::ftell(f);
+  if (fsz <= 0) {
+    std::fclose(f);
+    return false;
+  }
+  watch::ThemeZipSrc z{f, &file_at, static_cast<uint32_t>(fsz)};
+  const int cnt = watch::theme_zipfile_list(z, s_list, kMaxEntries, s_tail,
+                                            sizeof(s_tail));
   if (cnt < 0) {
     ESP_LOGW(TAG, "bad zip");
     std::fclose(f);
     return false;
   }
-  const Entry* me = find_entry(list, cnt, "manifest.cbor");
+  const watch::ThemePackageEntry* me =
+      watch::theme_package_find(s_list, cnt, "manifest.cbor");
   if (!me || me->size == 0 || me->size > kManifestMax) {
     std::fclose(f);
     return false;
   }
+  static uint8_t mbuf[32 * 1024];
   uint32_t moff = 0;
-  static uint8_t mbuf[kManifestMax];
-  if (!data_offset(f, me->lho, me->name, &moff) ||
-      std::fseek(f, moff, SEEK_SET) != 0 ||
-      std::fread(mbuf, 1, me->size, f) != me->size) {
+  if (!watch::theme_zipfile_data_offset(z, *me, &moff) ||
+      !z.at(z.user, moff, mbuf, me->size)) {
     std::fclose(f);
     return false;
   }
-  watch::ThemeManifest m;
+  static watch::ThemeManifest m;  // NimBLE タスクのスタック節約のため static
   if (watch::theme_manifest_parse(mbuf, me->size, &m) !=
       watch::ThemeManifestError::kOk) {
     ESP_LOGW(TAG, "bad manifest");
@@ -208,54 +87,32 @@ bool install(const char* tmp, char* out_id, size_t cap) {
     return false;
   }
 
-  // /assets/themes/<id>/
+  // /assets/themes/<id>.zip に rename (zip は展開しない)。
+  char dest[96];
+  std::snprintf(dest, sizeof(dest), "%s/%s.zip", kThemesDir, m.id);
+  std::fclose(f);
+  mkdir(kThemesDir, 0777);  // 既存なら失敗するだけ
+  std::remove(dest);        // 上書き (rename は既存ファイルを置き換えない実装がある)
+  if (std::rename(tmp, dest) != 0) {
+    ESP_LOGW(TAG, "rename %s failed", dest);
+    return false;
+  }
+
+  // v1 形式で展開済みの同名ディレクトリがあれば掃除する
+  // (zip 内エントリ名 + manifest.cbor を消し、空なら dir も消す)。
   char dir[96];
   std::snprintf(dir, sizeof(dir), "%s/%s", kThemesDir, m.id);
-  mkdir(kThemesDir, 0777);  // 既存なら失敗するだけ
-  mkdir(dir, 0777);
-
-  // manifest.cbor 自体も置く (適用時に再読するため)。
-  char dest[128];
-  std::snprintf(dest, sizeof(dest), "%s/manifest.cbor", dir);
-  {
-    FILE* d = std::fopen(dest, "wb");
-    if (!d || std::fwrite(mbuf, 1, me->size, d) != me->size) {
-      if (d) std::fclose(d);
-      std::fclose(f);
-      return false;
-    }
-    std::fclose(d);
+  char p[160];
+  std::snprintf(p, sizeof(p), "%s/manifest.cbor", dir);
+  std::remove(p);
+  for (int i = 0; i < cnt; ++i) {
+    // entry name は zipfile が 47B + NUL で切る (精度指定は GCC の
+    // format-truncation 対策 — name が NUL 無しでも読み過ぎない)。
+    std::snprintf(p, sizeof(p), "%s/%.47s", dir, s_list[i].name);
+    std::remove(p);
   }
+  rmdir(dir);  // 残ファイルがあれば失敗するだけ
 
-  // 宣言された画像を展開する。
-  uint64_t img_bytes = 0;
-  for (int s = 0; s < watch::kThemeImageSlots; ++s) {
-    if (!(m.image_set & (1u << s))) continue;
-    const Entry* e = find_entry(list, cnt, m.image[s]);
-    if (!e) {
-      ESP_LOGW(TAG, "missing image %s", m.image[s]);
-      continue;  // スロットだけ欠け (テーマ自体は入れる)
-    }
-    // ヘッダ 12B + size 一致を検査してからコピー。
-    uint32_t off = 0;
-    uint8_t head[12];
-    if (!data_offset(f, e->lho, e->name, &off) ||
-        std::fseek(f, off, SEEK_SET) != 0 ||
-        std::fread(head, 1, 12, f) != 12 ||
-        !watch::theme_image_check(head, e->size, kMaxDim[s][0],
-                                  kMaxDim[s][1])) {
-      ESP_LOGW(TAG, "bad image %s", e->name);
-      continue;
-    }
-    std::snprintf(dest, sizeof(dest), "%s/%s", dir, e->name);
-    if (!copy_entry(f, *e, dest)) {
-      ESP_LOGW(TAG, "copy/crc fail %s", e->name);
-      continue;
-    }
-    img_bytes += e->size;
-    if (img_bytes > kPkgMax) break;
-  }
-  std::fclose(f);
   std::strncpy(out_id, m.id, cap - 1);
   out_id[cap - 1] = '\0';
   return true;
