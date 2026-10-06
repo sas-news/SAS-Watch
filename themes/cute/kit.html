@@ -1,0 +1,229 @@
+<!doctype html>
+<!-- cute テーマのスキン素材キット。
+     パステル + 太めの丸いアウトライン + ステッカー風ソフト影。
+     全部 CSS の自作アート。各 [data-part] を実寸で透過 PNG 化する。 -->
+<meta charset="utf-8">
+<style>
+:root{
+  --bg:#FFF3F7; --panel:#FFFDFE; --ink:#6B5570; --pk:#FF9BBE;
+  --pkD:#E56A97; --li:#B79CFF; --mt:#7FDFC8; --cr:#FFE8F0;
+}
+html,body{margin:0;background:transparent;font:13px/1.4 sans-serif;color:#a86}
+.wrap{width:430px}
+h1{font-size:15px;margin:10px 0 4px}
+h2{font-size:11px;margin:14px 0 6px;color:#c9a}
+.shot{display:inline-block;position:relative;background:transparent}
+.shot>.a{position:absolute;left:var(--m,0px);top:var(--m,0px);
+  right:var(--m,0px);bottom:var(--m,0px)}
+
+/* ステッカー風: 太枠 + 下方向のソフト影 */
+.sticker{border:3px solid var(--bd,#7A5C7E);background:var(--fl,#FFFDFE);
+  border-radius:var(--rr,20px);box-shadow:0 var(--sy,4px) 0 rgba(122,92,126,.22);
+  position:absolute;inset:0}
+/* キャンディボタン: 白テリ + 縦グラデ + 太枠 + 4px 影 */
+.candy{border:3px solid var(--bd,var(--pkD));border-radius:29px;
+  background:linear-gradient(180deg,#FFFFFF 8%,var(--fl,#FFB9D2) 46%,var(--fl2,#FF8FB4));
+  box-shadow:0 4px 0 rgba(150,80,110,.35),inset 0 2px 0 rgba(255,255,255,.7);
+  position:absolute;inset:0}
+.dotline{background-image:radial-gradient(circle,var(--dc,#E8B8D0) 1.4px,transparent 1.7px);
+  background-size:9px 3px;background-position:0 50%;background-repeat:repeat-x}
+</style>
+<div class="wrap">
+<h1>cute skin kit</h1>
+
+<h2>header_bar 410x76</h2>
+<div class="shot" data-part="header_bar" data-slice="80,40,80,36"
+     style="width:410px;height:76px">
+  <div class="a" style="background:#FFFDFEf2;border-radius:0;
+    border-bottom:3px solid #F2C9DA">
+    <div class="dotline" style="position:absolute;left:0;right:0;bottom:9px;
+      height:3px"></div>
+    <!-- 左上に小さな花マーク (コーナー内側22px) -->
+    <div style="position:absolute;left:26px;top:14px;width:16px;height:16px">
+      <div style="position:absolute;left:5px;top:0;width:6px;height:6px;border-radius:50%;background:#FFB9D2"></div>
+      <div style="position:absolute;left:5px;bottom:0;width:6px;height:6px;border-radius:50%;background:#FFB9D2"></div>
+      <div style="position:absolute;left:0;top:5px;width:6px;height:6px;border-radius:50%;background:#FFB9D2"></div>
+      <div style="position:absolute;right:0;top:5px;width:6px;height:6px;border-radius:50%;background:#FFB9D2"></div>
+      <div style="position:absolute;left:5px;top:5px;width:6px;height:6px;border-radius:50%;background:#FFF"></div>
+    </div>
+  </div>
+</div>
+
+<h2>back_pill 96x48 (+pressed)</h2>
+<div class="shot" data-part="back_pill" data-slice="28,26,28,26" data-pad="4,0,4,0"
+     style="width:96px;height:48px;--m:5px">
+  <div class="candy" style="--bd:#7A5C7E;--fl:#FFF;--fl2:#FFEDF4;
+    border-radius:22px;box-shadow:0 3px 0 rgba(122,92,126,.3)"></div>
+</div>
+<div class="shot" data-part="back_pill" data-state="pressed"
+     style="width:96px;height:48px;--m:5px">
+  <div class="candy" style="--bd:#7A5C7E;--fl:#FFEDF4;--fl2:#FFD9E8;
+    border-radius:22px;box-shadow:0 1px 0 rgba(122,92,126,.3)"></div>
+</div>
+
+<h2>list_group 366x160 / card 366x120</h2>
+<div class="shot" data-part="list_group" data-slice="30,30,30,30" data-pad="4,2,4,4"
+     style="width:366px;height:160px;--m:6px">
+  <div class="sticker" style="--rr:24px"></div>
+</div>
+<div class="shot" data-part="card" data-slice="30,30,30,30" data-pad="4,2,4,4"
+     style="width:366px;height:120px;--m:6px">
+  <div class="sticker" style="--rr:24px"></div>
+</div>
+
+<h2>row 366x60 (+pressed)</h2>
+<div class="shot" data-part="row" data-slice="30,20,30,20"
+     style="width:366px;height:60px">
+  <div class="a" style="background:rgba(255,253,254,.35);border-radius:14px"></div>
+</div>
+<div class="shot" data-part="row" data-state="pressed"
+     style="width:366px;height:60px">
+  <div class="a" style="background:#FFE8F0;border-radius:14px;
+    box-shadow:inset 0 0 0 2px #FFB9D2"></div>
+</div>
+
+<h2>divider 366x5</h2>
+<div class="shot" data-part="divider" data-slice="40,0,40,0"
+     style="width:366px;height:5px">
+  <div class="dotline" style="height:3px;margin-top:1px"></div>
+</div>
+
+<h2>buttons 366x58 (primary / secondary / danger, +pressed +disabled)</h2>
+<div class="shot" data-part="button_primary" data-slice="33,33,33,33"
+     data-pad="8,0,8,0" data-text="0xFFFFFF" data-text-pressed="0xFFFFFF"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#D14D80;--fl:#FF9BBE;--fl2:#FF7FA9"></div>
+</div>
+<div class="shot" data-part="button_primary" data-state="pressed"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#B83E6E;--fl:#FF7FA9;--fl2:#FF6A9C;
+    box-shadow:0 1px 0 rgba(150,80,110,.35),inset 0 2px 4px rgba(150,50,90,.3)"></div>
+</div>
+<div class="shot" data-part="button_primary" data-state="disabled"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#B8A8B4;--fl:#E8DCE4;--fl2:#DACDD6;
+    box-shadow:0 3px 0 rgba(122,92,126,.15)"></div>
+</div>
+<div class="shot" data-part="button_secondary" data-slice="33,33,33,33"
+     data-pad="8,0,8,0" data-text="0x6B5570" data-text-pressed="0x6B5570"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#7A5C7E;--fl:#FFF;--fl2:#F7EEF8;
+    box-shadow:0 4px 0 rgba(122,92,126,.25),inset 0 2px 0 rgba(255,255,255,.8)"></div>
+</div>
+<div class="shot" data-part="button_secondary" data-state="pressed"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#7A5C7E;--fl:#F7E3EE;--fl2:#F0D4E4;
+    box-shadow:0 1px 0 rgba(122,92,126,.25),inset 0 2px 4px rgba(122,92,126,.2)"></div>
+</div>
+<div class="shot" data-part="button_secondary" data-state="disabled"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#B8A8B4;--fl:#F3EDF1;--fl2:#EBE3E9;
+    box-shadow:0 3px 0 rgba(122,92,126,.12)"></div>
+</div>
+<div class="shot" data-part="button_danger" data-slice="33,33,33,33"
+     data-pad="8,0,8,0" data-text="0xC23A5E" data-text-pressed="0xA82B4C"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#E0708A;--fl:#FFE9EE;--fl2:#FFD6DE;
+    box-shadow:0 4px 0 rgba(190,90,110,.28),inset 0 2px 0 rgba(255,255,255,.8)"></div>
+</div>
+<div class="shot" data-part="button_danger" data-state="pressed"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#D45570;--fl:#FFD9E1;--fl2:#FFC3CE;
+    box-shadow:0 1px 0 rgba(190,90,110,.28),inset 0 2px 4px rgba(190,90,110,.25)"></div>
+</div>
+<div class="shot" data-part="button_danger" data-state="disabled"
+     style="width:366px;height:58px;--m:5px">
+  <div class="candy" style="--bd:#B8A8B4;--fl:#F3EDF1;--fl2:#EBE3E9;
+    box-shadow:0 3px 0 rgba(122,92,126,.12)"></div>
+</div>
+
+<h2>switch_track 52x30 (+checked) / switch_knob 36x36 (+checked)</h2>
+<div class="shot" data-part="switch_track" data-slice="17,17,17,17"
+     style="width:52px;height:30px;--m:4px">
+  <div class="a" style="border-radius:15px;background:#F0E4EC;
+    box-shadow:inset 0 0 0 3px #C9B4C6"></div>
+</div>
+<div class="shot" data-part="switch_track" data-state="checked"
+     style="width:52px;height:30px;--m:4px">
+  <div class="a" style="border-radius:15px;
+    background:linear-gradient(180deg,#FFB9D2,#FF8FB4);
+    box-shadow:inset 0 0 0 3px #E56A97"></div>
+</div>
+<div class="shot" data-part="switch_knob" data-slice="18,18,18,18"
+     style="width:36px;height:36px;--m:3px">
+  <div class="a" style="border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#FFF,#FFF6FA 60%,#F2DCE8);
+    box-shadow:0 2px 0 rgba(122,92,126,.3),0 0 0 3px #C9B4C6"></div>
+</div>
+<div class="shot" data-part="switch_knob" data-state="checked"
+     style="width:36px;height:36px;--m:3px">
+  <div class="a" style="border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#FFF,#FFF0F6 60%,#FFD9E8);
+    box-shadow:0 2px 0 rgba(122,92,126,.3),0 0 0 3px #FF9BBE"></div>
+</div>
+
+<h2>slider_track / slider_fill 366x10 / slider_knob 24x24</h2>
+<div class="shot" data-part="slider_track" data-slice="10,10,10,10"
+     style="width:366px;height:10px">
+  <div class="a" style="border-radius:5px;background:#F0E4EC;
+    box-shadow:inset 0 0 0 2px #C9B4C6"></div>
+</div>
+<div class="shot" data-part="slider_fill" data-slice="10,10,10,10"
+     style="width:366px;height:10px">
+  <div class="a" style="border-radius:5px;
+    background:linear-gradient(90deg,#B79CFF,#FF9BBE)"></div>
+</div>
+<div class="shot" data-part="slider_knob" data-slice="12,12,12,12"
+     style="width:24px;height:24px">
+  <div class="a" style="border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#FFF,#FFF0F6 62%,#FFD0E0);
+    box-shadow:0 1px 0 rgba(122,92,126,.35),0 0 0 3px #FF9BBE"></div>
+</div>
+
+<h2>icon_tile 36x36</h2>
+<div class="shot" data-part="icon_tile" data-slice="14,14,14,14"
+     style="width:36px;height:36px;--m:4px">
+  <div class="sticker" style="--rr:12px;--fl:#FFEDF4;--sy:2px;
+    box-shadow:0 2px 0 rgba(122,92,126,.25)"></div>
+</div>
+
+<h2>toast 200x44 / bubble 300x64</h2>
+<div class="shot" data-part="toast" data-slice="26,26,26,26" data-pad="4,2,4,2"
+     style="width:200px;height:44px;--m:5px">
+  <div class="sticker" style="--rr:20px;--bd:#7A5C7E;--sy:3px"></div>
+</div>
+<div class="shot" data-part="bubble" data-slice="40,16,16,22" data-pad="4,2,4,6"
+     style="width:300px;height:64px;--m:4px">
+  <div class="a">
+    <div style="position:absolute;left:0;right:0;top:0;bottom:10px;
+      border-radius:16px;background:#FFFDFE;
+      box-shadow:0 0 0 3px #7A5C7E,0 3px 0 rgba(122,92,126,.22)"></div>
+    <!-- しっぽ (左下コーナー領域内: x14..34) -->
+    <div style="position:absolute;left:17px;bottom:2px;width:0;height:0;
+      border-left:10px solid transparent;border-right:10px solid transparent;
+      border-top:11px solid #7A5C7E"></div>
+    <div style="position:absolute;left:20.5px;bottom:4px;width:0;height:0;
+      border-left:6.5px solid transparent;border-right:6.5px solid transparent;
+      border-top:7px solid #FFFDFE"></div>
+  </div>
+</div>
+
+<h2>caption_line 366x4</h2>
+<div class="shot" data-part="caption_line" data-slice="40,0,40,0"
+     style="width:366px;height:4px">
+  <div style="position:absolute;left:0;top:1px;width:120px;height:3px;
+    border-radius:2px;background:#FFB9D2"></div>
+</div>
+
+<h2>screen bg 410x502 (data-asset)</h2>
+<div class="shot" data-asset="bg.png" style="width:410px;height:502px">
+  <div class="a" style="background:
+    radial-gradient(circle,rgba(255,155,190,.30) 2px,transparent 2.6px),
+    radial-gradient(circle,rgba(183,156,255,.25) 1.6px,transparent 2.2px),
+    radial-gradient(120% 50% at 50% 0%,#FFF0F6,#FFF9FB),
+    linear-gradient(180deg,#FFF0F5,#FFF9FB);
+    background-size:36px 36px,22px 22px,100% 100%,100% 100%;
+    background-position:0 0,11px 14px,0 0,0 0"></div>
+</div>
+
+</div>

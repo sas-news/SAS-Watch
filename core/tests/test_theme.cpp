@@ -447,6 +447,109 @@ TEST(Theme, ManifestV2Errors) {
   }
 }
 
+TEST(Theme, ManifestSkinKeys) {
+  // button_primary 全キー + row (img のみ)
+  uint8_t st[64];
+  cbor::Writer sw(st, sizeof(st));
+  sw.map(2)
+      .text("pressed").text("btn_p.png")
+      .text("disabled").text("btn_d.png");
+  ASSERT_TRUE(sw.ok());
+  uint8_t bp[256];
+  cbor::Writer bw(bp, sizeof(bp));
+  bw.map(5)
+      .text("img").text("btn.png")
+      .text("slice").array(4).uint_v(8).uint_v(6).uint_v(8).uint_v(6)
+      .text("pad").array(4).uint_v(12).uint_v(4).uint_v(12).uint_v(4)
+      .text("states").raw(st, sw.size())
+      .text("text").text("0xFF8800");
+  ASSERT_TRUE(bw.ok());
+  uint8_t rw[96];
+  cbor::Writer rr(rw, sizeof(rw));
+  rr.map(1).text("img").text("row.png");
+  ASSERT_TRUE(rr.ok());
+  uint8_t sk[512];
+  cbor::Writer kw(sk, sizeof(sk));
+  kw.map(2)
+      .text("button_primary").raw(bp, bw.size())
+      .text("row").raw(rw, rr.size());
+  ASSERT_TRUE(kw.ok());
+  uint8_t buf[1024];
+  cbor::Writer w(buf, sizeof(buf));
+  w.map(3).text("id").text("cyber").text("api").uint_v(1)
+      .text("skin").raw(sk, kw.size());
+  ASSERT_TRUE(w.ok());
+
+  ThemeManifest out;
+  ASSERT_EQ(theme_manifest_parse(buf, w.size(), &out),
+            ThemeManifestError::kOk);
+  EXPECT_TRUE(out.skin_set & (1u << kSkinBtnPrimary));
+  const ThemeSkinPart& p = out.skin_part[kSkinBtnPrimary];
+  EXPECT_STREQ(p.img, "btn.png");
+  EXPECT_EQ(p.slice[0], 8);
+  EXPECT_EQ(p.slice[3], 6);
+  EXPECT_EQ(p.pad[0], 12);
+  EXPECT_TRUE(p.state_set & (1u << kSkinStatePressed));
+  EXPECT_STREQ(p.state_img[kSkinStatePressed], "btn_p.png");
+  EXPECT_STREQ(p.state_img[kSkinStateDisabled], "btn_d.png");
+  EXPECT_FALSE(p.state_set & (1u << kSkinStateChecked));
+  EXPECT_EQ(p.text, 0xFF8800u);
+  EXPECT_TRUE(out.skin_set & (1u << kSkinRow));
+  EXPECT_STREQ(out.skin_part[kSkinRow].img, "row.png");
+  EXPECT_FALSE(out.skin_set & (1u << kSkinCard));  // 未指定
+}
+
+TEST(Theme, ManifestSkinErrors) {
+  ThemeManifest out;
+  // slice 要素数不正
+  {
+    uint8_t bp[128];
+    cbor::Writer bw(bp, sizeof(bp));
+    bw.map(2).text("img").text("b.png")
+        .text("slice").array(3).uint_v(1).uint_v(2).uint_v(3);
+    uint8_t sk[256];
+    cbor::Writer kw(sk, sizeof(sk));
+    kw.map(1).text("card").raw(bp, bw.size());
+    uint8_t buf[512];
+    cbor::Writer w(buf, sizeof(buf));
+    w.map(3).text("id").text("m").text("api").uint_v(1)
+        .text("skin").raw(sk, kw.size());
+    EXPECT_EQ(theme_manifest_parse(buf, w.size(), &out),
+              ThemeManifestError::kBadValue);
+  }
+  // 画像名拡張子不正
+  {
+    uint8_t bp[128];
+    cbor::Writer bw(bp, sizeof(bp));
+    bw.map(1).text("img").text("b.svg");
+    uint8_t sk[256];
+    cbor::Writer kw(sk, sizeof(sk));
+    kw.map(1).text("card").raw(bp, bw.size());
+    uint8_t buf[512];
+    cbor::Writer w(buf, sizeof(buf));
+    w.map(3).text("id").text("m").text("api").uint_v(1)
+        .text("skin").raw(sk, kw.size());
+    EXPECT_EQ(theme_manifest_parse(buf, w.size(), &out),
+              ThemeManifestError::kBadImageName);
+  }
+  // 未知 part は無視されてエラーにならない
+  {
+    uint8_t bp[128];
+    cbor::Writer bw(bp, sizeof(bp));
+    bw.map(1).text("img").text("b.png");
+    uint8_t sk[256];
+    cbor::Writer kw(sk, sizeof(sk));
+    kw.map(1).text("neon_wing").raw(bp, bw.size());
+    uint8_t buf[512];
+    cbor::Writer w(buf, sizeof(buf));
+    w.map(3).text("id").text("m").text("api").uint_v(1)
+        .text("skin").raw(sk, kw.size());
+    EXPECT_EQ(theme_manifest_parse(buf, w.size(), &out),
+              ThemeManifestError::kOk);
+    EXPECT_EQ(out.skin_set, 0u);
+  }
+}
+
 // ---------- package (stored zip) ----------
 
 TEST(Theme, PackageListAndData) {

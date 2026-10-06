@@ -44,6 +44,20 @@ const char* const kThemeFaceElemNames[kThemeFaceElemCount] = {
     "time", "date", "steps", "battery", "notify", "bubble", "chara",
 };
 
+// skin のパーツ名表 (ThemeSkinPartId と同じ順)。
+const char* const kThemeSkinPartNames[kThemeSkinPartCount] = {
+    "card",          "list_group",   "row",           "divider",
+    "button_primary", "button_secondary", "button_danger", "back_pill",
+    "header_bar",
+    "switch_track",  "switch_knob",
+    "slider_track",  "slider_fill",  "slider_knob",
+    "icon_tile",     "toast",        "bubble",        "caption_line",
+};
+
+const char* const kThemeSkinStateNames[kThemeSkinStateCount] = {
+    "pressed", "checked", "disabled",
+};
+
 // 画面名 → index (不明なら -1)。"*" は kThemeScreenWildcard。
 int theme_screen_index(const char* name) {
   if (!name) return -1;
@@ -543,6 +557,113 @@ bool face_layout_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   return true;  // 未知 elem は無視
 }
 
+// ---- v3: skin ----
+
+// skin.<part>.states.<state> = "file.png|bin"
+bool skin_states_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  ThemeSkinPart& p = c->out->skin_part[c->scratch_i];
+  for (int i = 0; i < kThemeSkinStateCount; ++i) {
+    if (!key_eq(k, kThemeSkinStateNames[i])) continue;
+    const char* fp = nullptr;
+    size_t fn = 0;
+    if (!cbor::as_text(v, &fp, &fn) || !file_name_ok(fp, fn)) {
+      c->err = ThemeManifestError::kBadImageName;
+      return false;
+    }
+    std::memcpy(p.state_img[i], fp, fn);
+    p.state_img[i][fn] = '\0';
+    p.state_set |= static_cast<uint8_t>(1u << i);
+    return true;
+  }
+  return true;  // 未知 state は無視
+}
+
+// slice/pad = [l,t,r,b] 4要素の uint 配列 (各 ≤128px)。
+bool take_quad(Ctx* c, const cbor::Value& v, uint8_t out[4]) {
+  if (cbor::type(v) != cbor::Type::Array) {
+    c->err = ThemeManifestError::kBadValue;
+    return false;
+  }
+  size_t cnt = 0;
+  if (!cbor::container_count(v, &cnt) || cnt != 4) {
+    c->err = ThemeManifestError::kBadValue;
+    return false;
+  }
+  for (size_t i = 0; i < 4; ++i) {
+    cbor::Value e;
+    uint64_t u = 0;
+    if (!cbor::array_at(v, i, &e) || !cbor::as_uint(e, &u) || u > 128) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    out[i] = static_cast<uint8_t>(u);
+  }
+  return true;
+}
+
+// skin.<part> = {img, slice, pad, states, text, text_pressed}
+bool skin_part_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  ThemeSkinPart& p = c->out->skin_part[c->scratch_i];
+  if (key_eq(k, "img")) {
+    const char* fp = nullptr;
+    size_t fn = 0;
+    if (!cbor::as_text(v, &fp, &fn) || !file_name_ok(fp, fn)) {
+      c->err = ThemeManifestError::kBadImageName;
+      return false;
+    }
+    std::memcpy(p.img, fp, fn);
+    p.img[fn] = '\0';
+    p.set |= 1u;
+    return true;
+  }
+  if (key_eq(k, "slice")) {
+    if (!take_quad(c, v, p.slice)) return false;
+    p.set |= 1u << 1;
+    return true;
+  }
+  if (key_eq(k, "pad")) {
+    if (!take_quad(c, v, p.pad)) return false;
+    p.set |= 1u << 2;
+    return true;
+  }
+  if (key_eq(k, "states")) {
+    if (cbor::type(v) != cbor::Type::Map) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    return cbor::map_foreach(v, skin_states_cb, c);
+  }
+  if (key_eq(k, "text") || key_eq(k, "text_pressed")) {
+    const bool pressed = key_eq(k, "text_pressed");
+    if (!parse_color(v, pressed ? &p.text_pressed : &p.text)) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    p.set |= 1u << (pressed ? 4 : 3);
+    return true;
+  }
+  return true;  // 未知キーは無視
+}
+
+bool skin_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  ThemeManifest* o = c->out;
+  for (int i = 0; i < kThemeSkinPartCount; ++i) {
+    if (!key_eq(k, kThemeSkinPartNames[i])) continue;
+    if (cbor::type(v) != cbor::Type::Map) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    c->scratch_i = i;
+    if (!cbor::map_foreach(v, skin_part_cb, c)) return false;
+    if (o->skin_part[i].img[0]) o->skin_set |= (1u << i);
+    return true;
+  }
+  return true;  // 未知 part は無視
+}
+
 }  // namespace
 
 bool theme_id_ok(const char* id) {
@@ -656,6 +777,11 @@ ThemeManifestError theme_manifest_parse(const uint8_t* buf, size_t n,
   if (cbor::map_find(root, "face_layout", &v)) {
     if (cbor::type(v) != cbor::Type::Map) return ThemeManifestError::kBadValue;
     if (!cbor::map_foreach(v, face_layout_cb, &c)) return c.err;
+  }
+
+  if (cbor::map_find(root, "skin", &v)) {
+    if (cbor::type(v) != cbor::Type::Map) return ThemeManifestError::kBadValue;
+    if (!cbor::map_foreach(v, skin_cb, &c)) return c.err;
   }
 
   *out = o;

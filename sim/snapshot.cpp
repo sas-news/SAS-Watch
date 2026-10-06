@@ -490,6 +490,60 @@ int main(int argc, char** argv) {
   pump(200);
   ok &= save(out, "68_theme_cosmos_quick");
 
+  // ---- テーマ v3 サンプル「cyber」「cute」 ----
+  // sim/themes/<id>.zip (tools/build_themes.py --kit が kit.html から生成)。
+  // skin の 9-slice 画像スキンが全コンポーネントに効く。
+  for (const char* theme_id : {"cyber", "cute"}) {
+    const bool cy = theme_id[0] == 'c' && theme_id[1] == 'y';
+    int n = cy ? 70 : 80;
+    char nm[64];
+    auto shot = [&](const char* tail) {
+      std::snprintf(nm, sizeof(nm), "%d_theme_%s_%s", n++, theme_id, tail);
+      ok &= save(out, nm);
+    };
+
+    back_home();
+    ui::emit_text(watch::ActionType::SetFace, "bold");  // face_layout は無い
+    ui::emit_text(watch::ActionType::SetTheme, theme_id);
+    pump(800);
+    shot("home");  // 画面 bg + スキン
+
+    nav_to(watch::Route::More);
+    pump(200);
+    shot("applist");  // list_group / row / icon_tile
+
+    back_home();
+    nav_to(watch::Route::Settings);
+    pump(200);
+    shot("settings");  // switch on/off + slider + caption_line
+
+    back_home();
+    nav_to(watch::Route::Timer);
+    pump(200);
+    shot("timer");  // button_primary/secondary
+
+    back_home();
+    nav_to(watch::Route::Quick);
+    pump(200);
+    shot("quick");
+
+    back_home();
+    nav_to(watch::Route::Memo);
+    pump(200);
+    shot("memo");
+
+    // タイマー終了アラート (button_primary/danger + bubble skin)。
+    back_home();
+    s_bus.publish({watch::EventType::TimerFinished, 0});
+    pump(300);
+    shot("alert");
+    tap(205, 387);  // 止める
+    pump(300);
+
+    std::printf("%s skin bytes: %u\n", theme_id,
+                static_cast<unsigned>(ui::theme_skin_bytes()));
+  }
+
   // 戻して終了。
   ui::emit_text(watch::ActionType::SetFace, "bold");
   ui::emit_text(watch::ActionType::SetTheme, "standard");

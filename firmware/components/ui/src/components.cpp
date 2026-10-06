@@ -5,6 +5,7 @@
 //   - 色・角丸・フォントは Theme トークンから取る (file テーマも同じ形)。
 #include "components.hpp"
 
+#include "theme_res.hpp"
 #include "ui/port.hpp"
 
 // ‹ › (U+2039/203A) だけの小さなフォント。font_jp_* は既定収録範囲外で
@@ -37,6 +38,15 @@ void* const kGroupTag = const_cast<char*>("ui::c::group");
 // 判別するために使う)。
 void* const kHeaderTag = const_cast<char*>("ui::c::header");
 
+// mk_label() で作ったラベルのマーカー (skin の text/text_pressed で
+// 色を差し替える対象の識別に使う)。
+void* const kLabelTag = const_cast<char*>("ui::c::label");
+
+// v3 スキン適用ヘルパ (このファイル後半の 9-slice 実装)。
+// 画像があれば true。
+bool skin_apply_obj(lv_obj_t* o, watch::ThemeSkinPartId part, int mode,
+                    bool use_pad);
+
 // CLICKED は画面ルートまでバブルするので、ルートの cb 1つで
 // 全ボタン/行タップのクリック音を拾える。
 void on_any_click(lv_event_t*) { ui::port::click(); }
@@ -67,6 +77,8 @@ lv_obj_t* mk_label(lv_obj_t* parent, const char* text,
   lv_label_set_text(l, text);
   lv_obj_set_style_text_font(l, font, 0);
   lv_obj_set_style_text_color(l, col, 0);
+  // スキンの text/text_pressed で塗り替える対象としてマーク。
+  lv_obj_set_user_data(l, kLabelTag);
   return l;
 }
 
@@ -78,6 +90,7 @@ void divider_if_needed(lv_obj_t* grp) {
   lv_obj_set_size(d, LV_PCT(100), 1);
   lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(d, t.line, 0);
+  skin_apply_obj(d, watch::kSkinDivider, 0, false);
 }
 
 // 右端の › (モックの .ch #4A4F5C)。専用フォントで描く。
@@ -139,6 +152,249 @@ void skin_card(lv_obj_t* o) {
   }
 }
 
+// ---- v3 画像スキン (manifest "skin" の 9-slice) ----
+
+// LV_STATE → SkinSet::img の index。
+int skin_state_idx(lv_state_t st) {
+  if (st & LV_STATE_DISABLED) return 3;
+  if (st & LV_STATE_CHECKED) return 2;
+  if (st & LV_STATE_PRESSED) return 1;
+  return 0;
+}
+
+// reg 画像を (x,y,w,h) に伸縮して描画。lv_draw_image は coords を
+// 「拡大前の画像の置き場所」として解釈する (変換は pivot 起点) ので、
+// coords には src サイズの矩形を渡す。
+void skin_draw_reg(lv_layer_t* layer, const lv_image_dsc_t* d,
+                   int32_t x, int32_t y, int32_t w, int32_t h) {
+  if (!d || !d->data || !d->header.w || !d->header.h || w <= 0 || h <= 0) {
+    return;
+  }
+  lv_draw_image_dsc_t dsc;
+  lv_draw_image_dsc_init(&dsc);
+  dsc.src = d;
+  dsc.scale_x = static_cast<int32_t>(w * LV_SCALE_NONE / d->header.w);
+  dsc.scale_y = static_cast<int32_t>(h * LV_SCALE_NONE / d->header.h);
+  dsc.pivot = {0, 0};
+  lv_area_t a = {x, y, x + d->header.w - 1, y + d->header.h - 1};
+  lv_draw_image(layer, &dsc, &a);
+}
+
+// SkinImg の 9 領域を area に配置して描画 (角=原寸、辺/中央=伸縮)。
+void skin_draw_9(lv_layer_t* layer, const theme_res::SkinImg* im,
+                 const lv_area_t* a) {
+  int32_t l = im->slice[0];
+  int32_t tp = im->slice[1];
+  int32_t r = im->slice[2];
+  int32_t b = im->slice[3];
+  const int32_t w = lv_area_get_width(a);
+  const int32_t h = lv_area_get_height(a);
+  if (w <= 0 || h <= 0) return;
+  // 対象が slice より小さいときは潰れないよう縮める。
+  if (l + r > w) {
+    l = w / 2;
+    r = w - l;
+  }
+  if (tp + b > h) {
+    tp = h / 2;
+    b = h - tp;
+  }
+  const int32_t xs[4] = {a->x1, a->x1 + l, a->x2 - r + 1, a->x2 + 1};
+  const int32_t ys[4] = {a->y1, a->y1 + tp, a->y2 - b + 1, a->y2 + 1};
+  for (int i = 0; i < 9; ++i) {
+    const lv_image_dsc_t* d = &im->reg[i];
+    if (!d->data) continue;
+    const int ry = i / 3;
+    const int cx = i % 3;
+    skin_draw_reg(layer, d, xs[cx], ys[ry], xs[cx + 1] - xs[cx],
+                  ys[ry + 1] - ys[ry]);
+  }
+}
+
+// event user_data = part | (mode << 8)。mode 0=全面 / 1=下端の帯。
+void* skin_ud(int part, int mode) {
+  return reinterpret_cast<void*>(
+      static_cast<uintptr_t>(part | (mode << 8)));
+}
+
+// 汎用 DRAW_MAIN コールバック: 現在 state の part 画像を 9-slice で描く。
+void skin_draw_cb(lv_event_t* e) {
+  lv_obj_t* o = lv_event_get_target_obj(e);
+  const uintptr_t ud =
+      reinterpret_cast<uintptr_t>(lv_event_get_user_data(e));
+  const int part = static_cast<int>(ud & 0xFF);
+  const Theme& t = theme();
+  const theme_res::SkinSet* ss = t.skin[part];
+  if (!ss) return;
+  const theme_res::SkinImg* im = ss->img[skin_state_idx(lv_obj_get_state(o))];
+  if (!im) im = ss->img[0];
+  if (!im) return;
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+  if ((ud >> 8) == 1) {
+    // mode 1: 下端の帯 (caption_line)。画像の高さぶんだけ下に張る。
+    const int32_t s = im->reg[4].data
+                          ? static_cast<int32_t>(im->reg[4].header.h)
+                          : 4;
+    a.y1 = a.y2 - (s - 1);
+  }
+  skin_draw_9(lv_event_get_layer(e), im, &a);
+}
+
+// ラベル (kLabelTag) の文字色を再帰で塗り替える。
+void skin_recolor(lv_obj_t* o, lv_color_t col) {
+  if (lv_obj_get_user_data(o) == kLabelTag) {
+    lv_obj_set_style_text_color(o, col, 0);
+    return;
+  }
+  const uint32_t n = lv_obj_get_child_count(o);
+  for (uint32_t i = 0; i < n; ++i) {
+    skin_recolor(lv_obj_get_child(o, static_cast<int32_t>(i)), col);
+  }
+}
+
+void skin_recolor_part(lv_obj_t* o, int part, bool pressed) {
+  const watch::ThemeSkinPart& p = theme().skin_part[part];
+  const lv_color_t col = lv_color_hex(
+      pressed && (p.set & (1u << 4)) ? p.text_pressed : p.text);
+  skin_recolor(o, col);
+}
+
+// pressed 追従: LVGL は押下 state を子に伝播しないので、
+// PRESSED/RELEASED/PRESS_LOST でラベルの色を直接切り替える。
+void skin_press_cb(lv_event_t* e) {
+  lv_obj_t* o = lv_event_get_target_obj(e);
+  const int part = static_cast<int>(
+      reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)) & 0xFF);
+  skin_recolor_part(o, part, lv_obj_has_state(o, LV_STATE_PRESSED));
+}
+
+// o に part のスキンを貼る。画像があれば true (ベクタ背景はここで消す)。
+// mode は skin_draw_cb の mode。use_pad=true で manifest pad を既存
+// pad に加算 (画像の飾りがコンテンツに被らない内側余白)。
+// text / text_pressed 指定時は中のラベルの文字色も差し替える。
+bool skin_apply_obj(lv_obj_t* o, watch::ThemeSkinPartId part, int mode,
+                    bool use_pad) {
+  const Theme& t = theme();
+  if (!(t.skin_set & (1u << part)) || !t.skin[part]) return false;
+  const theme_res::SkinSet* ss = t.skin[part];
+  if (!ss->img[0]) return false;
+  lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(o, 0, 0);
+  lv_obj_set_style_outline_width(o, 0, 0);
+  lv_obj_set_style_shadow_width(o, 0, 0);
+  const watch::ThemeSkinPart& p = t.skin_part[part];
+  if (use_pad && (p.set & (1u << 2))) {
+    lv_obj_set_style_pad_left(
+        o, lv_obj_get_style_pad_left(o, LV_PART_MAIN) + p.pad[0], 0);
+    lv_obj_set_style_pad_top(
+        o, lv_obj_get_style_pad_top(o, LV_PART_MAIN) + p.pad[1], 0);
+    lv_obj_set_style_pad_right(
+        o, lv_obj_get_style_pad_right(o, LV_PART_MAIN) + p.pad[2], 0);
+    lv_obj_set_style_pad_bottom(
+        o, lv_obj_get_style_pad_bottom(o, LV_PART_MAIN) + p.pad[3], 0);
+  }
+  lv_obj_add_event_cb(o, skin_draw_cb, LV_EVENT_DRAW_MAIN,
+                      skin_ud(part, mode));
+  if (p.set & (3u << 3)) skin_recolor_part(o, part, false);
+  if (p.set & (1u << 4)) {
+    lv_obj_add_event_cb(o, skin_press_cb, LV_EVENT_PRESSED,
+                        skin_ud(part, 0));
+    lv_obj_add_event_cb(o, skin_press_cb, LV_EVENT_RELEASED,
+                        skin_ud(part, 0));
+    lv_obj_add_event_cb(o, skin_press_cb, LV_EVENT_PRESS_LOST,
+                        skin_ud(part, 0));
+  }
+  return true;
+}
+
+// lv_switch のノブ/トラックをスキン画像で描く。ジオメトリは
+// lv_switch.c の計算と同じ (アニメ中の位置は内部状態なので、
+// 画像は CHECKED トグルで即座に切り替わる)。
+void skin_switch_draw_cb(lv_event_t* e) {
+  lv_obj_t* o = lv_event_get_target_obj(e);
+  const Theme& t = theme();
+  lv_layer_t* layer = lv_event_get_layer(e);
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+  const bool chk = (lv_obj_get_state(o) & LV_STATE_CHECKED) != 0;
+  if (const theme_res::SkinSet* tr = t.skin[watch::kSkinSwitchTrack]) {
+    const theme_res::SkinImg* im =
+        chk && tr->img[2] ? tr->img[2] : tr->img[0];
+    if (im) skin_draw_9(layer, im, &a);
+  }
+  if (const theme_res::SkinSet* kn = t.skin[watch::kSkinSwitchKnob]) {
+    const theme_res::SkinImg* im =
+        chk && kn->img[2] ? kn->img[2] : kn->img[0];
+    if (im) {
+      const int32_t ks = lv_area_get_height(&a);
+      const int32_t len = lv_area_get_width(&a) - ks;
+      lv_area_t k = a;
+      k.x1 += chk ? len : 0;
+      k.x2 = k.x1 + ks - 1;
+      k.x1 -= lv_obj_get_style_pad_left(o, LV_PART_KNOB);
+      k.x2 += lv_obj_get_style_pad_right(o, LV_PART_KNOB);
+      k.y1 -= lv_obj_get_style_pad_top(o, LV_PART_KNOB);
+      k.y2 += lv_obj_get_style_pad_bottom(o, LV_PART_KNOB);
+      skin_draw_9(layer, im, &k);
+    }
+  }
+}
+
+// lv_slider の track/fill/knob をスキン画像で描く。ジオメトリは
+// lv_bar.c draw_indic + lv_slider.c position_knob と同じ式
+// (値は現在値のみ — ドラッグ中のアニメ途中値は参照しない)。
+void skin_slider_draw_cb(lv_event_t* e) {
+  lv_obj_t* o = lv_event_get_target_obj(e);
+  const Theme& t = theme();
+  lv_layer_t* layer = lv_event_get_layer(e);
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+
+  if (const theme_res::SkinSet* tr = t.skin[watch::kSkinSliderTrack]) {
+    if (tr->img[0]) skin_draw_9(layer, tr->img[0], &a);
+  }
+
+  // indic_area = coords − MAIN pad。
+  lv_area_t ind = a;
+  ind.x1 += lv_obj_get_style_pad_left(o, LV_PART_MAIN);
+  ind.x2 -= lv_obj_get_style_pad_right(o, LV_PART_MAIN);
+  ind.y1 += lv_obj_get_style_pad_top(o, LV_PART_MAIN);
+  ind.y2 -= lv_obj_get_style_pad_bottom(o, LV_PART_MAIN);
+  const int32_t mn = lv_slider_get_min_value(o);
+  const int32_t mx = lv_slider_get_max_value(o);
+  const int32_t rng = mx - mn;
+  const int32_t pos =
+      rng > 0 ? lv_area_get_width(&ind) * (lv_slider_get_value(o) - mn) / rng
+              : 0;
+  lv_area_t fill = ind;
+  fill.x2 = ind.x1 + pos;  // lv_bar.c: *axis2 = *axis1 + anim_cur_value_x
+  const bool pressed = (lv_obj_get_state(o) & LV_STATE_PRESSED) != 0;
+  if (const theme_res::SkinSet* fl = t.skin[watch::kSkinSliderFill]) {
+    const theme_res::SkinImg* im =
+        pressed && fl->img[1] ? fl->img[1] : fl->img[0];
+    if (im && pos > 0) skin_draw_9(layer, im, &fill);
+  }
+  if (const theme_res::SkinSet* kn = t.skin[watch::kSkinSliderKnob]) {
+    const theme_res::SkinImg* im =
+        pressed && kn->img[1] ? kn->img[1] : kn->img[0];
+    if (im) {
+      // position_knob: knob_size=obj高、中心=indic_area.x2、縦はcoords。
+      const int32_t ks = lv_area_get_height(&a);
+      lv_area_t k;
+      k.x1 = fill.x2 - (ks >> 1);
+      k.x2 = k.x1 + ks - 1;
+      k.y1 = a.y1;
+      k.y2 = a.y2;
+      k.x1 -= lv_obj_get_style_pad_left(o, LV_PART_KNOB);
+      k.x2 += lv_obj_get_style_pad_right(o, LV_PART_KNOB);
+      k.y1 -= lv_obj_get_style_pad_top(o, LV_PART_KNOB);
+      k.y2 += lv_obj_get_style_pad_bottom(o, LV_PART_KNOB);
+      skin_draw_9(layer, im, &k);
+    }
+  }
+}
+
 }  // namespace
 
 lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
@@ -156,6 +412,9 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   lv_obj_set_flex_flow(h, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(h, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
+  // ヘッダ帯の画像スキン (背景全面に描画。pad はレイアウトに効くので
+  // ここでは加算しない)。
+  skin_apply_obj(h, watch::kSkinHeaderBar, 0, false);
 
   const bool flat_hdr =
       (t.style.set & (1u << watch::kStyleHeader)) && t.style.header == 1;
@@ -179,6 +438,7 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
     lv_obj_add_event_cb(
         b, [](lv_event_t*) { ui::emit(watch::ActionType::Back); },
         LV_EVENT_CLICKED, nullptr);
+    skin_apply_obj(b, watch::kSkinBackPill, 0, true);
   }
 
   lv_obj_t* tl = mk_label(h, title, t.font_title, t.text);
@@ -208,7 +468,8 @@ namespace {
 
 lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
                     lv_event_cb_t cb, void* ud, lv_color_t bg,
-                    lv_opa_t bg_opa, lv_color_t fg) {
+                    lv_opa_t bg_opa, lv_color_t fg,
+                    watch::ThemeSkinPartId part) {
   const Theme& t = theme();
   lv_obj_t* b = lv_button_create(parent);
   clickable(b);
@@ -219,6 +480,7 @@ lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_t* l = mk_label(b, text, t.font_body, fg);
   lv_obj_center(l);
+  skin_apply_obj(b, part, 0, true);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, ud);
   return b;
 }
@@ -228,21 +490,23 @@ lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
 lv_obj_t* button(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
                  void* ud) {
   const Theme& t = theme();
-  return mk_button(parent, text, cb, ud, t.surface2, LV_OPA_COVER, t.text);
+  return mk_button(parent, text, cb, ud, t.surface2, LV_OPA_COVER, t.text,
+                   watch::kSkinBtnSecondary);
 }
 
 lv_obj_t* button_primary(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
                         void* ud) {
   const Theme& t = theme();
   return mk_button(parent, text, cb, ud, t.primary, LV_OPA_COVER,
-                   t.on_primary);
+                   t.on_primary, watch::kSkinBtnPrimary);
 }
 
 lv_obj_t* button_danger(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
                        void* ud) {
   const Theme& t = theme();
   // モックの rgba(danger, .16)。
-  return mk_button(parent, text, cb, ud, t.danger, 41, t.danger);
+  return mk_button(parent, text, cb, ud, t.danger, 41, t.danger,
+                   watch::kSkinBtnDanger);
 }
 
 lv_obj_t* group(lv_obj_t* parent) {
@@ -256,6 +520,7 @@ lv_obj_t* group(lv_obj_t* parent) {
   lv_obj_set_flex_flow(g, LV_FLEX_FLOW_COLUMN);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_user_data(g, kGroupTag);
+  skin_apply_obj(g, watch::kSkinListGroup, 0, true);
   return g;
 }
 
@@ -271,6 +536,7 @@ lv_obj_t* card(lv_obj_t* parent) {
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_START);
   lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+  skin_apply_obj(c, watch::kSkinCard, 0, true);
   return c;
 }
 
@@ -286,6 +552,7 @@ lv_obj_t* row_box(lv_obj_t* grp, lv_event_cb_t cb, void* ud) {
   lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
+  skin_apply_obj(r, watch::kSkinRow, 0, true);
   if (cb) lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, ud);
   return r;
 }
@@ -385,6 +652,7 @@ lv_obj_t* row_icon_img(lv_obj_t* grp, const lv_image_dsc_t* imgd,
     lv_obj_set_style_bg_color(ic, icon_bg, 0);
     lv_obj_t* il = mk_label(ic, icon, t.font_body, lv_color_hex(0x000000));
     lv_obj_center(il);
+    skin_apply_obj(ic, watch::kSkinIconTile, 0, false);
   }
   const bool has_icon = imgd || icon;
   row_text(r, text, sub, text_budget(has_icon, chev, false));
@@ -421,6 +689,25 @@ lv_obj_t* mk_switch(lv_obj_t* row, bool on) {
   lv_obj_set_style_bg_color(sw, lv_color_hex(0xFFFFFF),
                             LV_PART_KNOB | LV_STATE_CHECKED);
   lv_obj_set_style_pad_all(sw, (kSwitchH - kKnob) / 2, LV_PART_KNOB);
+  // v3 skin: トラック/ノブ画像があればベクタ部品を透明化して画像を描く。
+  const bool sk_tr = theme_skin(watch::kSkinSwitchTrack) != nullptr;
+  const bool sk_kn = theme_skin(watch::kSkinSwitchKnob) != nullptr;
+  if (sk_tr) {
+    lv_obj_set_style_bg_opa(sw, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_TRANSP,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  }
+  if (sk_kn) {
+    lv_obj_set_style_bg_opa(sw, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_TRANSP,
+                            LV_PART_KNOB | LV_STATE_CHECKED);
+  }
+  if (sk_tr || sk_kn) {
+    // ノブ画像のはみ出し分は KNOB pad が ext_draw_size に計上済み。
+    lv_obj_add_event_cb(sw, skin_switch_draw_cb, LV_EVENT_DRAW_MAIN,
+                        nullptr);
+  }
   if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
   return sw;
 }
@@ -447,6 +734,11 @@ lv_obj_t* caption(lv_obj_t* parent, const char* text) {
   lv_obj_set_style_text_letter_space(l, 2, 0);
   lv_obj_set_style_pad_left(l, 6, 0);
   lv_obj_set_style_pad_bottom(l, 0, 0);
+  // v3 skin: caption_line はラベル下端の帯として描く。
+  if (theme_skin(watch::kSkinCaptionLine)) {
+    lv_obj_set_style_pad_bottom(l, 6, 0);
+    skin_apply_obj(l, watch::kSkinCaptionLine, 1, false);
+  }
   return l;
 }
 
@@ -534,6 +826,21 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   lv_obj_set_style_outline_color(s, t.primary, LV_PART_KNOB);
   lv_obj_set_style_outline_opa(s, 90, LV_PART_KNOB);
   lv_obj_set_style_outline_width(s, 4, LV_PART_KNOB);
+  // v3 skin: トラック/塗り/ノブ画像があればベクタ部品を透明化して画像を描く。
+  const bool sk_tr = theme_skin(watch::kSkinSliderTrack) != nullptr;
+  const bool sk_fl = theme_skin(watch::kSkinSliderFill) != nullptr;
+  const bool sk_kn = theme_skin(watch::kSkinSliderKnob) != nullptr;
+  if (sk_tr) lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_MAIN);
+  if (sk_fl) lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_INDICATOR);
+  if (sk_kn) {
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_outline_opa(s, LV_OPA_TRANSP, LV_PART_KNOB);
+  }
+  if (sk_tr || sk_fl || sk_kn) {
+    // ノブ画像のはみ出し分は KNOB pad が ext_draw_size に計上済み。
+    lv_obj_add_event_cb(s, skin_slider_draw_cb, LV_EVENT_DRAW_MAIN,
+                        nullptr);
+  }
   lv_obj_set_user_data(s, const_cast<char*>(suffix));
   // 値ラベル更新 → ユーザの cb の順で呼ばれる。
   // 注意: LV_ANIM_OFF の set_value は VALUE_CHANGED を投げない (ドラッグ時のみ)
@@ -744,9 +1051,14 @@ lv_obj_t* mascot(lv_obj_t* scr, int screen_index) {
   // 吹き出し自身はタップを取らない (出ている間に下の操作を塞がない)。
   lv_obj_remove_flag(bub, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(bub, LV_OBJ_FLAG_HIDDEN);
+  skin_apply_obj(bub, watch::kSkinToast, 0, true);
   st->bub = bub;
   st->lbl = lbl;
   return im;
+}
+
+bool skin_obj(lv_obj_t* o, watch::ThemeSkinPartId part) {
+  return skin_apply_obj(o, part, 0, true);
 }
 
 }  // namespace ui::c

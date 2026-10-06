@@ -190,6 +190,49 @@ class ThemePackageTest {
     }
 
     @Test
+    fun `inspect skin package with png parts`() {
+        // v3 skin: 9-slice PNG パーツを含むパッケージも検査を通る。
+        val manifest = CborCodec.encode(
+            Cbor.Cmap(
+                linkedMapOf(
+                    "id" to Cbor.Ctext("cyber"),
+                    "api" to Cbor.Cint(1),
+                    "name" to Cbor.Ctext("サイバー"),
+                    "skin" to Cbor.Cmap(
+                        linkedMapOf(
+                            "button_primary" to Cbor.Cmap(
+                                linkedMapOf(
+                                    "img" to Cbor.Ctext("button_primary.png"),
+                                    "slice" to Cbor.Carray(
+                                        listOf(
+                                            Cbor.Cint(24), Cbor.Cint(29),
+                                            Cbor.Cint(24), Cbor.Cint(29),
+                                        ),
+                                    ),
+                                    "states" to Cbor.Cmap(
+                                        mapOf("pressed" to Cbor.Ctext("button_primary_pressed.png")),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val info = ThemePackage.inspect(
+            storedZip(
+                listOf(
+                    "manifest.cbor" to manifest,
+                    "button_primary.png" to ByteArray(64) { 1 },
+                    "button_primary_pressed.png" to ByteArray(64) { 2 },
+                ),
+            ),
+        )
+        assertEquals("cyber", info.id)
+        assertEquals("サイバー", info.name)
+    }
+
+    @Test
     fun `rejects non zip`() {
         try {
             ThemePackage.inspect(byteArrayOf(1, 2, 3, 4))
