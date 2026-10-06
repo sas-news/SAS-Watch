@@ -28,7 +28,8 @@ UI_SRC = REPO / "firmware" / "components" / "ui" / "src"
 FONT_OUT = UI_SRC / "fonts"
 
 # かな・句読点・全角ASCII は範囲指定 (よく使う文字を漏らさないため)。
-BASE_RANGES = "0x20-0x7E,0x3000-0x303F,0x3040-0x30FF,0xFF01-0xFF5E"
+BASE_RANGES = ("0x20-0x7E,0x3000-0x303F,0x3040-0x30FF,0xFF01-0xFF5E,"
+              "0x2039-0x203A")  # ‹ › (ヘッダの戻る/行のシェブロン)
 
 # UI ソース以外で表示したい漢字の予備 (曜日・単位・定型文用)。
 # 常用漢字 (2010年告示 2136字)。メモ等のユーザー入力で豆腐にならないよう同梱。
@@ -97,7 +98,7 @@ FACE_FONT_SPECS = [
     ("chakra",    34, "ChakraPetch-500.ttf"),
     ("chakra",    18, "ChakraPetch-500.ttf"),
 ]
-FACE_FONT_SYMBOLS = "0123456789:"
+FACE_FONT_SYMBOLS = "0123456789:."
 
 STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 

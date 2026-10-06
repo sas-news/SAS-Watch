@@ -208,9 +208,15 @@ int main(int argc, char** argv) {
   nav_to(watch::Route::Timer);
   ok &= save(out, "04_timer_setup");
 
-  ui::emit(watch::ActionType::TimerStart, 90);
-  pump(300);
+  // 3分タイマーを開始して 90 秒経過させる (残り 1:30 → リングが半周、
+  // 未充填トラックも写る状態で撮る)。無入力だと 12 秒で画面OFFになり、
+  // 消灯中の Action は「起こすだけ」で捨てられる (TimerReset が効かず
+  // タイマーが動き続ける) ため、間だけ PowerPolicy の消灯を延ばす。
+  s_power.configure(8, 300, 1800);
+  ui::emit(watch::ActionType::TimerStart, 180);
+  pump(90500);
   ok &= save(out, "05_timer_running");
+  s_power.configure(8, 12, 1800);
 
   ui::emit(watch::ActionType::TimerReset);
   back_home();
@@ -235,29 +241,30 @@ int main(int argc, char** argv) {
   back_home();
   nav_to(watch::Route::Memo);
   ok &= save(out, "09_memo_list");
-  // 先頭行をタップして詳細 (削除ボタンが見える)。
-  // 録音カードが上にあるので行の中心は y≈200。
-  tap(205, 200);
+  // 先頭行をタップして詳細 (録音カード ~140px の下から行が始まる)。
+  tap(205, 210);
   pump(200);
   ok &= save(out, "10_memo_detail");
-  tap(205, 290);  // 一覧に戻る (削除の下)
+  // 「一覧に戻る」ボタン (詳細カード末尾) をタップ。
+  tap(205, 249);
   pump(200);
 
   back_home();
   nav_to(watch::Route::Settings);
   ok &= save(out, "11_settings");
 
-  // 「文字盤」「時計の数字フォント」カードはスクロール下にある。
-  // (settings scr: child 0=header, 1=content)
-  lv_obj_t* s_content = lv_obj_get_child(lv_screen_active(), 1);
-  if (s_content) {
-    lv_obj_scroll_to_y(s_content, 780, LV_ANIM_OFF);   // 文字盤カード
-    pump(200);
-    ok &= save(out, "30_settings_faces");
-    lv_obj_scroll_to_y(s_content, 1150, LV_ANIM_OFF);  // フォントカード
-    pump(200);
-    ok &= save(out, "31_settings_fonts");
-  }
+  // 「文字盤」「数字フォント」は行タップで選択ビューに開く (掘り下げ)。
+  // 実測: 文字盤行センター y≈338、数字フォント y≈399、選択ビューの戻る行 y≈106。
+  tap(205, 338);  // 文字盤
+  pump(200);
+  ok &= save(out, "30_settings_faces");
+  tap(205, 106);  // ‹ 戻る
+  pump(200);
+  tap(205, 399);  // 数字フォント
+  pump(200);
+  ok &= save(out, "31_settings_fonts");
+  tap(205, 106);  // ‹ 戻る
+  pump(200);
 
   nav_to(watch::Route::PowerMenu);
   ok &= save(out, "12_powermenu");
@@ -267,9 +274,9 @@ int main(int argc, char** argv) {
   ui::request_passkey(483920);
   pump(300);
   ok &= save(out, "13_passkey");
-  // 「はい」ボタン (中央 +120 → y≈371) をタップして閉じる。
+  // 「はい」ボタン (下端 -86 のピル → 中心 y≈387) をタップして閉じる。
   // 閉じ損なうと layer_top の全画面モーダルが残って以降の shot を覆う。
-  tap(205, 371);
+  tap(205, 387);
   pump(200);
 
   // タイマー終了フルスクリーン通知。
@@ -277,7 +284,7 @@ int main(int argc, char** argv) {
   s_bus.publish({watch::EventType::TimerFinished, 0});
   pump(300);
   ok &= save(out, "14_timer_alert");
-  tap(205, 290);  // 止める
+  tap(205, 387);  // 止める
   pump(200);
 
   // ---- テーマ切替 (docs/theme-format.md) ----
@@ -297,7 +304,7 @@ int main(int argc, char** argv) {
   s_bus.publish({watch::EventType::TimerFinished, 0});
   pump(300);
   ok &= save(out, "18_theme_mame_timer");
-  tap(205, 290);  // 止める
+  tap(205, 387);  // 止める
   pump(200);
 
   // 元に戻しておく。
@@ -313,7 +320,7 @@ int main(int argc, char** argv) {
   ui::emit(watch::ActionType::MemoRecordStop);
   pump(400);
   // 先頭行 (新しい音声メモ) を開く。
-  tap(205, 190);
+  tap(205, 210);
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
 
@@ -335,7 +342,7 @@ int main(int argc, char** argv) {
   watch::features::alarm_set(0, 18, 41, 0, true, fctx);
   pump(400);
   ok &= save(out, "41_alarm_alert");
-  tap(205, 281);  // 止める (中央 +30 のボタン中心)
+  tap(205, 387);  // 止める (下端 -86 のピル中心)
   pump(300);
 
   // ---- 通知一覧 ----
@@ -345,7 +352,7 @@ int main(int argc, char** argv) {
   tap(205, 130);
   pump(200);
   ok &= save(out, "43_notification_detail");
-  tap(205, 290);  // 一覧に戻る
+  tap(205, 290);  // 一覧に戻る (detail カード末尾のボタン)
   pump(200);
 
   // 通知ポップアップ: notify.post 相当 (store 追加 + NotificationPosted)。

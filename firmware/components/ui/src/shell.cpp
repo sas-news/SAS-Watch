@@ -4,6 +4,7 @@
 #include "screens/screens.hpp"
 
 #include "components.hpp"
+#include "faces/faces.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/alarm.hpp"
@@ -181,6 +182,30 @@ void hide_alert(lv_timer_t*) {
   s_alert_timer = nullptr;
 }
 
+// フル画面アラート共通のピルボタン (横幅 366 = モックの 22px 余白)。
+lv_obj_t* alert_button(lv_obj_t* parent, const char* text, bool primary,
+                       lv_event_cb_t cb) {
+  const Theme& t = theme();
+  lv_obj_t* b = lv_button_create(parent);
+  lv_obj_set_size(b, 366, 58);
+  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(b, 0, 0);
+  lv_obj_set_style_shadow_width(b, 0, 0);
+  if (primary) {
+    lv_obj_set_style_bg_color(b, t.primary, 0);
+  } else {
+    lv_obj_set_style_bg_color(b, t.surface2, 0);
+  }
+  lv_obj_t* l = lv_label_create(b);
+  lv_label_set_text(l, text);
+  lv_obj_set_style_text_font(l, t.font_body, 0);
+  lv_obj_set_style_text_color(l, primary ? t.on_primary : t.text, 0);
+  lv_obj_center(l);
+  lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
+  return b;
+}
+
 void show_timer_alert() {
   if (s_alert) return;  // 既出なら重複させない
   const Theme& t = theme();
@@ -188,42 +213,69 @@ void show_timer_alert() {
   lv_obj_remove_flag(s_alert, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(s_alert, 410, 502);
   lv_obj_set_pos(s_alert, 0, 0);
-  lv_obj_set_style_bg_color(s_alert, lv_color_hex(0x2A1000), 0);
+  // テーマの obj pad (30) が効くと align の下端計算が中身領域基準になるので 0。
+  lv_obj_set_style_pad_all(s_alert, 0, 0);
+  lv_obj_set_style_bg_color(s_alert, t.bg, 0);
   lv_obj_set_style_bg_opa(s_alert, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_alert, 0, 0);
   lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
+
+  // 暖色グロー (ラジアルグラデーション。静的描画だけで毎フレーム再描画なし)。
+  // mockup: radial-gradient(circle at 50% 30%, #5a2a0a → #000 70%)。
+  // 連続補間なので stop は2個で滑らか (同心円バンディングも出ない)。
+  // ※ stops は LV_GRADIENT_MAX_STOPS (=2) まで。超えると LV_ASSERT で止まる。
+  static lv_grad_dsc_t s_glow;
+  static const lv_color_t s_glow_cols[] = {lv_color_hex(0x5A2A0A),
+                                         lv_color_hex(0x000000)};
+  lv_grad_init_stops(&s_glow, s_glow_cols, nullptr, nullptr, 2);
+  lv_grad_radial_init(&s_glow, LV_GRAD_CENTER, LV_PCT(30), LV_PCT(95),
+                      LV_PCT(30), LV_GRAD_EXTEND_PAD);
+  lv_obj_set_style_bg_grad(s_alert, &s_glow, 0);
 
   // テーマ画像スロット: タイマー終了時の画像 (あれば文字の上)。
   if (t.img_timer_done) {
     lv_obj_t* img = lv_image_create(s_alert);
     lv_image_set_src(img, t.img_timer_done);
-    lv_obj_align(img, LV_ALIGN_CENTER, 0, -160);
+    lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 44);
     lv_obj_add_flag(img, LV_OBJ_FLAG_EVENT_BUBBLE);
   }
 
-  lv_obj_t* l = lv_label_create(s_alert);
-  lv_label_set_text(l, "タイマー終了！");
-  lv_obj_set_style_text_font(l, t.font_title, 0);
-  lv_obj_set_style_text_color(l, t.accent, 0);
-  lv_obj_align(l, LV_ALIGN_CENTER, 0, -60);
+  // "TIMER" 見出し (primary2, 字送り広め)
+  lv_obj_t* tag = lv_label_create(s_alert);
+  lv_label_set_text(tag, "TIMER");
+  lv_obj_set_style_text_font(tag, t.font_body, 0);
+  lv_obj_set_style_text_color(tag, t.primary2, 0);
+  lv_obj_set_style_text_letter_space(tag, 8, 0);
+  lv_obj_align(tag, LV_ALIGN_CENTER, 0, -108);
 
-  lv_obj_t* b = lv_button_create(s_alert);
-  lv_obj_set_size(b, 240, 64);
-  lv_obj_align(b, LV_ALIGN_CENTER, 0, 60);
-  lv_obj_set_style_radius(b, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(b, t.primary, 0);
-  lv_obj_t* bl = lv_label_create(b);
-  lv_label_set_text(bl, "止める");
-  lv_obj_set_style_text_font(bl, t.font_title, 0);
-  lv_obj_set_style_text_color(bl, t.on_primary, 0);
-  lv_obj_center(bl);
-  lv_obj_add_event_cb(
-      b,
+  // 00:00 は時計フォント (clock_font 設定)。
+  lv_obj_t* digits = lv_label_create(s_alert);
+  lv_label_set_text(digits, "00:00");
+  lv_obj_set_style_text_font(digits, face::digits(96), 0);
+  lv_obj_set_style_text_color(digits, t.text, 0);
+  lv_obj_align(digits, LV_ALIGN_CENTER, 0, -34);
+
+  lv_obj_t* l = lv_label_create(s_alert);
+  lv_label_set_text(l, "タイマー終了");
+  lv_obj_set_style_text_font(l, t.font_title, 0);
+  lv_obj_set_style_text_color(l, t.text, 0);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, 60);  // 00:00 との間に +12px
+
+  // 止める (primary) / もう1分 (secondary: +60秒して再開)
+  lv_obj_t* stop = alert_button(
+      s_alert, "止める", true,
       [](lv_event_t*) {
         emit(watch::ActionType::TimerReset);
         hide_alert(nullptr);
-      },
-      LV_EVENT_CLICKED, nullptr);
+      });
+  lv_obj_align(stop, LV_ALIGN_BOTTOM_MID, 0, -86);
+  lv_obj_t* more = alert_button(
+      s_alert, "もう1分", false,
+      [](lv_event_t*) {
+        emit(watch::ActionType::TimerAddMinute);
+        hide_alert(nullptr);
+      });
+  lv_obj_align(more, LV_ALIGN_BOTTOM_MID, 0, -16);
 
   s_alert_timer = lv_timer_create(hide_alert, 15000, nullptr);
   lv_timer_set_repeat_count(s_alert_timer, 1);
@@ -264,6 +316,7 @@ void show_alarm_alert(uint32_t id) {
   lv_obj_remove_flag(s_alert, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(s_alert, 410, 502);
   lv_obj_set_pos(s_alert, 0, 0);
+  lv_obj_set_style_pad_all(s_alert, 0, 0);  // align を画面座標どおりにする
   lv_obj_set_style_bg_color(s_alert, t.bg, 0);
   lv_obj_set_style_bg_opa(s_alert, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_alert, 0, 0);
@@ -273,55 +326,36 @@ void show_alarm_alert(uint32_t id) {
   lv_label_set_text(l, "アラーム");
   lv_obj_set_style_text_font(l, t.font_title, 0);
   lv_obj_set_style_text_color(l, t.accent, 0);
-  lv_obj_align(l, LV_ALIGN_CENTER, 0, -180);
+  lv_obj_align(l, LV_ALIGN_CENTER, 0, -170);
 
   // 鳴っているアラームの時刻 (id が見つからなければ時刻は出さない)。
+  // 時刻は時計フォント (clock_font 設定)。
   watch::features::AlarmEntry e;
   if (watch::features::alarm_find(id, &e)) {
     char tb[8];
     std::snprintf(tb, sizeof(tb), "%u:%02u", e.hour, e.min);
     lv_obj_t* tm = lv_label_create(s_alert);
     lv_label_set_text(tm, tb);
-    lv_obj_set_style_text_font(tm, t.font_digits, 0);
+    lv_obj_set_style_text_font(tm, face::digits(96), 0);
     lv_obj_set_style_text_color(tm, t.text, 0);
-    lv_obj_align(tm, LV_ALIGN_CENTER, 0, -90);
+    lv_obj_align(tm, LV_ALIGN_CENTER, 0, -70);
   }
 
-  lv_obj_t* stop = lv_button_create(s_alert);
-  lv_obj_set_size(stop, 260, 72);
-  lv_obj_align(stop, LV_ALIGN_CENTER, 0, 30);
-  lv_obj_set_style_radius(stop, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(stop, t.primary, 0);
-  lv_obj_t* sl = lv_label_create(stop);
-  lv_label_set_text(sl, "止める");
-  lv_obj_set_style_text_font(sl, t.font_title, 0);
-  lv_obj_set_style_text_color(sl, t.on_primary, 0);
-  lv_obj_center(sl);
-  lv_obj_add_event_cb(
-      stop,
+  lv_obj_t* stop = alert_button(
+      s_alert, "止める", true,
       [](lv_event_t*) {
         emit(watch::ActionType::AlarmStop);
         hide_alarm_alert();
-      },
-      LV_EVENT_CLICKED, nullptr);
+      });
+  lv_obj_align(stop, LV_ALIGN_BOTTOM_MID, 0, -86);
 
-  lv_obj_t* snz = lv_button_create(s_alert);
-  lv_obj_set_size(snz, 260, 72);
-  lv_obj_align(snz, LV_ALIGN_CENTER, 0, 130);
-  lv_obj_set_style_radius(snz, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(snz, t.surface2, 0);
-  lv_obj_t* nl = lv_label_create(snz);
-  lv_label_set_text(nl, "スヌーズ (5分)");
-  lv_obj_set_style_text_font(nl, t.font_body, 0);
-  lv_obj_set_style_text_color(nl, t.text, 0);
-  lv_obj_center(nl);
-  lv_obj_add_event_cb(
-      snz,
+  lv_obj_t* snz = alert_button(
+      s_alert, "スヌーズ (5分)", false,
       [](lv_event_t*) {
         emit(watch::ActionType::AlarmSnooze);
         hide_alarm_alert();
-      },
-      LV_EVENT_CLICKED, nullptr);
+      });
+  lv_obj_align(snz, LV_ALIGN_BOTTOM_MID, 0, -16);
 
   // 鳴動中は繰り返す (停止/スヌーズ/タイムアウトでアラートが消えると止まる)。
   s_alarm_beep_timer = lv_timer_create(alarm_beep, 4500, nullptr);
@@ -395,6 +429,7 @@ void show_passkey(uint32_t passkey) {
   lv_obj_remove_flag(s_key_modal, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(s_key_modal, 410, 502);
   lv_obj_set_pos(s_key_modal, 0, 0);
+  lv_obj_set_style_pad_all(s_key_modal, 0, 0);  // align を画面座標どおりにする
   lv_obj_set_style_bg_color(s_key_modal, lv_color_hex(0x0A1420), 0);
   lv_obj_set_style_bg_opa(s_key_modal, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_key_modal, 0, 0);
@@ -421,41 +456,21 @@ void show_passkey(uint32_t passkey) {
   lv_obj_set_style_text_color(q, t.text_dim, 0);
   lv_obj_align(q, LV_ALIGN_CENTER, 0, 40);
 
-  lv_obj_t* yes = lv_button_create(s_key_modal);
-  lv_obj_set_size(yes, 300, 64);
-  lv_obj_align(yes, LV_ALIGN_CENTER, 0, 120);
-  lv_obj_set_style_radius(yes, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(yes, t.primary, 0);
-  lv_obj_t* yl = lv_label_create(yes);
-  lv_label_set_text(yl, "はい");
-  lv_obj_set_style_text_font(yl, t.font_title, 0);
-  lv_obj_set_style_text_color(yl, t.on_primary, 0);
-  lv_obj_center(yl);
-  lv_obj_add_event_cb(
-      yes,
+  lv_obj_t* yes = alert_button(
+      s_key_modal, "はい", true,
       [](lv_event_t*) {
         if (s_passkey_confirm) s_passkey_confirm(true);
         hide_passkey(nullptr);
-      },
-      LV_EVENT_CLICKED, nullptr);
+      });
+  lv_obj_align(yes, LV_ALIGN_BOTTOM_MID, 0, -86);
 
-  lv_obj_t* no = lv_button_create(s_key_modal);
-  lv_obj_set_size(no, 300, 64);
-  lv_obj_align(no, LV_ALIGN_CENTER, 0, 196);
-  lv_obj_set_style_radius(no, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(no, t.surface2, 0);
-  lv_obj_t* nl = lv_label_create(no);
-  lv_label_set_text(nl, "いいえ");
-  lv_obj_set_style_text_font(nl, t.font_title, 0);
-  lv_obj_set_style_text_color(nl, t.text, 0);
-  lv_obj_center(nl);
-  lv_obj_add_event_cb(
-      no,
+  lv_obj_t* no = alert_button(
+      s_key_modal, "いいえ", false,
       [](lv_event_t*) {
         if (s_passkey_confirm) s_passkey_confirm(false);
         hide_passkey(nullptr);
-      },
-      LV_EVENT_CLICKED, nullptr);
+      });
+  lv_obj_align(no, LV_ALIGN_BOTTOM_MID, 0, -16);
 
   // 30秒で自動で閉じる (リンク側のペアリングタイムアウトで拒否される)。
   s_key_timer = lv_timer_create(hide_passkey, 30000, nullptr);
@@ -560,6 +575,7 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::TimerStarted, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::TimerStopped, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::TimerFinished, bus_cb, nullptr);
+    s_ctx.bus->subscribe(watch::EventType::TimerPaused, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::StopwatchChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::CounterChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::StepsChanged, bus_cb, nullptr);

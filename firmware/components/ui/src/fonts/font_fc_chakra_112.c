@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 112 px
  * Bpp: 4
- * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/ChakraPetch-500.ttf --size 112 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789: --lv-font-name font_fc_chakra_112 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_chakra_112.c
+ * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/ChakraPetch-500.ttf --size 112 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_chakra_112 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_chakra_112.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -22,6 +22,15 @@
 
 /*Store the image of the glyphs*/
 static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
+    /* U+002E "." */
+    0x0, 0xc6, 0x89, 0xc2, 0x1, 0xe9, 0xcb, 0xbe,
+    0xd1, 0x0, 0xd2, 0xc0, 0x1e, 0x3d, 0x10, 0x4,
+    0xb0, 0x7, 0xe3, 0xd1, 0x76, 0x0, 0xff, 0x1e,
+    0xe8, 0x3, 0xff, 0x80, 0x40, 0x1f, 0xfe, 0xce,
+    0x0, 0xff, 0xe0, 0x3a, 0x50, 0x7, 0xf9, 0xa4,
+    0x16, 0x80, 0x3f, 0x34, 0x80, 0x4b, 0x40, 0x1e,
+    0x69, 0x0, 0x0,
+
     /* U+0030 "0" */
     0x0, 0xff, 0x9f, 0xff, 0xff, 0xab, 0x40, 0x1f,
     0xfc, 0x97, 0x80, 0xf, 0xfe, 0xaa, 0xd0, 0x7,
@@ -629,31 +638,35 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
 
 static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
-    {.bitmap_index = 0, .adv_w = 1140, .box_w = 57, .box_h = 79, .ofs_x = 7, .ofs_y = 0},
-    {.bitmap_index = 421, .adv_w = 656, .box_w = 30, .box_h = 79, .ofs_x = 3, .ofs_y = 0},
-    {.bitmap_index = 609, .adv_w = 1000, .box_w = 53, .box_h = 79, .ofs_x = 5, .ofs_y = 0},
-    {.bitmap_index = 1147, .adv_w = 1052, .box_w = 55, .box_h = 79, .ofs_x = 5, .ofs_y = 0},
-    {.bitmap_index = 1621, .adv_w = 1009, .box_w = 59, .box_h = 79, .ofs_x = 2, .ofs_y = 0},
-    {.bitmap_index = 2047, .adv_w = 1057, .box_w = 54, .box_h = 79, .ofs_x = 6, .ofs_y = 0},
-    {.bitmap_index = 2390, .adv_w = 1086, .box_w = 55, .box_h = 79, .ofs_x = 7, .ofs_y = 0},
-    {.bitmap_index = 2906, .adv_w = 907, .box_w = 52, .box_h = 79, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 3392, .adv_w = 1115, .box_w = 57, .box_h = 79, .ofs_x = 6, .ofs_y = 0},
-    {.bitmap_index = 3944, .adv_w = 1095, .box_w = 56, .box_h = 79, .ofs_x = 6, .ofs_y = 0},
-    {.bitmap_index = 4468, .adv_w = 385, .box_w = 14, .box_h = 52, .ofs_x = 5, .ofs_y = 0}
+    {.bitmap_index = 0, .adv_w = 389, .box_w = 14, .box_h = 14, .ofs_x = 5, .ofs_y = 0},
+    {.bitmap_index = 51, .adv_w = 1140, .box_w = 57, .box_h = 79, .ofs_x = 7, .ofs_y = 0},
+    {.bitmap_index = 472, .adv_w = 656, .box_w = 30, .box_h = 79, .ofs_x = 3, .ofs_y = 0},
+    {.bitmap_index = 660, .adv_w = 1000, .box_w = 53, .box_h = 79, .ofs_x = 5, .ofs_y = 0},
+    {.bitmap_index = 1198, .adv_w = 1052, .box_w = 55, .box_h = 79, .ofs_x = 5, .ofs_y = 0},
+    {.bitmap_index = 1672, .adv_w = 1009, .box_w = 59, .box_h = 79, .ofs_x = 2, .ofs_y = 0},
+    {.bitmap_index = 2098, .adv_w = 1057, .box_w = 54, .box_h = 79, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 2441, .adv_w = 1086, .box_w = 55, .box_h = 79, .ofs_x = 7, .ofs_y = 0},
+    {.bitmap_index = 2957, .adv_w = 907, .box_w = 52, .box_h = 79, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 3443, .adv_w = 1115, .box_w = 57, .box_h = 79, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 3995, .adv_w = 1095, .box_w = 56, .box_h = 79, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 4519, .adv_w = 385, .box_w = 14, .box_h = 52, .ofs_x = 5, .ofs_y = 0}
 };
 
 /*---------------------
  *  CHARACTER MAPPING
  *--------------------*/
 
-
+static const uint8_t glyph_id_ofs_list_0[] = {
+    0, 0, 1, 2, 3, 4, 5, 6,
+    7, 8, 9, 10, 11
+};
 
 /*Collect the unicode lists and glyph_id offsets*/
 static const lv_font_fmt_txt_cmap_t cmaps[] =
 {
     {
-        .range_start = 48, .range_length = 11, .glyph_id_start = 1,
-        .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY
+        .range_start = 46, .range_length = 13, .glyph_id_start = 1,
+        .unicode_list = NULL, .glyph_id_ofs_list = glyph_id_ofs_list_0, .list_length = 13, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_FULL
     }
 };
 
@@ -662,26 +675,38 @@ static const lv_font_fmt_txt_cmap_t cmaps[] =
  *----------------*/
 
 
-/*Pair left and right glyphs for kerning*/
-static const uint8_t kern_pair_glyph_ids[] =
+/*Map glyph_ids to kern left classes*/
+static const uint8_t kern_left_class_mapping[] =
 {
-    8, 5
+    0, 1, 2, 0, 0, 3, 4, 3,
+    3, 5, 3, 3, 0
 };
 
-/* Kerning between the respective left and right glyphs
- * 4.4 format which needs to scaled with `kern_scale`*/
-static const int8_t kern_pair_values[] =
+/*Map glyph_ids to kern right classes*/
+static const uint8_t kern_right_class_mapping[] =
 {
-    -81
+    0, 1, 2, 3, 0, 4, 5, 4,
+    4, 6, 4, 4, 0
 };
 
-/*Collect the kern pair's data in one place*/
-static const lv_font_fmt_txt_kern_pair_t kern_pairs =
+/*Kern values between classes*/
+static const int8_t kern_class_values[] =
 {
-    .glyph_ids = kern_pair_glyph_ids,
-    .values = kern_pair_values,
-    .pair_cnt = 1,
-    .glyph_ids_size = 0
+    0, -27, -102, -20, -14, -41, -27, 0,
+    0, 0, 0, 0, -20, 0, 0, 0,
+    0, 0, -14, 0, 0, 0, 0, 0,
+    -116, 0, 0, 0, -61, 0
+};
+
+
+/*Collect the kern class' data in one place*/
+static const lv_font_fmt_txt_kern_classes_t kern_classes =
+{
+    .class_pair_values   = kern_class_values,
+    .left_class_mapping  = kern_left_class_mapping,
+    .right_class_mapping = kern_right_class_mapping,
+    .left_class_cnt      = 5,
+    .right_class_cnt     = 6,
 };
 
 /*--------------------
@@ -701,11 +726,11 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
     .glyph_bitmap = glyph_bitmap,
     .glyph_dsc = glyph_dsc,
     .cmaps = cmaps,
-    .kern_dsc = &kern_pairs,
-    .kern_scale = 16,
+    .kern_dsc = &kern_classes,
+    .kern_scale = 21,
     .cmap_num = 1,
     .bpp = 4,
-    .kern_classes = 0,
+    .kern_classes = 1,
     .bitmap_format = 1,
 #if LVGL_VERSION_MAJOR == 8
     .cache = &cache

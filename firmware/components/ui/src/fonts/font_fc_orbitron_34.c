@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 34 px
  * Bpp: 4
- * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/Orbitron-700.ttf --size 34 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789: --lv-font-name font_fc_orbitron_34 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_orbitron_34.c
+ * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/Orbitron-700.ttf --size 34 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_orbitron_34 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_orbitron_34.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -22,6 +22,9 @@
 
 /*Store the image of the glyphs*/
 static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
+    /* U+002E "." */
+    0x18, 0x8c, 0x46, 0xef, 0x98, 0x3, 0xff, 0x8c,
+
     /* U+0030 "0" */
     0x0, 0x9b, 0x7f, 0xff, 0xf8, 0x9a, 0xe0, 0x1d,
     0x52, 0x40, 0x1f, 0xfc, 0x42, 0x8b, 0x0, 0x99,
@@ -198,31 +201,35 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
 
 static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
-    {.bitmap_index = 0, .adv_w = 454, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 166, .adv_w = 213, .box_w = 13, .box_h = 25, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 214, .adv_w = 452, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 334, .adv_w = 449, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 473, .adv_w = 397, .box_w = 24, .box_h = 25, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 591, .adv_w = 452, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 698, .adv_w = 446, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 815, .adv_w = 359, .box_w = 21, .box_h = 25, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 864, .adv_w = 454, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 997, .adv_w = 450, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 1117, .adv_w = 129, .box_w = 6, .box_h = 20, .ofs_x = 1, .ofs_y = 0}
+    {.bitmap_index = 0, .adv_w = 123, .box_w = 6, .box_h = 5, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 8, .adv_w = 454, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 174, .adv_w = 213, .box_w = 13, .box_h = 25, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 222, .adv_w = 452, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 342, .adv_w = 449, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 481, .adv_w = 397, .box_w = 24, .box_h = 25, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 599, .adv_w = 452, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 706, .adv_w = 446, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 823, .adv_w = 359, .box_w = 21, .box_h = 25, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 872, .adv_w = 454, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 1005, .adv_w = 450, .box_w = 26, .box_h = 25, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 1125, .adv_w = 129, .box_w = 6, .box_h = 20, .ofs_x = 1, .ofs_y = 0}
 };
 
 /*---------------------
  *  CHARACTER MAPPING
  *--------------------*/
 
-
+static const uint8_t glyph_id_ofs_list_0[] = {
+    0, 0, 1, 2, 3, 4, 5, 6,
+    7, 8, 9, 10, 11
+};
 
 /*Collect the unicode lists and glyph_id offsets*/
 static const lv_font_fmt_txt_cmap_t cmaps[] =
 {
     {
-        .range_start = 48, .range_length = 11, .glyph_id_start = 1,
-        .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY
+        .range_start = 46, .range_length = 13, .glyph_id_start = 1,
+        .unicode_list = NULL, .glyph_id_ofs_list = glyph_id_ofs_list_0, .list_length = 13, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_FULL
     }
 };
 

@@ -17,6 +17,7 @@ struct M {
   lv_obj_t* status_l = nullptr;
   lv_obj_t* rec_bar = nullptr;
   lv_obj_t* ask_card = nullptr;
+  lv_obj_t* ask_cap = nullptr;
   lv_obj_t* reply_card = nullptr;
   lv_obj_t* reply_l = nullptr;
   lv_obj_t* close_btn = nullptr;
@@ -24,11 +25,6 @@ struct M {
 M s;
 
 watch::FeatureContext* fctx() { return ui::ctx().fctx; }
-
-// ui::c::button_*/list_row は画面幅いっぱいで作られる。カード内に置くと
-// パディングが潰れて端で切れて見えるので、カード内側幅に合わせる
-// (memo.cpp の fit_in_card と同じ)。
-void fit_in_card(lv_obj_t* o) { lv_obj_set_width(o, LV_PCT(100)); }
 
 void set_btn_text(lv_obj_t* btn, const char* text) {
   lv_obj_t* l = lv_obj_get_child(btn, 0);
@@ -126,8 +122,10 @@ void refresh() {
   }
   if (any) {
     lv_obj_remove_flag(s.ask_card, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s.ask_cap, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(s.ask_card, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s.ask_cap, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -145,7 +143,6 @@ lv_obj_t* build(lv_obj_t* scr) {
         ui::emit(watch::ActionType::AgentRecordToggle);
       },
       nullptr);
-  fit_in_card(s.talk_btn);
   s.status_l = ui::c::line(s.talk_card, "");
   s.rec_bar = lv_bar_create(s.talk_card);
   lv_bar_set_range(s.rec_bar, 0, 100);
@@ -159,35 +156,29 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_flex_align(s.reply_card, LV_FLEX_ALIGN_START,
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s.reply_l = lv_label_create(s.reply_card);
-  lv_obj_set_width(s.reply_l, 330);
+  lv_obj_set_width(s.reply_l, LV_PCT(100));
   lv_obj_set_style_text_font(s.reply_l, t.font_body, 0);
   lv_obj_set_style_text_color(s.reply_l, t.text, 0);
   lv_label_set_long_mode(s.reply_l, LV_LABEL_LONG_WRAP);
   s.close_btn = ui::c::button(s.reply_card, "閉じる",
       [](lv_event_t*) { ui::emit(watch::ActionType::AgentClear); },
       nullptr);
-  fit_in_card(s.close_btn);
   lv_obj_add_flag(s.reply_card, LV_OBJ_FLAG_HIDDEN);
 
   // 定型質問ボタン (settings agent.q1..3 の非空分)。
-  s.ask_card = ui::c::card(col);
-  ui::c::line(s.ask_card, "定型質問");
+  s.ask_cap = ui::c::caption(col, "定型質問");
+  s.ask_card = ui::c::group(col);
   const watch::Settings* stg = fctx() ? fctx()->settings : nullptr;
   for (size_t i = 0; i < watch::features::kAgentQuestionCount; ++i) {
     const char* q = watch::features::agent_question(i, stg);
     if (!q) continue;
-    lv_obj_t* row = ui::c::list_row(s.ask_card, q, nullptr,
+    ui::c::row(s.ask_card, q, nullptr, nullptr, true,
         [](lv_event_t* e) {
           const auto i = static_cast<uint32_t>(
               reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
           ui::emit(watch::ActionType::AgentAsk, i);
         },
         reinterpret_cast<void*>(static_cast<uintptr_t>(i)));
-    fit_in_card(row);
-    // 行内ラベルは固定幅で右端が欠けるので内側幅に収める (memo と同じ)。
-    if (lv_obj_t* l = lv_obj_get_child(row, 0)) {
-      lv_obj_set_width(l, LV_PCT(100));
-    }
   }
 
   refresh();

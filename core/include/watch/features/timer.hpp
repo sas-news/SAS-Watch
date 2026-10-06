@@ -12,6 +12,8 @@ struct TimerState {
   int64_t end_ms = 0;        // monotonic の終了時刻
   uint32_t duration_s = 60;  // 設定された長さ (秒)
   bool finished = false;     // 終了をまだ誰も見ていない
+  bool paused = false;       // 一時停止中
+  int64_t paused_ms = 0;     // 一時停止時点の残り
 };
 
 extern const FeatureDescriptor kTimer;
