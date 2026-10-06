@@ -106,7 +106,9 @@ bool install(const char* tmp, char* out_id, size_t cap) {
   std::snprintf(p, sizeof(p), "%s/manifest.cbor", dir);
   std::remove(p);
   for (int i = 0; i < cnt; ++i) {
-    std::snprintf(p, sizeof(p), "%s/%s", dir, s_list[i].name);
+    // entry name は zipfile が 47B + NUL で切る (精度指定は GCC の
+    // format-truncation 対策 — name が NUL 無しでも読み過ぎない)。
+    std::snprintf(p, sizeof(p), "%s/%.47s", dir, s_list[i].name);
     std::remove(p);
   }
   rmdir(dir);  // 残ファイルがあれば失敗するだけ
