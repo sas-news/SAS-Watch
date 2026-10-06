@@ -1148,7 +1148,8 @@ CUTE_TOKENS = {
     "bg": "0xFFF3F7", "surface": "0xFFFDFE", "surface2": "0xFFF0F5",
     "line": "0xF0D8E4", "text": "0x6B5570", "text_dim": "0x8A6E8F",
     # primary 系は白背景上 >=4.5:1 の深めローズ (値文字/見出し/アクセント)。
-    "primary": "0xC83668", "primary2": "0xC83668",
+    # primary2 はアラート bg (薄ラベンダー) 上でも >=4.5:1 の深ローズ。
+    "primary": "0xC83668", "primary2": "0xB02850",
     "on_primary": "0xFFFFFF", "danger": "0xB82C50", "ok": "0x2E9E77",
     "accent": "0xC83668", "accent2": "0x8A5CE8", "accent3": "0x2E9E77",
     "accent4": "0xD8893C", "accent5": "0x4A9EC8",

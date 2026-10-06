@@ -145,7 +145,7 @@ bool tokens_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
         c->err = ThemeManifestError::kBadValue;
         return false;
       }
-      o->color_set |= static_cast<uint16_t>(1u << i);
+      o->color_set |= static_cast<uint32_t>(1u << i);
       return true;
     }
   }

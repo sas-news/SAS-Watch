@@ -111,7 +111,7 @@ bool load_file_theme(const char* id, Theme* out) {
 
   // 欠けた Token は standard で補完する。
   Theme t = *builtin_theme("standard");
-  for (int i = 0; i < 16; ++i) {
+  for (int i = 0; i < 19; ++i) {
     if (m.color_set & (1u << i)) {
       *color_at(&t, i) = lv_color_hex(m.color[i]);
     }

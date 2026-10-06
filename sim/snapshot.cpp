@@ -24,6 +24,7 @@
 #include "watch/power.hpp"
 #include "watch/runtime.hpp"
 #include "components.hpp"
+#include "theme.hpp"
 
 namespace {
 
@@ -244,6 +245,66 @@ void parts_gallery(const char* out_dir, const char* theme_id, int num,
   lv_screen_load(prev);
   lv_obj_delete(g);
   pump(200);
+}
+
+// 9-slice 継ぎ目の回帰チェック。scale 丸めで領域境に未描画の1px抜け
+// (両隣より暗い列/行) が出ないことを、バグが実際に出た形状
+// (card 内側 334x58 の button_primary) でピクセル検査する。
+bool seam_check() {
+  lv_obj_t* prev = lv_screen_active();
+  lv_obj_t* scr = lv_obj_create(nullptr);
+  lv_obj_set_size(scr, kW, kH);
+  lv_obj_set_style_bg_color(scr, ui::theme().bg, 0);
+  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_screen_load(scr);
+  lv_obj_t* b = lv_obj_create(scr);
+  lv_obj_set_size(b, 334, 58);
+  lv_obj_set_pos(b, 38, 200);
+  ui::c::skin_obj(b, watch::kSkinBtnPrimary);
+  pump(200);
+  const watch::ThemeSkinPart& sp =
+      ui::theme().skin_part[watch::kSkinBtnPrimary];
+  const bool skinned = (sp.set & 0x03) == 0x03 &&
+                       ui::theme().skin[watch::kSkinBtnPrimary];
+  int bad = 0;
+  if (skinned) {
+    const int l = sp.slice[0], tp = sp.slice[1], r = sp.slice[2],
+              bt = sp.slice[3];
+    const int x1 = 38 + l + 2, x2 = 38 + 334 - r - 3;
+    const int y1 = 200 + tp + 2, y2 = 200 + 58 - bt - 3;
+    auto lum = [&](int x, int y) {
+      const uint16_t p = s_fb[y * kW + x];
+      return ((p >> 11) & 0x1F) * 8 + ((p >> 5) & 0x3F) * 4 + (p & 0x1F) * 8;
+    };
+    for (int x = x1; x <= x2; ++x) {
+      int hits = 0;
+      for (int y = y1; y <= y2; ++y) {
+        if (lum(x, y) < lum(x - 1, y) - 24 &&
+            lum(x, y) < lum(x + 1, y) - 24)
+          ++hits;
+      }
+      if (hits > 6) {
+        std::printf("seam_check: dark col x=%d hits=%d\n", x, hits);
+        ++bad;
+      }
+    }
+    for (int y = y1; y <= y2; ++y) {
+      int hits = 0;
+      for (int x = x1; x <= x2; ++x) {
+        if (lum(x, y) < lum(x, y - 1) - 24 &&
+            lum(x, y) < lum(x, y + 1) - 24)
+          ++hits;
+      }
+      if (hits > 6) {
+        std::printf("seam_check: dark row y=%d hits=%d\n", y, hits);
+        ++bad;
+      }
+    }
+  }
+  lv_screen_load(prev);  // 先に戻す (ロード中画面の delete は不可)。
+  lv_obj_delete(scr);
+  pump(100);
+  return bad == 0;
 }
 
 }  // namespace
@@ -667,6 +728,9 @@ int main(int argc, char** argv) {
 
     // 全パーツ x 全 state のギャラリー (77 / 87)。
     parts_gallery(out, theme_id, n++, &ok);
+
+    // 9-slice 継ぎ目の回帰チェック (バグが出た 334x58 ボタンを検査)。
+    ok &= seam_check();
 
     std::printf("%s skin bytes: %u\n", theme_id,
                 static_cast<unsigned>(ui::theme_skin_bytes()));

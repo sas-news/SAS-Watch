@@ -165,6 +165,10 @@ int skin_state_idx(lv_state_t st) {
 // reg 画像を (x,y,w,h) に伸縮して描画。lv_draw_image は coords を
 // 「拡大前の画像の置き場所」として解釈する (変換は pivot 起点) ので、
 // coords には src サイズの矩形を渡す。
+// scale は floor ではなく ceil を使う: LVGL は描画幅を
+// (src*scale)>>8 の切り捨てで決めるため floor だと要求幅より最大1px
+// 足りず、領域境に未描画の1px抜け線が出る。ceil による最大1pxの
+// はみ出しは、後で描かれる隣接領域が上書きするので見えない。
 void skin_draw_reg(lv_layer_t* layer, const lv_image_dsc_t* d,
                    int32_t x, int32_t y, int32_t w, int32_t h) {
   if (!d || !d->data || !d->header.w || !d->header.h || w <= 0 || h <= 0) {
@@ -173,8 +177,12 @@ void skin_draw_reg(lv_layer_t* layer, const lv_image_dsc_t* d,
   lv_draw_image_dsc_t dsc;
   lv_draw_image_dsc_init(&dsc);
   dsc.src = d;
-  dsc.scale_x = static_cast<int32_t>(w * LV_SCALE_NONE / d->header.w);
-  dsc.scale_y = static_cast<int32_t>(h * LV_SCALE_NONE / d->header.h);
+  dsc.scale_x = static_cast<int32_t>(
+      (w * LV_SCALE_NONE + static_cast<int32_t>(d->header.w) - 1) /
+      static_cast<int32_t>(d->header.w));
+  dsc.scale_y = static_cast<int32_t>(
+      (h * LV_SCALE_NONE + static_cast<int32_t>(d->header.h) - 1) /
+      static_cast<int32_t>(d->header.h));
   dsc.pivot = {0, 0};
   lv_area_t a = {x, y, x + d->header.w - 1, y + d->header.h - 1};
   lv_draw_image(layer, &dsc, &a);
