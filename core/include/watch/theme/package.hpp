@@ -7,7 +7,7 @@
 
 namespace watch {
 
-constexpr int kThemePackageMaxEntries = 16;
+constexpr int kThemePackageMaxEntries = 32;  // v2: 画面背景/アイコン等で増量
 
 struct ThemePackageEntry {
   char name[48];       // [a-z0-9._-] のみ・ディレクトリ不可 (検査済み)

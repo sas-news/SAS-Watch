@@ -9,6 +9,11 @@
 #include "ui/face_data.hpp"
 #include "watch/features/clock.hpp"
 
+// 内蔵 digits (テーマ判定用)。ファイルテーマが fonts.* を供給したとき
+// Theme 側のポインタが差し替わるので比較で検出できる。
+LV_FONT_DECLARE(font_digits_96);
+LV_FONT_DECLARE(font_digits_56);
+
 // 時計数字フォント (tools/gen_fonts.py --faces で生成)。
 LV_FONT_DECLARE(font_fc_oswald_150);
 LV_FONT_DECLARE(font_fc_oswald_l_150);
@@ -39,6 +44,7 @@ extern const ui::face::Ops kFaceOpsHud;
 extern const ui::face::Ops kFaceOpsMinimal;
 extern const ui::face::Ops kFaceOpsCharaSide;
 extern const ui::face::Ops kFaceOpsCharaBubble;
+extern const ui::face::Ops kFaceOpsTheme;
 
 namespace ui::face {
 namespace {
@@ -46,6 +52,7 @@ namespace {
 const Ops* const kFaces[] = {
     &kFaceOpsBold,   &kFaceOpsAnalog,      &kFaceOpsHud,
     &kFaceOpsMinimal, &kFaceOpsCharaSide,  &kFaceOpsCharaBubble,
+    &kFaceOpsTheme,  // "theme" = manifest face_layout 駆動
     nullptr,
 };
 
@@ -57,6 +64,7 @@ const char* kAutoFont[] = {
     /*minimal*/     "outfit",
     /*chara_side*/  "bebas",
     /*chara_bubble*/"outfit",
+    /*theme*/       "chakra",
 };
 
 struct ClockFont {
@@ -111,6 +119,7 @@ struct { const char* id; const char* ja; } kFaceJa[] = {
     {"bold", "ボールド"},       {"analog", "アナログ"},
     {"hud", "HUD"},             {"minimal", "ミニマル"},
     {"chara_side", "キャラ横"}, {"chara_bubble", "キャラふきだし"},
+    {"theme", "テーマ"},
 };
 
 }  // namespace
@@ -149,7 +158,16 @@ const char* clock_font_setting() {
   return st ? st->clock_font : "auto";
 }
 
-const lv_font_t* digits(int px) { return at(current_family(), px, false); }
+const lv_font_t* digits(int px) {
+  // ファイルテーマの fonts.digits* は時計フォント選択より優先
+  // (テーマが大数字の見た目を固定する意図)。
+  const Theme& t = theme();
+  if (px >= 77 && t.font_digits != &font_digits_96) return t.font_digits;
+  if (px >= 45 && t.font_digits_sm != &font_digits_56) {
+    return t.font_digits_sm;
+  }
+  return at(current_family(), px, false);
+}
 const lv_font_t* digits_thin(int px) { return at(current_family(), px, true); }
 
 Now now() {

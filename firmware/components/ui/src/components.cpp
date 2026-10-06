@@ -83,6 +83,58 @@ lv_obj_t* chevron(lv_obj_t* row) {
   return ch;
 }
 
+// ---- v2 style スキン (ThemeStyleSkin::set ビットが指定フラグ) ----
+
+lv_coord_t skin_card_radius() {
+  const Theme& t = theme();
+  return (t.style.set & (1u << watch::kStyleCardRadius))
+             ? t.style.card_radius
+             : t.radius_lg;
+}
+
+lv_coord_t skin_btn_radius() {
+  const Theme& t = theme();
+  return (t.style.set & (1u << watch::kStyleBtnRadius))
+             ? t.style.btn_radius
+             : LV_RADIUS_CIRCLE;
+}
+
+// group/card の「カードっぽさ」をまとめて適用。
+void skin_card(lv_obj_t* o) {
+  const Theme& t = theme();
+  lv_obj_set_style_radius(o, skin_card_radius(), 0);
+  lv_obj_set_style_bg_color(o, t.surface, 0);
+  lv_obj_set_style_bg_opa(
+      o,
+      (t.style.set & (1u << watch::kStyleCardOpa)) ? t.style.card_opa
+                                                   : LV_OPA_COVER,
+      0);
+  const uint8_t bw = (t.style.set & (1u << watch::kStyleBorderW))
+                         ? t.style.border_w
+                         : 0;
+  if (bw) {
+    lv_obj_set_style_border_width(o, bw, 0);
+    lv_obj_set_style_border_color(
+        o,
+        (t.style.set & (1u << watch::kStyleBorder))
+            ? lv_color_hex(t.style.border)
+            : t.line,
+        0);
+  }
+  // glow: カードの影 (glow_w 指定時のみ)。
+  if (t.style.set & (1u << watch::kStyleGlowW)) {
+    lv_obj_set_style_shadow_width(o, t.style.glow_w, 0);
+    lv_obj_set_style_shadow_color(
+        o,
+        (t.style.set & (1u << watch::kStyleGlow))
+            ? lv_color_hex(t.style.glow)
+            : t.primary,
+        0);
+    lv_obj_set_style_shadow_opa(o, 120, 0);
+    lv_obj_set_style_shadow_spread(o, 0, 0);
+  }
+}
+
 }  // namespace
 
 lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
@@ -101,12 +153,16 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   lv_obj_set_flex_align(h, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
 
+  const bool flat_hdr =
+      (t.style.set & (1u << watch::kStyleHeader)) && t.style.header == 1;
   if (back_btn) {
     lv_obj_t* b = lv_button_create(h);
     clickable(b);
     lv_obj_set_size(b, LV_SIZE_CONTENT, kBackH);
     lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    // style.header="flat" はピルの背景を消す (画像背景にかぶせる系)。
     lv_obj_set_style_bg_color(b, t.surface2, 0);
+    if (flat_hdr) lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
     lv_obj_set_style_pad_left(b, 12, 0);
     lv_obj_set_style_pad_right(b, 16, 0);
@@ -152,7 +208,7 @@ lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
   lv_obj_t* b = lv_button_create(parent);
   clickable(b);
   lv_obj_set_size(b, LV_PCT(100), kBtnH);
-  lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_radius(b, skin_btn_radius(), 0);
   lv_obj_set_style_bg_color(b, bg, 0);
   lv_obj_set_style_bg_opa(b, bg_opa, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
@@ -189,9 +245,7 @@ lv_obj_t* group(lv_obj_t* parent) {
   lv_obj_t* g = lv_obj_create(parent);
   bubble(g);
   lv_obj_set_size(g, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(g, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(g, t.surface, 0);
-  lv_obj_set_style_border_width(g, 0, 0);
+  skin_card(g);
   lv_obj_set_style_pad_all(g, 0, 0);
   lv_obj_set_style_pad_row(g, 0, 0);  // pad_all では行間はゼロにならない
   lv_obj_set_flex_flow(g, LV_FLEX_FLOW_COLUMN);
@@ -205,9 +259,7 @@ lv_obj_t* card(lv_obj_t* parent) {
   lv_obj_t* c = lv_obj_create(parent);
   bubble(c);
   lv_obj_set_size(c, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(c, t.radius_lg, 0);
-  lv_obj_set_style_bg_color(c, t.surface, 0);
-  lv_obj_set_style_border_width(c, 0, 0);
+  skin_card(c);
   lv_obj_set_style_pad_all(c, 12, 0);
   lv_obj_set_style_pad_row(c, t.space, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
@@ -302,9 +354,25 @@ lv_obj_t* back_row(lv_obj_t* grp, lv_event_cb_t cb) {
 lv_obj_t* row_icon(lv_obj_t* grp, const char* icon, lv_color_t icon_bg,
                    const char* text, const char* sub, bool chev,
                    lv_event_cb_t cb, void* ud) {
+  return row_icon_img(grp, nullptr, icon, icon_bg, text, sub, chev, cb,
+                      ud);
+}
+
+lv_obj_t* row_icon_img(lv_obj_t* grp, const lv_image_dsc_t* imgd,
+                       const char* icon, lv_color_t icon_bg,
+                       const char* text, const char* sub, bool chev,
+                       lv_event_cb_t cb, void* ud) {
   const Theme& t = theme();
   lv_obj_t* r = row_box(grp, cb, ud);
-  if (icon) {
+  if (imgd) {
+    // テーマのアイコン画像 (タイルを丸ごと置き換え)
+    lv_obj_t* im = lv_image_create(r);
+    lv_obj_set_size(im, kIconTile, kIconTile);
+    lv_obj_set_style_radius(im, 11, 0);
+    lv_obj_set_style_clip_corner(im, true, 0);
+    lv_image_set_src(im, imgd);
+    lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
+  } else if (icon) {
     lv_obj_t* ic = flat(r);
     lv_obj_set_size(ic, kIconTile, kIconTile);
     lv_obj_set_style_radius(ic, 11, 0);
@@ -313,7 +381,8 @@ lv_obj_t* row_icon(lv_obj_t* grp, const char* icon, lv_color_t icon_bg,
     lv_obj_t* il = mk_label(ic, icon, t.font_body, lv_color_hex(0x000000));
     lv_obj_center(il);
   }
-  row_text(r, text, sub, text_budget(icon != nullptr, chev, false));
+  const bool has_icon = imgd || icon;
+  row_text(r, text, sub, text_budget(has_icon, chev, false));
   if (chev) chevron(r);
   return r;
 }
@@ -392,7 +461,10 @@ void on_slider_value(lv_event_t* e) {
 }
 
 // スライダー塗りのグラデーション (primary → primary2)。style が参照するので静的。
+// テーマ切替で色が変わるので、色が違ったら組み直す。
 lv_grad_dsc_t s_sl_grad;
+lv_color32_t s_sl_grad_c0 = {};
+lv_color32_t s_sl_grad_c1 = {};
 bool s_sl_grad_init = false;
 
 lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
@@ -426,14 +498,22 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(s, t.line, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(s, LV_OPA_COVER, LV_PART_MAIN);
-  // 塗りは primary→primary2 の横グラデーション (初回だけ作る)。
-  if (!s_sl_grad_init) {
+  // 塗りは primary→primary2 の横グラデーション (色が変わったら組み直し)。
+  if (!s_sl_grad_init ||
+      s_sl_grad_c0.red != t.primary.red ||
+      s_sl_grad_c0.green != t.primary.green ||
+      s_sl_grad_c0.blue != t.primary.blue ||
+      s_sl_grad_c1.red != t.primary2.red ||
+      s_sl_grad_c1.green != t.primary2.green ||
+      s_sl_grad_c1.blue != t.primary2.blue) {
     const lv_color_t cols[2] = {t.primary, t.primary2};
     const lv_opa_t opas[2] = {LV_OPA_COVER, LV_OPA_COVER};
     const uint8_t fr[2] = {0, 255};
     lv_grad_init_stops(&s_sl_grad, cols, opas, fr, 2);
     lv_grad_linear_init(&s_sl_grad, LV_GRAD_LEFT, LV_GRAD_CENTER,
                         LV_GRAD_RIGHT, LV_GRAD_CENTER, LV_GRAD_EXTEND_PAD);
+    s_sl_grad_c0 = lv_color_to_32(t.primary, LV_OPA_COVER);
+    s_sl_grad_c1 = lv_color_to_32(t.primary2, LV_OPA_COVER);
     s_sl_grad_init = true;
   }
   lv_obj_set_style_bg_grad(s, &s_sl_grad, LV_PART_INDICATOR);
@@ -507,6 +587,115 @@ lv_obj_t* status_dot(lv_obj_t* parent, lv_color_t col) {
 
 void set_dot(lv_obj_t* dot, lv_color_t col) {
   lv_obj_set_style_bg_color(dot, col, 0);
+}
+
+// ---- 画面隅マスコット (manifest "mascot") ----
+namespace {
+
+// 1画面1個想定だが Home が常駐するので最大2つ。静的プール (削除時に解放)。
+struct MascotSt {
+  lv_obj_t* img;    // 表情画像
+  lv_obj_t* bub;    // セリフ吹き出し
+  lv_obj_t* lbl;    // 吹き出し内テキスト
+  lv_timer_t* hide; // 自動で隠すタイマー
+  uint8_t expr;     // 現在の表情 index
+  bool used;
+};
+MascotSt s_ms[2] = {};
+
+void mascot_hide(MascotSt* st) {
+  if (st->bub) lv_obj_add_flag(st->bub, LV_OBJ_FLAG_HIDDEN);
+  if (st->hide) {
+    lv_timer_delete(st->hide);
+    st->hide = nullptr;
+  }
+}
+
+void mascot_hide_cb(lv_timer_t* tm) {
+  mascot_hide(static_cast<MascotSt*>(lv_timer_get_user_data(tm)));
+}
+
+void mascot_tap(lv_event_t* e) {
+  MascotSt* st =
+      static_cast<MascotSt*>(lv_event_get_user_data(e));
+  const Theme& t = theme();
+  // 表情を順送り (expr_count=1 なら固定)。
+  if (t.mascot.expr_count > 1) {
+    st->expr = static_cast<uint8_t>((st->expr + 1) % t.mascot.expr_count);
+    if (t.mascot_dsc[st->expr]) {
+      lv_image_set_src(st->img, t.mascot_dsc[st->expr]);
+    }
+  }
+  // セリフはランダム (同じの連続は避ける)。
+  if (t.mascot.line_count > 0) {
+    const uint32_t i = lv_rand(0, t.mascot.line_count - 1);
+    lv_label_set_text(st->lbl, t.mascot.line[i]);
+    lv_obj_remove_flag(st->bub, LV_OBJ_FLAG_HIDDEN);
+    // 吹き出しは画像の直上 (高さ可変なので OUT_TOP で吸着)。
+    lv_obj_align_to(st->bub, st->img, LV_ALIGN_OUT_TOP_MID, 0, -8);
+    if (st->hide) lv_timer_delete(st->hide);
+    st->hide = lv_timer_create(mascot_hide_cb, 4000, st);
+    lv_timer_set_repeat_count(st->hide, 1);
+  }
+}
+
+void mascot_free(lv_event_t* e) {
+  MascotSt* st =
+      static_cast<MascotSt*>(lv_event_get_user_data(e));
+  if (st->hide) lv_timer_delete(st->hide);
+  st->used = false;
+}
+
+}  // namespace
+
+lv_obj_t* mascot(lv_obj_t* scr, int screen_index) {
+  const Theme& t = theme();
+  if (!ui::theme_mascot_on(screen_index) || !t.mascot_dsc[0]) {
+    return nullptr;
+  }
+  MascotSt* st = nullptr;
+  for (auto& s : s_ms) {
+    if (!s.used) {
+      st = &s;
+      break;
+    }
+  }
+  if (!st) return nullptr;
+  st->used = true;
+  st->hide = nullptr;
+  st->expr = 0;
+
+  // 画像 (タップで表情+セリフ)。x/y<0 は右/下端基準のオフセット。
+  const int32_t w = t.mascot_dsc[0]->header.w;
+  const int32_t h = t.mascot_dsc[0]->header.h;
+  lv_obj_t* im = lv_image_create(scr);
+  lv_image_set_src(im, t.mascot_dsc[0]);
+  const int32_t x = t.mascot.x < 0 ? kW + t.mascot.x - w : t.mascot.x;
+  const int32_t y = t.mascot.y < 0 ? 502 + t.mascot.y - h : t.mascot.y;
+  lv_obj_set_pos(im, x, y);
+  clickable(im);
+  lv_obj_add_event_cb(im, mascot_tap, LV_EVENT_CLICKED, st);
+  // 画面が消えるときプールを解放 (タイマーが残って DANGLING しないよう)。
+  lv_obj_add_event_cb(im, mascot_free, LV_EVENT_DELETE, st);
+  st->img = im;
+
+  // 吹き出し (最初は非表示)。上に張り付くので画面座標で置く。
+  lv_obj_t* bub = flat(scr);
+  lv_obj_set_size(bub, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_max_width(bub, 190, 0);
+  lv_obj_set_style_radius(bub, 14, 0);
+  lv_obj_set_style_bg_color(bub, t.surface2, 0);
+  lv_obj_set_style_bg_opa(bub, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_left(bub, 10, 0);
+  lv_obj_set_style_pad_right(bub, 10, 0);
+  lv_obj_set_style_pad_top(bub, 6, 0);
+  lv_obj_set_style_pad_bottom(bub, 6, 0);
+  lv_obj_t* lbl = mk_label(bub, "", t.font_body, t.text);
+  lv_obj_set_width(lbl, 170);
+  lv_obj_add_flag(bub, LV_OBJ_FLAG_HIDDEN);
+  st->bub = bub;
+  st->lbl = lbl;
+  return im;
 }
 
 }  // namespace ui::c

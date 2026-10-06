@@ -35,6 +35,11 @@
 // firmware 側は sdkconfig.defaults の CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS。
 #define LV_USE_DRAW_SW_COMPLEX_GRADIENTS 1
 
+// テーマ v2: PNG 画像と .bin フォント。
+#define LV_USE_LODEPNG 1
+#define LV_USE_FS_MEMFS 1
+#define LV_FS_MEMFS_LETTER 'M'
+
 #define LV_USE_LOG 0
 #define LV_USE_ASSERT_NULL 1
 #define LV_USE_ASSERT_MALLOC 1

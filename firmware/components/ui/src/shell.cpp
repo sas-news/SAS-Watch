@@ -5,11 +5,15 @@
 
 #include "components.hpp"
 #include "faces/faces.hpp"
+#include "theme_res.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/alarm.hpp"
 #include "watch/features/notify.hpp"
 #include "watch/platform.hpp"
+
+// disp->scr_to_load / prev_scr を掃くために private 構造体が必要
+#include "lvgl_private.h"
 
 #include <cstdio>
 
@@ -85,9 +89,66 @@ void drain_events(void*) {
 
 // ---- 画面遷移 --------------------------------------------------------------
 
+// アニメ後の旧画面削除タイマー (最大 4 件管理しておき、
+// テーマ切替で即破棄するとき対象が重複しないよう引き算する)。
+lv_timer_t* s_del_timers[4] = {};
+
 void del_old_screen(lv_timer_t* t) {
+  for (auto& s : s_del_timers) {
+    if (s == t) {
+      s = nullptr;
+      break;
+    }
+  }
   lv_obj_t* old = static_cast<lv_obj_t*>(lv_timer_get_user_data(t));
-  if (old && old != s_home && old != s_cur) lv_obj_delete(old);
+  if (old && old != s_home && old != s_cur) {
+    lv_obj_delete(old);
+  }
+}
+
+void schedule_delete(lv_obj_t* old, uint32_t ms) {
+  // 同じ画面の削除タイマーが既にあれば二重登録しない
+  // (連続遷移で同じ prev が2回予約されると lv_obj_delete が
+  //  二重に走ってヒープを壊す)。
+  for (auto& s : s_del_timers) {
+    if (s && lv_timer_get_user_data(s) == old) return;
+  }
+  lv_timer_t* tm = lv_timer_create(del_old_screen, ms, old);
+  lv_timer_set_repeat_count(tm, 1);
+  for (auto& s : s_del_timers) {
+    if (!s) {
+      s = tm;
+      return;
+    }
+  }
+}
+
+// テーマ切替用: 旧テーマ資源 (binfont/画像 dsc) を参照する全画面を
+// 同期破棄する。遷移アニメで旧画面が解放済みフォントを描くと落ちるので
+// ThemeChanged はアニメを捨てる (apply 中は描画されない)。
+void drop_screens_now() {
+  for (auto& s : s_del_timers) {
+    if (!s) continue;
+    lv_obj_t* o = static_cast<lv_obj_t*>(lv_timer_get_user_data(s));
+    if (o == s_cur || o == s_home) {
+      lv_timer_delete(s);
+      s = nullptr;
+    }
+  }
+  if (s_home && s_home != s_cur) lv_obj_delete(s_home);
+  s_home = nullptr;
+  if (s_cur) lv_obj_delete(s_cur);  // act_scr は NULL に戻る
+  s_cur = nullptr;
+  s_ops = nullptr;
+  // LVGL は削除された画面の参照を act_scr しか消さない。
+  // 遷移アニメ中だと scr_to_load / prev_scr が解放済み画面を指したまま
+  // 残り、次の lv_screen_load_anim が use-after-free を踏むので明示的に掃く。
+  lv_display_t* d = lv_display_get_default();
+  if (d) {
+    d->scr_to_load = nullptr;
+    d->prev_scr = nullptr;
+    d->act_scr = nullptr;
+  }
 }
 
 void on_gesture(lv_event_t*) {
@@ -125,6 +186,77 @@ void attach_input(lv_obj_t* scr) {
   lv_obj_add_event_cb(scr, on_long_press, LV_EVENT_LONG_PRESSED, nullptr);
 }
 
+// ---- テーマ v2: 画面スキン (bg + scrim) --------------------------------
+
+// Route → kThemeScreenNames の添字 (-1 = スキン対象外)。
+// 順序は navigation.hpp の Route enum の宣言順。
+constexpr int8_t kRouteScreen[] = {
+    /*None*/ -1,
+    /*Home*/ 0,           // home
+    /*Quick*/ 1,          // quick
+    /*Notifications*/ 12, // notifications
+    /*Timer*/ 3,          // timer
+    /*Stopwatch*/ 4,      // stopwatch
+    /*Counter*/ 5,        // counter
+    /*Steps*/ 6,          // steps
+    /*Memo*/ 7,           // memo
+    /*More*/ 2,           // more
+    /*Settings*/ 8,       // settings
+    /*About*/ -1,
+    /*Media*/ 13,         // media
+    /*Dev*/ -1,
+    /*Agent*/ 14,         // agent
+    /*PowerMenu*/ 10,     // powermenu
+    /*Ota*/ 9,            // ota
+    /*Confirm*/ -1,
+    /*Alarm*/ 11,         // alarm
+};
+static_assert(sizeof(kRouteScreen) == 19, "Route enum と同期");
+
+// 背景画像が消えるとき画面ブロックを返す。
+void scr_skin_free(lv_event_t* e) {
+  port::theme_screen_free(static_cast<uint8_t*>(lv_event_get_user_data(e)));
+}
+
+// スキン (画面別 > "*") の bg+scrim を scr の最背面に敷く。
+// bg 画像は screen ブロック (640KiB×2) にデコード; LV_EVENT_DELETE で返す。
+void skin_base(lv_obj_t* scr, int8_t sidx) {
+  const watch::ThemeScreenSkin* sk =
+      sidx >= 0 ? ui::theme_screen_skin(sidx) : nullptr;
+  if (!sk) return;
+  int z = 0;
+  if (sk->bg[0]) {
+    uint8_t* blk = port::theme_screen_block();
+    if (blk) {
+      // ブロック先頭 64B に dsc を置く (画像データは +64 から)。
+      lv_image_dsc_t* dsc = reinterpret_cast<lv_image_dsc_t*>(blk);
+      if (theme_res::img_decode(ui::theme_id(), sk->bg, blk + 64,
+                                ui::port::kThemeScreenBlockSize - 64,
+                                410, 502, dsc)) {
+        lv_obj_t* im = lv_image_create(scr);
+        lv_image_set_src(im, dsc);
+        lv_obj_set_pos(im, 0, 0);
+        lv_obj_move_to_index(im, z++);
+        lv_obj_add_event_cb(im, scr_skin_free, LV_EVENT_DELETE, blk);
+      } else {
+        port::theme_screen_free(blk);
+      }
+    }
+  }
+  if (sk->scrim) {
+    // 黒の薄膜で背景だけを暗くする (この後の画面部品は上に載る)。
+    lv_obj_t* sc = lv_obj_create(scr);
+    lv_obj_set_size(sc, 410, 502);
+    lv_obj_set_pos(sc, 0, 0);
+    lv_obj_set_style_bg_color(sc, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(sc, sk->scrim, 0);
+    lv_obj_set_style_border_width(sc, 0, 0);
+    lv_obj_remove_flag(sc, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(sc, LV_OBJ_FLAG_EVENT_BUBBLE);  // ジェスチャーは素通り
+    lv_obj_move_to_index(sc, z++);
+  }
+}
+
 void swap_screen(watch::Route r, bool rebuild = false) {
   const ScreenOps* ops = screen_ops(r);
   if (!ops) {
@@ -145,10 +277,7 @@ void swap_screen(watch::Route r, bool rebuild = false) {
     lv_screen_load_anim(s_home, anim, t.anim_ms, 0, false);
     s_cur = s_home;
     s_ops = ops;
-    if (prev && prev != s_home) {
-      lv_timer_t* tm = lv_timer_create(del_old_screen, t.anim_ms + 60, prev);
-      lv_timer_set_repeat_count(tm, 1);
-    }
+    if (prev && prev != s_home) schedule_delete(prev, t.anim_ms + 60);
     if (s_ops->on_event) {
       // 再表示時に時刻・状態を最新化するためダミーの Tick を流す。
       s_ops->on_event(s_home, {watch::EventType::ClockTick, 0});
@@ -160,16 +289,21 @@ void swap_screen(watch::Route r, bool rebuild = false) {
   lv_obj_t* scr = lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(scr, t.bg, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  const int8_t sidx = kRouteScreen[static_cast<int>(r)];
+  skin_base(scr, sidx);  // 画面スキン (bg+scrim) は最背面
   if (r == watch::Route::Home) s_home = scr;
   attach_input(scr);
   ops->create(scr);
-  lv_screen_load_anim(scr, anim, t.anim_ms, 0, false);
+  c::mascot(scr, sidx);  // 画面隅マスコット (有効画面のみ)
+  // 旧画面が無い状態 (テーマ切替の同期破棄直後) はアニメ無しで即ロード。
+  if (prev) {
+    lv_screen_load_anim(scr, anim, t.anim_ms, 0, false);
+  } else {
+    lv_screen_load_anim(scr, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, false);
+  }
   s_cur = scr;
   s_ops = ops;
-  if (prev && prev != s_home) {
-    lv_timer_t* tm = lv_timer_create(del_old_screen, t.anim_ms + 60, prev);
-    lv_timer_set_repeat_count(tm, 1);
-  }
+  if (prev && prev != s_home) schedule_delete(prev, t.anim_ms + 60);
 }
 
 // ---- タイマー終了アラート ---------------------------------------------------
@@ -220,33 +354,43 @@ void show_timer_alert() {
   lv_obj_set_style_border_width(s_alert, 0, 0);
   lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
 
-  // 暖色グロー (ラジアルグラデーション。静的描画だけで毎フレーム再描画なし)。
-  // mockup: radial-gradient(circle at 50% 30%, #5a2a0a → #000 70%)。
-  // 連続補間なので stop は2個で滑らか (同心円バンディングも出ない)。
-  // ※ stops は LV_GRADIENT_MAX_STOPS (=2) まで。超えると LV_ASSERT で止まる。
-  static lv_grad_dsc_t s_glow;
-  static const lv_color_t s_glow_cols[] = {lv_color_hex(0x5A2A0A),
-                                         lv_color_hex(0x000000)};
-  lv_grad_init_stops(&s_glow, s_glow_cols, nullptr, nullptr, 2);
-  lv_grad_radial_init(&s_glow, LV_GRAD_CENTER, LV_PCT(30), LV_PCT(95),
-                      LV_PCT(30), LV_GRAD_EXTEND_PAD);
-  lv_obj_set_style_bg_grad(s_alert, &s_glow, 0);
-
-  // テーマ画像スロット: タイマー終了時の画像 (あれば文字の上)。
-  if (t.img_timer_done) {
-    lv_obj_t* img = lv_image_create(s_alert);
-    lv_image_set_src(img, t.img_timer_done);
-    lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 44);
-    lv_obj_add_flag(img, LV_OBJ_FLAG_EVENT_BUBBLE);
+  // テーマスキン: screens["alert"] があればそちらを敷く。
+  // 無ければ暖色グロー (ラジアルグラデーション。静的描画)。
+  const watch::ThemeScreenSkin* ask =
+      ui::theme_screen_skin(watch::theme_screen_index("alert"));
+  if (ask && (ask->bg[0] || ask->scrim)) {
+    skin_base(s_alert, watch::theme_screen_index("alert"));
+  } else {
+    // mockup: radial-gradient(circle at 50% 30%, #5a2a0a → #000 70%)。
+    // 連続補間なので stop は2個で滑らか (同心円バンディングも出ない)。
+    // ※ stops は LV_GRADIENT_MAX_STOPS (=2) まで。超えると LV_ASSERT で止まる。
+    static lv_grad_dsc_t s_glow;
+    static const lv_color_t s_glow_cols[] = {lv_color_hex(0x5A2A0A),
+                                           lv_color_hex(0x000000)};
+    lv_grad_init_stops(&s_glow, s_glow_cols, nullptr, nullptr, 2);
+    lv_grad_radial_init(&s_glow, LV_GRAD_CENTER, LV_PCT(30), LV_PCT(95),
+                        LV_PCT(30), LV_GRAD_EXTEND_PAD);
+    lv_obj_set_style_bg_grad(s_alert, &s_glow, 0);
   }
 
-  // "TIMER" 見出し (primary2, 字送り広め)
-  lv_obj_t* tag = lv_label_create(s_alert);
-  lv_label_set_text(tag, "TIMER");
-  lv_obj_set_style_text_font(tag, t.font_body, 0);
-  lv_obj_set_style_text_color(tag, t.primary2, 0);
-  lv_obj_set_style_text_letter_space(tag, 8, 0);
-  lv_obj_align(tag, LV_ALIGN_CENTER, 0, -108);
+  // テーマ画像スロット: タイマー終了時の画像 (あれば文字の上)。
+  lv_obj_t* hero = nullptr;
+  if (t.img_timer_done) {
+    hero = lv_image_create(s_alert);
+    lv_image_set_src(hero, t.img_timer_done);
+    lv_obj_align(hero, LV_ALIGN_TOP_MID, 0, 44);
+    lv_obj_add_flag(hero, LV_OBJ_FLAG_EVENT_BUBBLE);
+  }
+
+  // "TIMER" 見出し (primary2, 字送り広め)。画像があるときは重なるので省略。
+  if (!hero) {
+    lv_obj_t* tag = lv_label_create(s_alert);
+    lv_label_set_text(tag, "TIMER");
+    lv_obj_set_style_text_font(tag, t.font_body, 0);
+    lv_obj_set_style_text_color(tag, t.primary2, 0);
+    lv_obj_set_style_text_letter_space(tag, 8, 0);
+    lv_obj_align(tag, LV_ALIGN_CENTER, 0, -108);
+  }
 
   // 00:00 は時計フォント (clock_font 設定)。
   lv_obj_t* digits = lv_label_create(s_alert);
@@ -321,6 +465,8 @@ void show_alarm_alert(uint32_t id) {
   lv_obj_set_style_bg_opa(s_alert, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_alert, 0, 0);
   lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
+  // テーマスキン (screens["alert"]) があれば背景に敷く。
+  skin_base(s_alert, watch::theme_screen_index("alert"));
 
   lv_obj_t* l = lv_label_create(s_alert);
   lv_label_set_text(l, "アラーム");
@@ -512,7 +658,10 @@ void handle_event(const watch::Event& e) {
     show_notify_popup();
   } else if (e.type == watch::EventType::ThemeChanged) {
     // settings.theme を適用 (失敗時は適用層が standard に倒す)。
+    // 旧テーマ資源 (binfont/画像) は旧画面が参照したまま → 先に全画面を
+    // 同期破棄してから適用・再構築 (遷移アニメ中の描画で落ちるのを防ぐ)。
     const char* id = s_ctx.settings ? s_ctx.settings->theme : "standard";
+    drop_screens_now();
     theme_apply(id);
     rebuild_current();
     // アラート表示中なら画像差し替わりに合わせて閉じる。
@@ -603,9 +752,7 @@ bool create(const Ctx& c) {
   lv_obj_t* initial = lv_screen_active();
   swap_screen(watch::Route::Home);
   if (initial && initial != s_cur) {
-    lv_timer_t* tm = lv_timer_create(del_old_screen, theme().anim_ms + 60,
-                                     initial);
-    lv_timer_set_repeat_count(tm, 1);
+    schedule_delete(initial, theme().anim_ms + 60);
   }
   return s_cur != nullptr;
 }

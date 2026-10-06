@@ -12,3 +12,4 @@ android/**/build/
 android/.kotlin/
 android/local.properties
 .cxx/
+android/**/bin/

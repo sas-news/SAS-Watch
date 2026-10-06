@@ -4,6 +4,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "watch/theme/manifest.hpp"
 
 namespace ui {
 
@@ -24,7 +25,6 @@ struct Theme {
   lv_color_t accent5;     // 第5アクセント (ピンク系: キャラ文字盤の強調)
   lv_color_t bubble_bg;   // chara_bubble ふきだしの背景
   lv_color_t bubble_text; // chara_bubble ふきだしの文字色
-  // PR-A 追加 (manifest index は拡張しない = file テーマは standard 値を継承)。
   lv_color_t line;        // リスト区切り線・スライダーのトラック
   lv_color_t primary2;    // primary のグラデーション終端 (スライダー塗り)
   lv_color_t edge;        // 行末 chevron・スイッチ OFF トラックの中間色
@@ -49,6 +49,25 @@ struct Theme {
   // chara_bubble 文字盤のふきだし文言 (manifest "bubble" で上書き可)。
   // 0:朝 1:昼 2:夕 3:夜 4:歩数目標の残り ({n}=残り歩数)。
   const char* bubble[5];
+
+  // ---- v2 スキン (file テーマのみ有効。内蔵テーマはゼロ初期化) ----
+  watch::ThemeStyleSkin style;  // 有効ビットは style.set
+  // 画面別スキン (screens_set の bit が有効フラグ、wildcard は "*")。
+  uint32_t screens_set = 0;
+  watch::ThemeScreenSkin screens[watch::kThemeScreenCount] = {};
+  watch::ThemeScreenSkin wildcard_skin = {};
+  // アプリアイコン (icons[i].app ↔ icon_dsc[i]。nullptr=タイル表示)。
+  watch::ThemeIcon icons[watch::kThemeMaxIcons] = {};
+  const lv_image_dsc_t* icon_dsc[watch::kThemeMaxIcons] = {};
+  uint8_t icon_count = 0;
+  // マスコット (used + expr 画像)。
+  watch::ThemeMascot mascot = {};
+  const lv_image_dsc_t* mascot_dsc[watch::kThemeMascotExprMax] = {};
+  // face_layout (face "theme" が読む)。
+  watch::ThemeFaceElem face_elem[watch::kThemeFaceElemCount] = {};
+  uint32_t face_layout_set = 0;
+  // face_layout で指定した画像の dsc (chara 用)。
+  const lv_image_dsc_t* face_chara_dsc = nullptr;
 };
 
 // 現在有効な Theme (適用済みスナップショット)。
@@ -63,6 +82,15 @@ void theme_set_info(const char* id, const char* name);
 
 // 内蔵テーマ ("standard" / "light")。無ければ nullptr。
 const Theme* builtin_theme(const char* id);
+
+// ---- v2 スキン参照ヘルパ ----
+// 画面インデックス (kThemeScreenNames 順) → 有効スキン。
+// 個別指定が無ければ "*" フォールバック。両方無ければ nullptr。
+const watch::ThemeScreenSkin* theme_screen_skin(int screen_index);
+// アプリ id → アイコン画像 (無ければ nullptr → 文字タイル)。
+const lv_image_dsc_t* theme_icon(const char* app_id);
+// マスコットがその画面で有効か (manifest.screens マスク)。
+bool theme_mascot_on(int screen_index);
 
 // theme id を適用 (theme_manager.cpp)。
 //   内蔵 → コピー。file → port::theme_asset_* で読んで構築。

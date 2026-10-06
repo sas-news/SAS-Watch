@@ -66,6 +66,11 @@ CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_TXT_BREAK_CHARS=" ,.;:-_"
 # 文字盤 analog の盤面グラデ・chara_side のグロー (放射グラデ) で必要
 CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS=y
+# テーマ v2: PNG 背景・アイコン (lodepng) と .bin フォント (binfont from buffer)
+# TODO(hw): 実機で確認 — lv_malloc が大きい PNG デコード領域を確保できるか
+CONFIG_LV_USE_LODEPNG=y
+CONFIG_LV_USE_FS_MEMFS=y
+CONFIG_LV_FS_MEMFS_LETTER=77
 
 # OTA: 新イメージの自己診断が通るまで旧イメージにロールバックできるようにする
 # (起動後に ota::mark_valid_if_pending で確定)。

@@ -440,6 +440,45 @@ int main(int argc, char** argv) {
                                   *s_fctx);
   pump(300);
   ok &= save(out, "53_agent_reply");
+
+  // ---- テーマ v2 サンプル「cosmos」 ----
+  // sim/themes/cosmos.zip を zip 直読み (展開済み dir は読まない)。
+  // screens/style/icons/fonts/mascot/face_layout の v2 全キーを行使。
+  back_home();
+  ui::emit_text(watch::ActionType::SetFace, "theme");  // face_layout 駆動
+  ui::emit_text(watch::ActionType::SetTheme, "cosmos");
+  pump(800);
+  ok &= save(out, "60_theme_cosmos_home");   // home + theme 文字盤
+
+  nav_to(watch::Route::More);
+  pump(200);
+  ok &= save(out, "61_theme_cosmos_applist");  // icons + mascot
+
+  nav_to(watch::Route::Timer);
+  ok &= save(out, "62_theme_cosmos_timer");    // 画面別 bg + mascot
+
+  back_home();
+  nav_to(watch::Route::Memo);
+  pump(200);
+  ok &= save(out, "63_theme_cosmos_memo");
+
+  back_home();
+  nav_to(watch::Route::Settings);
+  ok &= save(out, "64_theme_cosmos_settings");  // scrim 高め + style
+
+  // タイマー終了アラート (screens.alert bg + images.timer_done + mascot)。
+  back_home();
+  s_bus.publish({watch::EventType::TimerFinished, 0});
+  pump(300);
+  ok &= save(out, "65_theme_cosmos_alert");
+  tap(205, 387);  // 止める
+  pump(300);
+
+  // 戻して終了。
+  ui::emit_text(watch::ActionType::SetFace, "bold");
+  ui::emit_text(watch::ActionType::SetTheme, "standard");
+  pump(400);
+
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

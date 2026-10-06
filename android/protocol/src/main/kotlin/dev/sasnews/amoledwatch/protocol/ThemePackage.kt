@@ -12,8 +12,10 @@ import java.util.zip.ZipInputStream
 object ThemePackage {
 
     const val API_VERSION = 1
-    const val MAX_PACKAGE_SIZE = 3 * 1024 * 1024 // 3 MiB（theme-format.md 予算表）
-    const val MAX_ENTRIES = 16
+    // 4 MiB（v2: zip を展開せずそのまま保持するので二重占有が消えた分だけ
+    // 上限を引き上げ。theme-format.md 予算表）。
+    const val MAX_PACKAGE_SIZE = 4 * 1024 * 1024
+    const val MAX_ENTRIES = 32
 
     private val ENTRY_NAME = Regex("[a-z0-9._-]+")
     private val THEME_ID = Regex("[a-z0-9-]{1,31}")
@@ -31,7 +33,7 @@ object ThemePackage {
     /**
      * bytes を theme-format.md の規則で検査する。
      * - stored zip（圧縮エントリ不可）
-     * - エントリ名は `[a-z0-9._-]`、ディレクトリ・`..` 不可、16 個まで
+     * - エントリ名は `[a-z0-9._-]`、ディレクトリ・`..` 不可、32 個まで
      * - `manifest.cbor` 必須。CBOR map に id（theme id 形式）と api==1 が必要
      * 全て通れば ThemePkgInfo、駄目なら Invalid を投げる。
      */
