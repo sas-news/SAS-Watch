@@ -51,8 +51,7 @@ int theme_zipfile_list(const ThemeZipSrc& z, ThemePackageEntry* out, int cap,
     name[nl] = '\0';
     if (!theme_package_name_ok(name, nl)) return -1;
     ThemePackageEntry& e = out[count++];
-    std::strncpy(e.name, name, sizeof(e.name) - 1);
-    e.name[sizeof(e.name) - 1] = '\0';
+    std::memcpy(e.name, name, nl + 1);  // nl < sizeof(name) 確認済み
     e.offset = le32(rec + 42);
     e.size = le32(rec + 24);
     e.crc32 = le32(rec + 16);
