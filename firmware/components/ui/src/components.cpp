@@ -33,9 +33,9 @@ constexpr lv_coord_t kKnob = 24;
 // 「グループ内のブロック」か「自分のグループ」かを決めるのに使う)。
 void* const kGroupTag = const_cast<char*>("ui::c::group");
 
-// content() で作ったスクロール領域のマーカー (mascot が下端に
-// 退避領域を作るのに使う)。
-void* const kContentTag = const_cast<char*>("ui::c::content");
+// header() で作ったヘッダのマーカー (mascot が小型表示か隅表示かを
+// 判別するために使う)。
+void* const kHeaderTag = const_cast<char*>("ui::c::header");
 
 // CLICKED は画面ルートまでバブルするので、ルートの cb 1つで
 // 全ボタン/行タップのクリック音を拾える。
@@ -183,6 +183,7 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
 
   lv_obj_t* tl = mk_label(h, title, t.font_title, t.text);
   (void)tl;
+  lv_obj_set_user_data(h, kHeaderTag);
   return h;
 }
 
@@ -199,7 +200,6 @@ lv_obj_t* content(lv_obj_t* scr) {
   lv_obj_add_flag(c, LV_OBJ_FLAG_SCROLLABLE);
   // スクロールバーは出さない (腕時計 UI、カードの上に太く被さるため)。
   lv_obj_set_scrollbar_mode(c, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_user_data(c, kContentTag);
   (void)t;
   return c;
 }
@@ -609,9 +609,13 @@ struct MascotSt {
   lv_obj_t* lbl;    // 吹き出し内テキスト
   lv_timer_t* hide; // 自動で隠すタイマー
   uint8_t expr;     // 現在の表情 index
+  bool small;       // ヘッダ画面の小型表示か
   bool used;
 };
 MascotSt s_ms[2] = {};
+
+// ヘッダ画面での小型マスコットの高さ (タイトルと同じ高さに収める)。
+constexpr int32_t kMascotSmall = 44;
 
 void mascot_hide(MascotSt* st) {
   if (st->bub) lv_obj_add_flag(st->bub, LV_OBJ_FLAG_HIDDEN);
@@ -641,10 +645,15 @@ void mascot_tap(lv_event_t* e) {
     const uint32_t i = lv_rand(0, t.mascot.line_count - 1);
     lv_label_set_text(st->lbl, t.mascot.line[i]);
     lv_obj_remove_flag(st->bub, LV_OBJ_FLAG_HIDDEN);
-    // 吹き出しは画像の直上 (高さ可変なので OUT_TOP で吸着)。
-    lv_obj_align_to(st->bub, st->img, LV_ALIGN_OUT_TOP_MID, 0, -8);
+    if (st->small) {
+      // 小型表示: ヘッダ直下の右上にトースト。コンテンツ上端を塞がない。
+      lv_obj_align(st->bub, LV_ALIGN_TOP_RIGHT, -22, kHeaderH + 6);
+    } else {
+      // 隅の大型表示: 吹き出しは画像の直上 (OUT_TOP で吸着)。
+      lv_obj_align_to(st->bub, st->img, LV_ALIGN_OUT_TOP_MID, 0, -8);
+    }
     if (st->hide) lv_timer_delete(st->hide);
-    st->hide = lv_timer_create(mascot_hide_cb, 4000, st);
+    st->hide = lv_timer_create(mascot_hide_cb, 3000, st);
     lv_timer_set_repeat_count(st->hide, 1);
   }
 }
@@ -675,36 +684,49 @@ lv_obj_t* mascot(lv_obj_t* scr, int screen_index) {
   st->hide = nullptr;
   st->expr = 0;
 
-  // 画像 (タップで表情+セリフ)。x/y<0 は右/下端基準のオフセット。
+  // ヘッダがある画面 (= リスト系) はマスコットをヘッダ右側に小型表示し、
+  // コンテンツとは一切重ならないようにする。ヘッダの無い画面
+  // (face/alert などレイアウトが場所を確保するもの) だけ原寸で隅に置く。
+  bool has_header = false;
+  const uint32_t nch = lv_obj_get_child_count(scr);
+  for (uint32_t i = 0; i < nch; ++i) {
+    if (lv_obj_get_user_data(lv_obj_get_child(scr,
+                                            static_cast<int32_t>(i))) ==
+        kHeaderTag) {
+      has_header = true;
+      break;
+    }
+  }
+  st->small = has_header;
+
   const int32_t w = t.mascot_dsc[0]->header.w;
   const int32_t h = t.mascot_dsc[0]->header.h;
   lv_obj_t* im = lv_image_create(scr);
   lv_image_set_src(im, t.mascot_dsc[0]);
-  int32_t x = t.mascot.x < 0 ? kW + t.mascot.x - w : t.mascot.x;
-  int32_t y = t.mascot.y < 0 ? 502 + t.mascot.y - h : t.mascot.y;
-  // 丸角 (~44px) の内側の安全域に収める: 端から 22px 以内は使わない。
-  if (x < 22) x = 22;
-  if (x > kW - 22 - w) x = kW - 22 - w;
-  if (y < 22) y = 22;
-  if (y > 502 - 22 - h) y = 502 - 22 - h;
+  int32_t x, y;
+  if (has_header) {
+    // 右端から 22px 以上・タイトルと同じ高さ (ピル中心 ~y41)。
+    lv_obj_set_size(im, kMascotSmall, kMascotSmall);
+    lv_image_set_scale(im, static_cast<int32_t>(
+                               kMascotSmall * LV_SCALE_NONE / w));
+    x = kW - 22 - kMascotSmall;
+    y = 41 - kMascotSmall / 2;
+  } else {
+    // x/y<0 は右/下端基準のオフセット。
+    x = t.mascot.x < 0 ? kW + t.mascot.x - w : t.mascot.x;
+    y = t.mascot.y < 0 ? 502 + t.mascot.y - h : t.mascot.y;
+    // 丸角 (~44px) の内側の安全域に収める: 端から 22px 以内は使わない。
+    if (x < 22) x = 22;
+    if (x > kW - 22 - w) x = kW - 22 - w;
+    if (y < 22) y = 22;
+    if (y > 502 - 22 - h) y = 502 - 22 - h;
+  }
   lv_obj_set_pos(im, x, y);
   clickable(im);
   lv_obj_add_event_cb(im, mascot_tap, LV_EVENT_CLICKED, st);
   // 画面が消えるときプールを解放 (タイマーが残って DANGLING しないよう)。
   lv_obj_add_event_cb(im, mascot_free, LV_EVENT_DELETE, st);
   st->img = im;
-
-  // マスコットが UI に被らないよう、スクロール領域 (content) の下に
-  // 退避スペースを足す。最後の要素がマスコット上端の 8px 上で終わる。
-  const int32_t need = 502 - y + 8;
-  const uint32_t nch = lv_obj_get_child_count(scr);
-  for (uint32_t i = 0; i < nch; ++i) {
-    lv_obj_t* ch = lv_obj_get_child(scr, static_cast<int32_t>(i));
-    if (lv_obj_get_user_data(ch) == kContentTag &&
-        lv_obj_get_style_pad_bottom(ch, LV_PART_MAIN) < need) {
-      lv_obj_set_style_pad_bottom(ch, need, 0);
-    }
-  }
 
   // 吹き出し (最初は非表示)。上に張り付くので画面座標で置く。
   lv_obj_t* bub = flat(scr);

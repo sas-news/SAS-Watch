@@ -512,11 +512,19 @@ def cv_ellipse_ring(cv, cx, cy, rx, ry, thick, c):
                   thick / 2, c)
 
 
-def scatter_stars(cv, seed, count, x1=None, y1=None):
-    """決定的な疑似乱数で星を散らす (x1,y1 未満の領域)。"""
+def scatter_stars(cv, seed, count, x1=None, y1=None, excl=None):
+    """決定的な疑似乱数で星を散らす (x1,y1 未満の領域)。
+
+    excl=(x1,y1,x2,y2) は最終ピクセル座標の除外矩形 — テキストや
+    UI の領域に飾りを重ねないために使う。"""
     rng = seed
     x1 = x1 or cv.W
     y1 = y1 or cv.H
+    ex = None if excl is None else tuple(v * cv.ss for v in excl)
+
+    def blocked(sx, sy):
+        return ex is not None and ex[0] <= sx <= ex[2] and ex[1] <= sy <= ex[3]
+
     for _ in range(count):
         rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
         sx = rng % x1
@@ -525,14 +533,16 @@ def scatter_stars(cv, seed, count, x1=None, y1=None):
         rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
         rr = 1 + rng % 3
         a = 90 + rng % 160
-        cv.circle(sx, sy, rr * cv.ss / 2, (220, 240, 255, a))
+        if not blocked(sx, sy):
+            cv.circle(sx, sy, rr * cv.ss / 2, (220, 240, 255, a))
     # 大きめのキラ星を数個
     for i in range(6):
         rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
         sx = rng % x1
         rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
         sy = rng % (y1 * 3 // 4)
-        cv_sparkle(cv, sx, sy, 6 * cv.ss, (190, 230, 255, 200))
+        if not blocked(sx, sy):
+            cv_sparkle(cv, sx, sy, 6 * cv.ss, (190, 230, 255, 200))
 
 
 def draw_planet(cv, cx, cy, r, base, hi, ring=False):
@@ -610,7 +620,8 @@ def gen_cosmos_alert_bg():
     cv_gradient(cv, (30, 10, 18, 255), (10, 4, 10, 255))
     cv.ellipse(205 * s, 380 * s, 260 * s, 150 * s, (200, 60, 60, 30))
     cv.ellipse(205 * s, 430 * s, 300 * s, 200 * s, (255, 110, 70, 26))
-    scatter_stars(cv, 99, 140)
+    # 00:00 (~y185-260) と タイマー終了 (~y295-330) の文字領域には星を置かない。
+    scatter_stars(cv, 99, 140, excl=(30, 170, 380, 350))
     draw_planet(cv, 205 * s, 560 * s, 190 * s, (120, 30, 40, 255),
                 (255, 140, 100, 255))
     draw_hud_frame(cv)
