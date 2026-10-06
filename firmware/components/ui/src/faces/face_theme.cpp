@@ -80,8 +80,10 @@ void set_batt(lv_obj_t* l) {
 void set_notify(lv_obj_t* l) {
   const ui::face_data::Snapshot d = ui::face_data::get();
   char b[8];
-  std::snprintf(b, sizeof(b), "%d",
-                d.notifications < 0 ? 0 : static_cast<int>(d.notifications));
+  int n = static_cast<int>(d.notifications);
+  if (n < 0) n = 0;
+  if (n > 99) n = 99;
+  std::snprintf(b, sizeof(b), "%d", n);
   lv_label_set_text(l, b);
 }
 
