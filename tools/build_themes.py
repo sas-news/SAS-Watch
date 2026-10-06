@@ -1012,6 +1012,181 @@ def png_bytes(rgba, w, h):
             + chunk(b"IEND", b""))
 
 
+# ================================================================ kit モード
+# `--kit` : themes/<id>/kit.html を headless Chromium (Playwright) で開き、
+# 各 [data-part] 要素を透過 PNG スクショして skin パーツ画像と
+# manifest の `skin` ブロックを自動生成する。
+#   data-part="button_primary"  data-state="pressed" (省略=normal)
+#   data-slice="l,t,r,b"  data-pad="l,t,r,b"
+#   data-text="0xRRGGBB"  data-text-pressed="0xRRGGBB"
+# [data-asset="name.png"] はスキンではなく生の PNG アセットとして
+# そのまま収録する (画面背景など)。slice 値はスクショ PNG 上の px。
+
+KIT_STATE_NAMES = ("pressed", "checked", "disabled")  # manifest の順
+
+
+def kit_capture(id_):
+    """kit.html をスクショして (parts_meta, {entry名: png bytes}) を返す。"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        sys.exit("playwright が要ります。まず:\n"
+                 "  pip install playwright\n"
+                 "  playwright install chromium")
+    kit_html = os.path.join(REPO, "themes", id_, "kit.html")
+    if not os.path.isfile(kit_html):
+        sys.exit(f"{kit_html} がありません")
+    parts = {}
+    blobs = {}
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": 460, "height": 900},
+                                device_scale_factor=1)
+        page.goto("file://" + kit_html)
+        els = page.locator("[data-part]")
+        for i in range(els.count()):
+            el = els.nth(i)
+            part = el.get_attribute("data-part")
+            state = el.get_attribute("data-state") or "normal"
+            if state not in ("normal",) + KIT_STATE_NAMES:
+                sys.exit(f"未知の state: {state} (part={part})")
+            ename = part + ("" if state == "normal"
+                            else "_" + state) + ".png"
+            blobs[ename] = el.screenshot(omit_background=True)
+            meta = parts.setdefault(part, {"states": {}})
+            if state == "normal":
+                meta["img"] = ename
+                for attr, key in (("data-slice", "slice"),
+                                  ("data-pad", "pad")):
+                    v = el.get_attribute(attr)
+                    if v:
+                        meta[key] = [int(x) for x in v.split(",")]
+                for attr, key in (("data-text", "text"),
+                                  ("data-text-pressed", "text_pressed")):
+                    v = el.get_attribute(attr)
+                    if v:
+                        meta[key] = v
+            else:
+                meta["states"][state] = ename
+        assets = page.locator("[data-asset]")
+        for i in range(assets.count()):
+            el = assets.nth(i)
+            blobs[el.get_attribute("data-asset")] = \
+                el.screenshot(omit_background=True)
+        browser.close()
+    return parts, blobs
+
+
+def _cbor_quad(vals):
+    return cbor_head(4, 4) + b"".join(cbor_uint(v) for v in vals)
+
+
+def skin_cbor(parts):
+    """parts_meta → manifest の `skin` 値 (cbor map)。"""
+    pairs = []
+    for part in sorted(parts):
+        m = parts[part]
+        e = [("img", cbor_text(m["img"]))]
+        if "slice" in m:
+            e.append(("slice", _cbor_quad(m["slice"])))
+        if "pad" in m:
+            e.append(("pad", _cbor_quad(m["pad"])))
+        if "text" in m:
+            e.append(("text", cbor_text(m["text"])))
+        if "text_pressed" in m:
+            e.append(("text_pressed", cbor_text(m["text_pressed"])))
+        if m["states"]:
+            e.append(("states", cbor_map(
+                [(s, cbor_text(m["states"][s])) for s in KIT_STATE_NAMES
+                 if s in m["states"]])))
+        pairs.append((part, cbor_map(e)))
+    return cbor_map(pairs)
+
+
+def emit_kit_theme(id_, manifest, blobs):
+    """manifest.cbor + PNG 群を sim/themes/<id>/ 展開・3 箇所の zip に書く。"""
+    sim_dir = os.path.join(REPO, "sim", "themes", id_)
+    os.makedirs(sim_dir, exist_ok=True)
+    with open(os.path.join(sim_dir, "manifest.cbor"), "wb") as f:
+        f.write(manifest)
+    total = len(manifest)
+    for ename, blob in sorted(blobs.items()):
+        with open(os.path.join(sim_dir, ename), "wb") as f:
+            f.write(blob)
+        total += len(blob)
+        print(f"  {ename}  {len(blob)} B")
+
+    for out_zip in (
+        os.path.join(REPO, "sim", "themes", id_ + ".zip"),
+        os.path.join(REPO, "android", "app", "src", "main", "assets",
+                     "themes", id_ + ".zip"),
+        os.path.join(REPO, "tools", "themes", id_ + ".zip"),
+    ):
+        os.makedirs(os.path.dirname(out_zip), exist_ok=True)
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_STORED) as z:
+            z.writestr("manifest.cbor", manifest)
+            for ename, blob in sorted(blobs.items()):
+                z.writestr(ename, blob)
+        print(f"  {os.path.relpath(out_zip, REPO)}  "
+              f"{os.path.getsize(out_zip)} B (stored)")
+    print(f"  package total {total} B <= 4MiB: {total <= 4*1024*1024}")
+
+
+# kit テーマの tokens (kit.html の CSS と同じ色を manifest 側にも定義)。
+CYBER_TOKENS = {
+    "bg": "0x04070E", "surface": "0x0A1428", "surface2": "0x122038",
+    "line": "0x1E4B66", "text": "0xD8F4FF", "text_dim": "0x6E93AD",
+    "primary": "0x3EE6FF", "primary2": "0x9AF0FF",
+    "on_primary": "0x02101F", "danger": "0xFF4D6E", "ok": "0x4BE3A8",
+    "accent": "0x3EE6FF", "accent2": "0x8FA8FF", "accent3": "0x4BE3A8",
+    "accent4": "0xFF8FB8", "accent5": "0xFFB45C",
+    "bubble_bg": "0x0B1B30", "bubble_text": "0xD8F4FF",
+    "radius_sm": 8, "radius_lg": 12, "space": 8, "anim_ms": 160,
+}
+
+CUTE_TOKENS = {
+    "bg": "0xFFF3F7", "surface": "0xFFFDFE", "surface2": "0xFFF0F5",
+    "line": "0xF0D8E4", "text": "0x6B5570", "text_dim": "0x8A6E8F",
+    # primary 系は白背景上 >=4.5:1 の深めローズ (値文字/見出し/アクセント)。
+    # primary2 はアラート bg (薄ラベンダー) 上でも >=4.5:1 の深ローズ。
+    "primary": "0xC83668", "primary2": "0xB02850",
+    "on_primary": "0xFFFFFF", "danger": "0xB82C50", "ok": "0x2E9E77",
+    "accent": "0xC83668", "accent2": "0x8A5CE8", "accent3": "0x2E9E77",
+    "accent4": "0xD8893C", "accent5": "0x4A9EC8",
+    "bubble_bg": "0xFFFDFE", "bubble_text": "0x6B5570",
+    "radius_sm": 12, "radius_lg": 24, "space": 8, "anim_ms": 160,
+}
+
+KIT_THEMES = {
+    "cyber": {"name": "サイバー", "tokens": CYBER_TOKENS, "scrim": 30},
+    "cute": {"name": "キュート", "tokens": CUTE_TOKENS, "scrim": 20},
+}
+
+
+def build_kit_theme(id_):
+    spec = KIT_THEMES[id_]
+    print(f"== {id_} ==")
+    parts, blobs = kit_capture(id_)
+    fields = [
+        ("id", cbor_text(id_)), ("api", cbor_uint(1)),
+        ("name", cbor_text(spec["name"])), ("version", cbor_uint(1)),
+        ("tokens", cbor_map([(k, cbor_text(v) if isinstance(v, str)
+                              else cbor_uint(v))
+                             for k, v in spec["tokens"].items()])),
+        ("screens", cbor_map([
+            ("*", cbor_map([("bg", cbor_text("bg.png")),
+                            ("scrim", cbor_uint(spec["scrim"]))])),
+        ])),
+        ("skin", skin_cbor(parts)),
+    ]
+    emit_kit_theme(id_, cbor_map(fields), blobs)
+
+
 if __name__ == "__main__":
-    build_mame()
-    build_cosmos()
+    args = sys.argv[1:]
+    if args and args[0] == "--kit":
+        for i in (args[1:] or list(KIT_THEMES)):
+            build_kit_theme(i)
+    else:
+        build_mame()
+        build_cosmos()

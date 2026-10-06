@@ -18,7 +18,7 @@ enum class ThemeImageSlot : uint8_t {
   FaceChara,  // 文字盤 chara_* 用の立ち絵 (透過、最大 240x410)
 };
 constexpr int kThemeImageSlots = 4;
-constexpr size_t kThemeImageNameMax = 24;  // "timer_done.bin" まで
+constexpr size_t kThemeImageNameMax = 32;  // "button_secondary_disabled.png" まで
 
 // ---- v2 拡張 (manifest の追加キー。全部任意) ----------------------------
 
@@ -87,6 +87,37 @@ struct ThemeMascot {
   int16_t y = 0;              // 画像の左上 y
   uint32_t screens = 0;       // bit i = kThemeScreenNames[i] で有効
   uint8_t used = 0;           // mascot キー自体の有無
+};
+
+// "skin": 画像ベースのコンポーネントスキン (9-slice)。
+// part 名 → ThemeSkinPart。index は ThemeManifest::skin_part[] と一致。
+constexpr int kThemeSkinPartCount = 18;
+extern const char* const kThemeSkinPartNames[kThemeSkinPartCount];
+enum ThemeSkinPartId : uint8_t {
+  kSkinCard = 0,    kSkinListGroup,  kSkinRow,          kSkinDivider,
+  kSkinBtnPrimary,  kSkinBtnSecondary, kSkinBtnDanger,  kSkinBackPill,
+  kSkinHeaderBar,
+  kSkinSwitchTrack, kSkinSwitchKnob,
+  kSkinSliderTrack, kSkinSliderFill, kSkinSliderKnob,
+  kSkinIconTile,    kSkinToast,      kSkinBubble,       kSkinCaptionLine,
+};
+
+// skin state 名: {"states":{"pressed":..,"checked":..,"disabled":..}}
+constexpr int kThemeSkinStateCount = 3;
+extern const char* const kThemeSkinStateNames[kThemeSkinStateCount];
+enum ThemeSkinStateId : uint8_t {
+  kSkinStatePressed = 0, kSkinStateChecked, kSkinStateDisabled,
+};
+
+struct ThemeSkinPart {
+  char img[kThemeImageNameMax] = {};
+  char state_img[kThemeSkinStateCount][kThemeImageNameMax] = {};
+  uint8_t slice[4] = {};   // l,t,r,b (px)
+  uint8_t pad[4] = {};     // l,t,r,b (px)
+  uint32_t text = 0;
+  uint32_t text_pressed = 0;
+  uint8_t state_set = 0;   // bit i = state_img[i] 指定あり
+  uint8_t set = 0;         // bit0 img,1 slice,2 pad,3 text,4 text_pressed
 };
 
 // "face_layout": テーマ文字盤 (id "theme") の要素配置。
@@ -161,6 +192,10 @@ struct ThemeManifest {
   // 全て空なら "theme" 文字盤は既定レイアウト。
   ThemeFaceElem face_elem[kThemeFaceElemCount];
   uint8_t face_layout_set = 0;
+
+  // skin[part] が埋まった (img 指定済み) = skin_set bit i。
+  ThemeSkinPart skin_part[kThemeSkinPartCount];
+  uint32_t skin_set = 0;
 };
 
 enum class ThemeManifestError : uint8_t {

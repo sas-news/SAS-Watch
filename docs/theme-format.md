@@ -1,4 +1,4 @@
-# theme-format.md — テーマパッケージ形式 v2
+# theme-format.md — テーマパッケージ形式 v3
 
 `docs/plan.md` H 章 (Theme) と I 章 (Asset) の実装形式。
 スマホから BLE BULK (`kind:"theme"`) で時計に送られ、`assets` パーティション
@@ -251,6 +251,97 @@ v2 は zip 自体をそのまま配置するので上限 = パーティション
 - 座標は丸角の内側 (左右 22px 以上・上端 ~30px 以上) に収めるのが
   無難。要素同士が重ならないようピクセル単位で確認すること。
 
+## v3 キー詳細
+
+### `skin` — 画像スキン (9-slice)
+
+コンポーネントの見た目を PNG 画像で差し替えるキー。パーツごとの画像は
+9-slice (角=原寸、辺/中央=伸縮) で任意のサイズの部品に描画される。
+全部任意: 未指定のパーツは従来のベクタ描画のまま (`style` キーと併用可)。
+
+```jsonc
+"skin": {
+  "button_primary": {
+    "img": "button_primary.png",      // 必須 (パーツ画像)
+    "slice": [28, 33, 28, 33],        // [左,上,右,下] の不変幅 px (省略=0: 全面伸縮)
+    "states": {                        // 状態ごとの差替え画像 (任意)
+      "pressed":  "button_primary_pressed.png",
+      "checked":  "button_primary_on.png",
+      "disabled": "button_primary_disabled.png"
+    },
+    "pad": [10, 0, 10, 0],            // コンテンツの内側余白に加算 (任意)
+    "text": "0x02101F",               // パーツ内の文字色 (任意)
+    "text_pressed": "0x02101F"        // 押下中の文字色 (任意)
+  }
+}
+```
+
+| パーツ | 対象 |
+|---|---|
+| `card` | パネルカード |
+| `list_group` | 行をまとめるグループカード |
+| `row` | 一覧の行 (+`pressed` 可) |
+| `divider` | 行間の区切り線 |
+| `button_primary` / `button_secondary` / `button_danger` | 全幅ボタン (+`pressed`/`disabled`) |
+| `back_pill` | ヘッダの「‹ 戻る」ピル (+`pressed`) |
+| `header_bar` | ヘッダ帯 (410x76) |
+| `switch_track` / `switch_knob` | スイッチ (+`checked` = ON) |
+| `slider_track` / `slider_fill` / `slider_knob` | スライダー |
+| `icon_tile` | 行アイコンの 36x36 タイル |
+| `toast` | マスコットのセリフ吹き出し |
+| `bubble` | 文字盤の吹き出し |
+| `caption_line` | セクション見出し下のアンダーライン (任意) |
+
+- `slice`: 画像の左/上/右/下端を固定する幅 (px)。角はそのまま、辺と中央が
+  伸縮する。合計が対象サイズを超えるときは自動で縮む (潰れない)。
+- `states`: LVGL の state 名。未指定の状態は `img` にフォールバック。
+- `pad`: 部品の padding に加算される (画像の飾りが文字に被らないよう)。
+- 状態切替は画像差替えのみ (LVGL state で即座に切り替わる。再生成なし)。
+- skin 画像はテーマ適用時にまとめてグローバル領域へロードして常駐。
+  小さいパーツ群前提 (サンプルは ~650 KB/テーマ)。
+- 角丸・角切り・影は画像の α をそのまま使うので自由な形が作れる。
+- 画像ファイル名は 32 文字まで (`kThemeImageNameMax`)。
+
+### キット (kit.html) でスキンを作る
+
+`themes/<id>/kit.html` に全部のパーツを CSS で描き、
+`tools/build_themes.py --kit` が headless Chromium (Playwright) で
+要素ごと透過 PNG スクショ → manifest の `skin` ブロックを自動生成 →
+zip まで一括で作る。サンプルは `themes/cyber/kit.html` / `themes/cute/kit.html`。
+
+#### 使い方 (クリック単位)
+
+1. `pip install playwright`
+2. `playwright install chromium`  (初回だけ。headless Chrome を落とす)
+3. `themes/<id>/kit.html` を書く (`themes/cyber/kit.html` をコピーするのが早い)
+4. `python3 tools/build_themes.py --kit <id>` を実行
+   → `sim/themes/<id>.zip` (sim が読む) + `sim/themes/<id>/` 展開 +
+   `android/app/src/main/assets/themes/<id>.zip` + `tools/themes/<id>.zip`
+
+kit.html の書き方:
+
+- スキンにしたい要素に `data-part="<パーツ名>"` を付け、実寸 (watch px) の
+  `width`/`height` を style で指定する。要素の領域がそのまま PNG になる。
+- `data-slice="l,t,r,b"` : slice 値 (その PNG 上の px)。
+- `data-pad="l,t,r,b"` : pad (省略可)。
+- `data-text="0xRRGGBB"` / `data-text-pressed="0xRRGGBB"` : 文字色 (省略可)。
+- 状態違いは別要素に `data-state="pressed|checked|disabled"` を付けて作る。
+- スキン以外の画像は `data-asset="file.png"` でそのまま PNG 出力される
+  (画面背景 `bg.png` などに使う)。
+- 要素の背景を透過にしておけば PNG は α 付きで切り抜かれる。
+  グロー/影 (box-shadow, drop-shadow) が要素の矩形をはみ出ると切れるので、
+  外側に透明パディングを入れる (cyber/cute の `--m` 変数の要領)。
+  slice 値はこの透明パディングを含めた PNG 上の px で指定すること。
+
+#### Figma から持ってくる場合
+
+Figma で各パーツを PNG 書き出ししてファイル名を合わせれば kit.html は不要:
+
+- ファイル名: `<part>.png` (通常) / `<part>_<state>.png` (状態)
+  例: `button_primary.png`、`button_primary_pressed.png`
+- `slice`/`pad`/`text` は自分で manifest.cbor に書くか、
+  `--kit` が生成した `sim/themes/<id>/manifest.cbor` を参考にする。
+
 ## 画像形式
 
 ### `.bin` = LVGL バイナリ画像 (v1)
@@ -284,7 +375,8 @@ offset  size  内容
 2領域に分けて使う:
 
 - **グローバル領域 (~1.6 MiB)**: manifest 適用時に `images` 4スロット、
-  `icons`、`mascot` 表情、`fonts`、face 用 chara をまとめてロード。
+  `icons`、`mascot` 表情、`fonts`、face 用 chara、**`skin` パーツ画像**
+  (9領域に分割した RGB565A8) をまとめてロード。
   テーマを変えるまで常駐。
 - **画面背景領域 (2ブロック x 640 KiB)**: `screens.<画面>.bg` は
   画面生成時にだけロードし、`LV_EVENT_DELETE` (閉じる/遷移) で解放。
@@ -328,3 +420,4 @@ offset  size  内容
 | 画像1枚 | 410x502 まで | 画面サイズ |
 | mascot lines | 8件 x 48B | ThemeMascot 固定長 |
 | icons | 12件 | ThemeIcon 固定長 |
+| skin パーツ | 18種 x 状態4枚 | ThemeSkinPart 固定長。実測 ~0.65 MiB/テーマ |

@@ -123,7 +123,169 @@ struct DscSlot {
 };
 DscSlot s_dscs[48] = {};
 
+// ---- v3: skin 9-slice ロード ----
+
+// skin 画像の寸法上限 (header_bar 410x76、ボタン 366x58 などが収まる)。
+constexpr uint16_t kSkinMaxW = 410;
+constexpr uint16_t kSkinMaxH = 200;
+uint32_t s_skin_bytes = 0;
+
+// ファイル全体を tmp にデコードして dsc を組み立てる。
+// 戻り値: 解放すべき tmp バッファ (nullptr=失敗)。dsc->data は tmp 内を指す。
+uint8_t* load_full_dsc(const char* id, const char* file,
+                       lv_image_dsc_t* dsc) {
+  uint32_t sz = 0;
+  if (!ui::port::theme_entry_stat(id, file, &sz) || sz == 0 ||
+      sz > kPngSrcMax) {
+    return nullptr;
+  }
+  const bool png = ends_png(file);
+  // .bin はそのまま、.png は RGB565A8 最大サイズで見積もる。
+  const uint32_t cap =
+      png ? (12u + static_cast<uint32_t>(kSkinMaxW) * kSkinMaxH * 3u) : sz;
+  uint8_t* tmp = ui::port::theme_tmp_alloc(cap);
+  if (!tmp) return nullptr;
+  const uint32_t n =
+      png ? decode_png(id, file, tmp, cap, kSkinMaxW, kSkinMaxH, dsc)
+          : decode_bin(id, file, tmp, cap, kSkinMaxW, kSkinMaxH, dsc);
+  if (!n) {
+    ui::port::theme_tmp_free(tmp);
+    return nullptr;
+  }
+  return tmp;
+}
+
+// dsc (RGB565A8 or RGB565) の矩形 (rx,ry,rw,rh) をアリーナに
+// コピーして独立した画像にする。戻り値: アリーナ内 dsc (nullptr=失敗)。
+lv_image_dsc_t* copy_region(const lv_image_dsc_t* src, uint16_t rx,
+                            uint16_t ry, uint16_t rw, uint16_t rh) {
+  const bool a8 = src->header.cf == LV_COLOR_FORMAT_RGB565A8;
+  const uint16_t sw = src->header.w;
+  const uint32_t px = static_cast<uint32_t>(rw) * rh;
+  const uint32_t need = px * (a8 ? 3u : 2u);
+  uint8_t* dst = ui::port::theme_asset_alloc(need);
+  if (!dst) return nullptr;
+  const uint8_t* csrc = src->data + (static_cast<uint32_t>(ry) * sw + rx) * 2;
+  uint8_t* cdst = dst;
+  for (uint16_t y = 0; y < rh; ++y) {
+    std::memcpy(cdst, csrc, rw * 2);
+    cdst += rw * 2;
+    csrc += sw * 2;
+  }
+  if (a8) {
+    const uint8_t* asrc =
+        src->data + static_cast<uint32_t>(sw) * src->header.h * 2 +
+        static_cast<uint32_t>(ry) * sw + rx;
+    uint8_t* adst = dst + px * 2;
+    for (uint16_t y = 0; y < rh; ++y) {
+      std::memcpy(adst, asrc, rw);
+      adst += rw;
+      asrc += sw;
+    }
+  }
+  s_skin_bytes += need;
+  // バッファをアリーナに確保してから dsc をそこに組み立てる
+  lv_image_dsc_t* d = reinterpret_cast<lv_image_dsc_t*>(
+      ui::port::theme_asset_alloc(sizeof(lv_image_dsc_t)));
+  if (!d) return nullptr;
+  s_skin_bytes += sizeof(lv_image_dsc_t);
+  std::memset(d, 0, sizeof(*d));
+  d->header.magic = LV_IMAGE_HEADER_MAGIC;
+  d->header.cf = src->header.cf;
+  d->header.w = rw;
+  d->header.h = rh;
+  d->header.stride = static_cast<uint16_t>(rw * 2);
+  d->data_size = need;
+  d->data = dst;
+  return d;
+}
+
+// 9-slice 分割して SkinImg (アリーナ内) を返す。slice 全0 なら全体1枚。
+const SkinImg* img_load_sliced(const char* id, const char* file,
+                               const uint8_t slice[4]) {
+  lv_image_dsc_t full;
+  uint8_t* tmp = load_full_dsc(id, file, &full);
+  if (!tmp) return nullptr;
+  const uint16_t w = full.header.w;
+  const uint16_t h = full.header.h;
+  // slice を画像内に収める (入らなければ描画側と同じく縮める。
+  // 角が潰れてもパーツごとベクタに落ちるよりマシ)。
+  uint8_t sl[4] = {slice[0], slice[1], slice[2], slice[3]};
+  if (static_cast<uint16_t>(sl[0]) + sl[2] > w) {
+    sl[0] = static_cast<uint8_t>(w / 2);
+    sl[2] = static_cast<uint8_t>(w - sl[0]);
+  }
+  if (static_cast<uint16_t>(sl[1]) + sl[3] > h) {
+    sl[1] = static_cast<uint8_t>(h / 2);
+    sl[3] = static_cast<uint8_t>(h - sl[1]);
+  }
+  SkinImg* si = reinterpret_cast<SkinImg*>(
+      ui::port::theme_asset_alloc(sizeof(SkinImg)));
+  if (!si) {
+    ui::port::theme_tmp_free(tmp);
+    return nullptr;
+  }
+  s_skin_bytes += sizeof(SkinImg);
+  std::memset(si->reg, 0, sizeof(si->reg));
+  std::memcpy(si->slice, sl, 4);
+
+  if (sl[0] == 0 && sl[1] == 0 && sl[2] == 0 && sl[3] == 0) {
+    // 分割なし: 中央領域に全体 (全面伸縮で使う)。
+    const lv_image_dsc_t* c = copy_region(&full, 0, 0, w, h);
+    if (!c) {
+      ui::port::theme_tmp_free(tmp);
+      return nullptr;
+    }
+    si->reg[4] = *c;
+  } else {
+    const uint16_t xs[4] = {0, sl[0], static_cast<uint16_t>(w - sl[2]), w};
+    const uint16_t ys[4] = {0, sl[1], static_cast<uint16_t>(h - sl[3]), h};
+    for (int r = 0; r < 3; ++r) {
+      for (int cix = 0; cix < 3; ++cix) {
+        const int rw = xs[cix + 1] - xs[cix];
+        const int rh = ys[r + 1] - ys[r];
+        const int idx = r * 3 + cix;
+        if (rw <= 0 || rh <= 0) continue;
+        const lv_image_dsc_t* d =
+            copy_region(&full, xs[cix], ys[r], static_cast<uint16_t>(rw),
+                        static_cast<uint16_t>(rh));
+        if (!d) {
+          ui::port::theme_tmp_free(tmp);
+          return nullptr;
+        }
+        si->reg[idx] = *d;
+      }
+    }
+  }
+  ui::port::theme_tmp_free(tmp);
+  return si;
+}
+
+// SkinSet の静的プール (アリーナ reset と同期して空にする)。
+SkinSet s_skin_sets[watch::kThemeSkinPartCount] = {};
+uint8_t s_skin_set_used = 0;
+
 }  // namespace
+
+const SkinSet* skin_load(const char* id, const watch::ThemeSkinPart& part) {
+  if (!id || !part.img[0] ||
+      s_skin_set_used >= watch::kThemeSkinPartCount) {
+    return nullptr;
+  }
+  const SkinImg* n = img_load_sliced(id, part.img, part.slice);
+  if (!n) return nullptr;
+  SkinSet* ss = &s_skin_sets[s_skin_set_used++];
+  ss->img[0] = n;
+  for (int i = 0; i < watch::kThemeSkinStateCount; ++i) {
+    ss->img[1 + i] = (part.state_set & (1u << i))
+                         ? img_load_sliced(id, part.state_img[i], part.slice)
+                         : nullptr;
+    // state 画像が読めなくても normal にフォールバックするので継続。
+  }
+  return ss;
+}
+
+uint32_t skin_bytes() { return s_skin_bytes; }
 
 uint32_t img_decode(const char* id, const char* file, uint8_t* dst,
                     uint32_t cap, uint16_t max_w, uint16_t max_h,
@@ -233,6 +395,10 @@ void reset() {
   for (auto& d : s_dscs) {
     d.used = false;
   }
+  // skin も全てアリーナ内なのでインデックスだけ戻す。
+  s_skin_set_used = 0;
+  s_skin_bytes = 0;
+  std::memset(s_skin_sets, 0, sizeof(s_skin_sets));
 }
 
 }  // namespace theme_res

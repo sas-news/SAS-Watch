@@ -336,6 +336,9 @@ lv_obj_t* alert_button(lv_obj_t* parent, const char* text, bool primary,
   lv_obj_set_style_text_font(l, t.font_body, 0);
   lv_obj_set_style_text_color(l, primary ? t.on_primary : t.text, 0);
   lv_obj_center(l);
+  // 画像スキンがあればボタン part で描く (無ければ上のベクタのまま)。
+  ui::c::skin_obj(b, primary ? watch::kSkinBtnPrimary
+                             : watch::kSkinBtnSecondary);
   lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
   return b;
 }

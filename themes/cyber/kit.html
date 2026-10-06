@@ -1,0 +1,228 @@
+<!doctype html>
+<!-- cyber テーマのスキン素材キット。
+     各 [data-part] は tools/build_themes.py --kit cyber が実寸で
+     透過 PNG スクショする。デザインは全部 CSS の自作アート。
+     .shot の padding はグロー用の透明マージン (slice 値に含める)。 -->
+<meta charset="utf-8">
+<style>
+:root{
+  --bg:#04070E; --panel:#0A1428; --panel2:#10203A;
+  --cy:#3EE6FF; --cyD:#1E6E8C; --mg:#FF5CA8; --dg:#FF4D6E;
+  --tx:#D8F4FF;
+}
+html,body{margin:0;background:transparent;font:13px/1.4 sans-serif;color:#9fd}
+.wrap{width:430px}
+h1{font-size:15px;margin:10px 0 4px}
+h2{font-size:11px;margin:14px 0 6px;color:#5ac}
+.shot{display:inline-block;position:relative;background:transparent}
+.shot>.a{position:absolute;left:var(--m,0px);top:var(--m,0px);
+  right:var(--m,0px);bottom:var(--m,0px)}
+.lab{display:block;font-size:10px;color:#48a;margin:4px 0 8px}
+
+/* 角切り (HUD オクタゴン) — 外=縁色、内=塗り。フィルタの drop-shadow
+   はクリップ後の形に付くのでグローも切り抜き形状に沿う */
+.oct{position:absolute;inset:0;filter:drop-shadow(0 0 5px rgba(62,230,255,.45))}
+.oct::before{content:"";position:absolute;inset:0;background:var(--bd,var(--cyD))}
+.oct::after{content:"";position:absolute;inset:var(--bw,2px);background:var(--fl,var(--panel))}
+.oct.cut20::before,.oct.cut20::after{clip-path:polygon(20px 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%,0 20px)}
+.oct.cut18::before,.oct.cut18::after{clip-path:polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%,0 18px)}
+.oct.cut14::before,.oct.cut14::after{clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)}
+.oct.cut10::before,.oct.cut10::after{clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+.oct.cut6::before,.oct.cut6::after{clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)}
+/* スキャンライン重ね (after の上にさらに被せる層) */
+.scan{position:absolute;inset:var(--bw,2px);pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(62,230,255,.055) 0 1px,transparent 1px 4px)}
+</style>
+<div class="wrap">
+<h1>cyber skin kit</h1>
+
+<h2>header_bar 410x76</h2>
+<div class="shot" data-part="header_bar" data-slice="60,38,60,38"
+     style="width:410px;height:76px">
+  <div class="a" style="background:linear-gradient(180deg,#0B1B30FA,#081226FA);
+    box-shadow:inset 0 -2px 0 #2596B8;
+    border-bottom:1px solid rgba(62,230,255,.35)">
+    <div class="scan" style="--bw:0;inset:0"></div>
+    <!-- コーナーブラケット (画面の角Rを避けて x>=30,y>=22 の安全域) -->
+    <div style="position:absolute;left:30px;top:22px;width:12px;height:12px;
+      border-left:2px solid #3EE6FF;border-top:2px solid #3EE6FF;opacity:.8"></div>
+    <div style="position:absolute;right:30px;top:22px;width:12px;height:12px;
+      border-right:2px solid #3EE6FF;border-top:2px solid #3EE6FF;opacity:.8"></div>
+  </div>
+</div>
+
+<h2>back_pill 96x48 (+pressed)</h2>
+<div class="shot" data-part="back_pill" data-slice="16,16,16,16" data-pad="6,0,6,0"
+     style="width:96px;height:48px;--m:4px">
+  <div class="oct cut10" style="--bd:#3EE6FF;--fl:#12304E;--bw:2px"></div>
+</div>
+<div class="shot" data-part="back_pill" data-state="pressed"
+     style="width:96px;height:48px;--m:4px">
+  <div class="oct cut10" style="--bd:#9AF0FF;--fl:#1D4B74;--bw:2px;
+    filter:drop-shadow(0 0 8px rgba(62,230,255,.8))"></div>
+</div>
+
+<h2>list_group 366x160 / card 366x120</h2>
+<div class="shot" data-part="list_group" data-slice="30,30,30,30" data-pad="4,4,4,4"
+     style="width:366px;height:160px;--m:8px">
+  <div class="oct cut18" style="--bd:#2A6E8C;--fl:#0A1428F2;--bw:2px"></div>
+  <div class="scan" style="--bw:2px;inset:10px"></div>
+</div>
+<div class="shot" data-part="card" data-slice="30,30,30,30" data-pad="4,4,4,4"
+     style="width:366px;height:120px;--m:8px">
+  <div class="oct cut18" style="--bd:#2A6E8C;--fl:#0A1428F2;--bw:2px"></div>
+  <div class="scan" style="--bw:2px;inset:10px"></div>
+</div>
+
+<h2>row 366x60 (+pressed)</h2>
+<div class="shot" data-part="row" data-slice="30,20,30,20"
+     style="width:366px;height:60px">
+  <div class="a" style="background:rgba(14,28,48,.5)"></div>
+</div>
+<div class="shot" data-part="row" data-state="pressed"
+     style="width:366px;height:60px">
+  <div class="a" style="background:rgba(62,230,255,.16);
+    box-shadow:inset 3px 0 0 #3EE6FF,inset 0 0 18px rgba(62,230,255,.2)"></div>
+</div>
+
+<h2>divider 366x4</h2>
+<div class="shot" data-part="divider" data-slice="40,0,40,0"
+     style="width:366px;height:4px">
+  <div class="a" style="background:linear-gradient(90deg,
+    transparent,#2A6E8C 12%,#3EE6FF 50%,#2A6E8C 88%,transparent);
+    border-radius:2px"></div>
+</div>
+
+<h2>buttons 366x58 (primary / secondary / danger, +pressed +disabled)</h2>
+<div class="shot" data-part="button_primary" data-slice="28,24,28,24"
+     data-pad="10,0,10,0" data-text="0x02101F" data-text-pressed="0x02101F"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#9AF0FF;--fl:linear-gradient(135deg,#6FE9FF,#2FB8E8);--bw:2px"></div>
+</div>
+<div class="shot" data-part="button_primary" data-state="pressed"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#EAFBFF;--fl:linear-gradient(135deg,#A8F1FF,#4CD0F5);--bw:2px;
+    filter:drop-shadow(0 0 10px rgba(120,235,255,.9))"></div>
+</div>
+<div class="shot" data-part="button_primary" data-state="disabled"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#3A4A5C;--fl:#31404F;--bw:2px;filter:none"></div>
+</div>
+<div class="shot" data-part="button_secondary" data-slice="28,24,28,24"
+     data-pad="10,0,10,0" data-text="0xD8F4FF" data-text-pressed="0xD8F4FF"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#2A6E8C;--fl:#122038;--bw:2px"></div>
+</div>
+<div class="shot" data-part="button_secondary" data-state="pressed"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#3EE6FF;--fl:#1D3358;--bw:2px;
+    filter:drop-shadow(0 0 8px rgba(62,230,255,.6))"></div>
+</div>
+<div class="shot" data-part="button_secondary" data-state="disabled"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#2C3A4C;--fl:#141C2A;--bw:2px;filter:none"></div>
+</div>
+<div class="shot" data-part="button_danger" data-slice="28,24,28,24"
+     data-pad="10,0,10,0" data-text="0xFF8FA5" data-text-pressed="0xFFD0DA"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#FF4D6E;--fl:#33101C;--bw:2px;
+    filter:drop-shadow(0 0 5px rgba(255,77,110,.4))"></div>
+</div>
+<div class="shot" data-part="button_danger" data-state="pressed"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#FF8FA5;--fl:#4C1828;--bw:2px;
+    filter:drop-shadow(0 0 9px rgba(255,77,110,.8))"></div>
+</div>
+<div class="shot" data-part="button_danger" data-state="disabled"
+     style="width:366px;height:58px;--m:4px">
+  <div class="oct cut20" style="--bd:#4A3A44;--fl:#1E141C;--bw:2px;filter:none"></div>
+</div>
+
+<h2>switch_track 52x30 (+checked) / switch_knob 36x36 (+checked)</h2>
+<div class="shot" data-part="switch_track" data-slice="19,0,19,0"
+     style="width:52px;height:30px;--m:3px">
+  <div class="a" style="border-radius:15px;background:#0F1E36;
+    box-shadow:inset 0 0 0 2px #2A6E8C"></div>
+</div>
+<div class="shot" data-part="switch_track" data-state="checked"
+     style="width:52px;height:30px;--m:3px">
+  <div class="a" style="border-radius:15px;
+    background:linear-gradient(180deg,#4CE8FF,#1FA8D8);
+    box-shadow:inset 0 0 0 2px #9AF0FF,0 0 8px rgba(62,230,255,.8)"></div>
+</div>
+<div class="shot" data-part="switch_knob" data-slice="18,18,18,18"
+     style="width:36px;height:36px;--m:3px">
+  <div class="a" style="border-radius:50%;background:radial-gradient(circle at 35% 32%,#B8E9F5,#5A8EA6 70%,#3A6278);
+    box-shadow:0 1px 3px rgba(0,0,0,.6),inset 0 0 0 2px #9AF0FF"></div>
+</div>
+<div class="shot" data-part="switch_knob" data-state="checked"
+     style="width:36px;height:36px;--m:3px">
+  <div class="a" style="border-radius:50%;background:radial-gradient(circle at 35% 32%,#FFF,#C8F2FF 70%,#7ADCF5);
+    box-shadow:0 0 8px rgba(62,230,255,.9),inset 0 0 0 2px #EAFBFF"></div>
+</div>
+
+<h2>slider_track / slider_fill 366x10 / slider_knob 24x24</h2>
+<div class="shot" data-part="slider_track" data-slice="8,0,8,0"
+     style="width:366px;height:10px">
+  <div class="a" style="border-radius:5px;background:#0F1E36;
+    box-shadow:inset 0 0 0 1px #2A6E8C"></div>
+</div>
+<div class="shot" data-part="slider_fill" data-slice="8,0,8,0"
+     style="width:366px;height:10px">
+  <div class="a" style="border-radius:5px;
+    background:linear-gradient(90deg,#1FA8D8,#4CE8FF 85%,#C8F6FF);
+    box-shadow:0 0 6px rgba(62,230,255,.55)"></div>
+</div>
+<div class="shot" data-part="slider_knob" data-slice="12,12,12,12"
+     style="width:24px;height:24px">
+  <div class="a" style="border-radius:50%;background:radial-gradient(circle at 35% 32%,#FFF,#C8F2FF 65%,#6AD4EE);
+    box-shadow:0 0 6px rgba(62,230,255,.8),inset 0 0 0 2px #3EE6FF"></div>
+</div>
+
+<h2>icon_tile 36x36</h2>
+<div class="shot" data-part="icon_tile" data-slice="10,10,10,10"
+     data-text="0xD8F4FF"
+     style="width:36px;height:36px;--m:4px">
+  <div class="oct cut6" style="--bd:#3EE6FF;--fl:#12203A;--bw:1.5px"></div>
+</div>
+
+<h2>toast 200x44 / bubble 300x64</h2>
+<div class="shot" data-part="toast" data-slice="22,22,22,22" data-pad="4,2,4,2"
+     style="width:200px;height:44px;--m:6px">
+  <div class="oct cut14" style="--bd:#3EE6FF;--fl:#0B1B30F5;--bw:2px"></div>
+  <div class="scan" style="--bw:2px;inset:8px"></div>
+</div>
+<div class="shot" data-part="bubble" data-slice="40,14,14,20" data-pad="4,2,4,6"
+     style="width:300px;height:64px;--m:4px">
+  <!-- しっぽは左下コーナー領域に収める (slice l=40) -->
+  <div class="a">
+    <div style="position:absolute;left:0;right:0;top:0;bottom:8px;
+      border-radius:14px;background:#0B1B30F5;
+      box-shadow:inset 0 0 0 2px #3EE6FF,0 0 6px rgba(62,230,255,.35)"></div>
+    <div style="position:absolute;left:14px;bottom:0;width:0;height:0;
+      border-left:9px solid transparent;border-right:9px solid transparent;
+      border-top:10px solid #3EE6FF"></div>
+    <div style="position:absolute;left:16.5px;bottom:2.5px;width:0;height:0;
+      border-left:6.5px solid transparent;border-right:6.5px solid transparent;
+      border-top:7px solid #0B1B30"></div>
+  </div>
+</div>
+
+<h2>caption_line 366x4</h2>
+<div class="shot" data-part="caption_line" data-slice="40,0,40,0"
+     style="width:366px;height:4px">
+  <div class="a" style="background:linear-gradient(90deg,
+    #3EE6FF,#2A6E8C 30%,transparent);height:2px;top:1px;border-radius:1px;
+    position:relative"></div>
+</div>
+
+<h2>screen bg 410x502 (data-asset)</h2>
+<div class="shot" data-asset="bg.png" style="width:410px;height:502px">
+  <div class="a" style="background:
+    radial-gradient(120% 60% at 50% -10%,rgba(62,230,255,.14),transparent 60%),
+    repeating-linear-gradient(0deg,rgba(62,230,255,.045) 0 1px,transparent 1px 5px),
+    repeating-linear-gradient(90deg,rgba(62,230,255,.04) 0 1px,transparent 1px 64px),
+    linear-gradient(180deg,#060D1C,#030509)"></div>
+</div>
+
+</div>

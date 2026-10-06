@@ -12,6 +12,7 @@
 
 #include <cstdio>
 
+#include "../components.hpp"
 #include "../theme.hpp"
 #include "ui/face_data.hpp"
 #include "ui/port.hpp"
@@ -141,6 +142,8 @@ lv_obj_t* build(lv_obj_t* scr) {
     lv_obj_set_style_pad_bottom(box, 8, 0);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE);
+    // v3 skin: ふきだし画像があれば枠/塗りを画像に置き換える。
+    ui::c::skin_obj(box, watch::kSkinBubble);
     lv_obj_t* l = ui::face::label(box, t.bubble[0],
                                   (e.set & (1u << 4)) ? pick_font(t, e.font)
                                                       : t.font_body,

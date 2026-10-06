@@ -101,7 +101,8 @@ bool load_file_theme(const char* id, Theme* out) {
       len > kManifestMax) {
     return false;
   }
-  watch::ThemeManifest m;
+  // LVGL コンテキスト内のみから呼ばれるので static でスタックを節約。
+  static watch::ThemeManifest m;
   if (watch::theme_manifest_parse(data, len, &m) !=
           watch::ThemeManifestError::kOk ||
       std::strcmp(m.id, id) != 0) {
@@ -110,7 +111,7 @@ bool load_file_theme(const char* id, Theme* out) {
 
   // 欠けた Token は standard で補完する。
   Theme t = *builtin_theme("standard");
-  for (int i = 0; i < 16; ++i) {
+  for (int i = 0; i < 19; ++i) {
     if (m.color_set & (1u << i)) {
       *color_at(&t, i) = lv_color_hex(m.color[i]);
     }
@@ -173,6 +174,20 @@ bool load_file_theme(const char* id, Theme* out) {
         theme_res::img_load(id, m.face_elem[watch::kThemeFaceElemChara].img,
                             410, 502);
   }
+
+  // ---- v3: skin (9-slice 画像スキン) ----
+  t.skin_set = m.skin_set;
+  std::memcpy(t.skin_part, m.skin_part, sizeof(t.skin_part));
+  for (int i = 0; i < watch::kThemeSkinPartCount; ++i) {
+    if (!(m.skin_set & (1u << i))) continue;
+    t.skin[i] = theme_res::skin_load(id, m.skin_part[i]);
+    // 読めない part は nullptr のまま → ベクタ描画フォールバック。
+#ifndef ESP_PLATFORM
+    std::fprintf(stderr, "skin[%s] %s -> %s\n", watch::kThemeSkinPartNames[i],
+                 m.skin_part[i].img, t.skin[i] ? "ok" : "NULL");
+#endif
+  }
+  t.skin_bytes = theme_res::skin_bytes();
 
   // ふきだし文言は manifest 指定分だけ差し替え (残りは standard の既定)。
   for (int i = 0; i < 5; ++i) {
@@ -243,5 +258,12 @@ bool theme_mascot_on(int screen_index) {
   }
   return t.mascot.screens & (1u << screen_index);
 }
+
+const theme_res::SkinSet* theme_skin(watch::ThemeSkinPartId part) {
+  if (part < 0 || part >= watch::kThemeSkinPartCount) return nullptr;
+  return theme().skin[part];
+}
+
+uint32_t theme_skin_bytes() { return theme().skin_bytes; }
 
 }  // namespace ui

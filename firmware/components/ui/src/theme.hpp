@@ -6,6 +6,10 @@
 #include "lvgl.h"
 #include "watch/theme/manifest.hpp"
 
+namespace theme_res {
+struct SkinSet;
+}
+
 namespace ui {
 
 struct Theme {
@@ -68,6 +72,14 @@ struct Theme {
   uint32_t face_layout_set = 0;
   // face_layout で指定した画像の dsc (chara 用)。
   const lv_image_dsc_t* face_chara_dsc = nullptr;
+
+  // ---- v3: skin (9-slice 画像スキン) ----
+  // skin_part = manifest 定義 (slice/pad/text)。skin[i] = ロード済み画像
+  // (nullptr = その part はベクタ描画)。skin_set bit i = part 指定あり。
+  watch::ThemeSkinPart skin_part[watch::kThemeSkinPartCount] = {};
+  const theme_res::SkinSet* skin[watch::kThemeSkinPartCount] = {};
+  uint32_t skin_set = 0;
+  uint32_t skin_bytes = 0;  // skin 画像がアリーナで使った合計 (報告用)
 };
 
 // 現在有効な Theme (適用済みスナップショット)。
@@ -91,6 +103,10 @@ const watch::ThemeScreenSkin* theme_screen_skin(int screen_index);
 const lv_image_dsc_t* theme_icon(const char* app_id);
 // マスコットがその画面で有効か (manifest.screens マスク)。
 bool theme_mascot_on(int screen_index);
+// part のロード済みスキン画像セット (無ければ nullptr → ベクタ描画)。
+const theme_res::SkinSet* theme_skin(watch::ThemeSkinPartId part);
+// ロード済みスキン画像の合計バイト数 (0=skin 無し)。
+uint32_t theme_skin_bytes();
 
 // theme id を適用 (theme_manager.cpp)。
 //   内蔵 → コピー。file → port::theme_asset_* で読んで構築。

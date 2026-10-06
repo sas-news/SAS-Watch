@@ -36,6 +36,9 @@ void emit(watch::ActionType type, uint32_t arg0 = 0);
 // text を持つ Action (SetTheme など) を投げる。
 void emit_text(watch::ActionType type, const char* text);
 
+// 現テーマの skin 画像がアリーナで使っている合計バイト数 (0 = skin 無し)。
+uint32_t theme_skin_bytes();
+
 // firmware 用: パネル・LVGLタスク・タッチを立ち上げ、既定 display を返す。
 // sim では自分で lv_display_create するので呼ばない。
 lv_display_t* init_display();

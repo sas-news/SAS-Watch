@@ -97,4 +97,9 @@ lv_obj_t* status_dot(lv_obj_t* parent, lv_color_t col);
 // ドットの色を変える。
 void set_dot(lv_obj_t* dot, lv_color_t col);
 
+// v3 skin: obj に part の画像スキンを貼る (9-slice)。画像があれば
+// ベクタ背景を消して true、なければ何もせず false。face など
+// 共通コンポーネント外のオブジェクトにも使える。
+bool skin_obj(lv_obj_t* o, watch::ThemeSkinPartId part);
+
 }  // namespace ui::c
