@@ -33,6 +33,10 @@ constexpr lv_coord_t kKnob = 24;
 // 「グループ内のブロック」か「自分のグループ」かを決めるのに使う)。
 void* const kGroupTag = const_cast<char*>("ui::c::group");
 
+// content() で作ったスクロール領域のマーカー (mascot が下端に
+// 退避領域を作るのに使う)。
+void* const kContentTag = const_cast<char*>("ui::c::content");
+
 // CLICKED は画面ルートまでバブルするので、ルートの cb 1つで
 // 全ボタン/行タップのクリック音を拾える。
 void on_any_click(lv_event_t*) { ui::port::click(); }
@@ -195,6 +199,7 @@ lv_obj_t* content(lv_obj_t* scr) {
   lv_obj_add_flag(c, LV_OBJ_FLAG_SCROLLABLE);
   // スクロールバーは出さない (腕時計 UI、カードの上に太く被さるため)。
   lv_obj_set_scrollbar_mode(c, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_user_data(c, kContentTag);
   (void)t;
   return c;
 }
@@ -494,6 +499,11 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   lv_obj_set_width(s, LV_PCT(100));
   lv_obj_set_height(s, kTrackH);
   lv_slider_set_range(s, min, max);
+  // MAIN pad は LVGL がトラック (indic_area) と値マッピングの両方を
+  // 内側にずらすのに使う (lv_bar.c)。ノブ半径分を左右に入れて、
+  // 最小/最大でノブがトラック端より外に切れるのを防ぐ。
+  lv_obj_set_style_pad_left(s, kKnob / 2, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(s, kKnob / 2, LV_PART_MAIN);
   lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_MAIN);
   lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(s, t.line, LV_PART_MAIN);
@@ -670,14 +680,31 @@ lv_obj_t* mascot(lv_obj_t* scr, int screen_index) {
   const int32_t h = t.mascot_dsc[0]->header.h;
   lv_obj_t* im = lv_image_create(scr);
   lv_image_set_src(im, t.mascot_dsc[0]);
-  const int32_t x = t.mascot.x < 0 ? kW + t.mascot.x - w : t.mascot.x;
-  const int32_t y = t.mascot.y < 0 ? 502 + t.mascot.y - h : t.mascot.y;
+  int32_t x = t.mascot.x < 0 ? kW + t.mascot.x - w : t.mascot.x;
+  int32_t y = t.mascot.y < 0 ? 502 + t.mascot.y - h : t.mascot.y;
+  // 丸角 (~44px) の内側の安全域に収める: 端から 22px 以内は使わない。
+  if (x < 22) x = 22;
+  if (x > kW - 22 - w) x = kW - 22 - w;
+  if (y < 22) y = 22;
+  if (y > 502 - 22 - h) y = 502 - 22 - h;
   lv_obj_set_pos(im, x, y);
   clickable(im);
   lv_obj_add_event_cb(im, mascot_tap, LV_EVENT_CLICKED, st);
   // 画面が消えるときプールを解放 (タイマーが残って DANGLING しないよう)。
   lv_obj_add_event_cb(im, mascot_free, LV_EVENT_DELETE, st);
   st->img = im;
+
+  // マスコットが UI に被らないよう、スクロール領域 (content) の下に
+  // 退避スペースを足す。最後の要素がマスコット上端の 8px 上で終わる。
+  const int32_t need = 502 - y + 8;
+  const uint32_t nch = lv_obj_get_child_count(scr);
+  for (uint32_t i = 0; i < nch; ++i) {
+    lv_obj_t* ch = lv_obj_get_child(scr, static_cast<int32_t>(i));
+    if (lv_obj_get_user_data(ch) == kContentTag &&
+        lv_obj_get_style_pad_bottom(ch, LV_PART_MAIN) < need) {
+      lv_obj_set_style_pad_bottom(ch, need, 0);
+    }
+  }
 
   // 吹き出し (最初は非表示)。上に張り付くので画面座標で置く。
   lv_obj_t* bub = flat(scr);
@@ -692,6 +719,8 @@ lv_obj_t* mascot(lv_obj_t* scr, int screen_index) {
   lv_obj_set_style_pad_bottom(bub, 6, 0);
   lv_obj_t* lbl = mk_label(bub, "", t.font_body, t.text);
   lv_obj_set_width(lbl, 170);
+  // 吹き出し自身はタップを取らない (出ている間に下の操作を塞がない)。
+  lv_obj_remove_flag(bub, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(bub, LV_OBJ_FLAG_HIDDEN);
   st->bub = bub;
   st->lbl = lbl;

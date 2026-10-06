@@ -474,6 +474,22 @@ int main(int argc, char** argv) {
   tap(205, 387);  // 止める
   pump(300);
 
+  // cosmos の face_chara は images スロット経由で既存文字盤にも効く。
+  // chara 系レイアウトを cosmos 背景で撮る。
+  back_home();
+  ui::emit_text(watch::ActionType::SetFace, "chara_side");
+  pump(300);
+  ok &= save(out, "66_theme_cosmos_face_chara_side");
+  ui::emit_text(watch::ActionType::SetFace, "chara_bubble");
+  pump(300);
+  ok &= save(out, "67_theme_cosmos_face_chara_bubble");
+
+  // quick 設定画面も撮る (mascot 対象外画面の見え確認)。
+  ui::emit_text(watch::ActionType::SetFace, "theme");
+  nav_to(watch::Route::Quick);
+  pump(200);
+  ok &= save(out, "68_theme_cosmos_quick");
+
   // 戻して終了。
   ui::emit_text(watch::ActionType::SetFace, "bold");
   ui::emit_text(watch::ActionType::SetTheme, "standard");

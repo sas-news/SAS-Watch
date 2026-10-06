@@ -558,8 +558,10 @@ def draw_hud_frame(cv):
     m = 16 * s   # 丸角にかからない内側オフセット
     ln = 30 * s  # ブラケットの腕長さ
     th = 2 * s
+    # 上ブラケットはヘッダ (高さ 76px) と被らないよう下げる。
+    top_y = m + 66 * s
     for (bx, by, sx, sy) in (
-        (m, m + 12 * s, 1, 1), (w - m, m + 12 * s, -1, 1),
+        (m, top_y, 1, 1), (w - m, top_y, -1, 1),
         (m, h - m - 12 * s, 1, -1), (w - m, h - m - 12 * s, -1, -1),
     ):
         cv_line(cv, bx, by, bx + sx * ln, by, th, HUD)
@@ -873,8 +875,10 @@ def build_cosmos():
         ("lines", cbor_head(4, 4) + b"".join(cbor_text(x) for x in (
             "宇宙を見てるよ", "おつかれさま", "きらきら〜",
             "タップありがと"))),
-        ("screens", cbor_head(4, 4) + b"".join(cbor_text(x) for x in (
-            "more", "memo", "timer", "alert"))),  # home は chara と重なるので外す
+        ("screens", cbor_head(4, 3) + b"".join(cbor_text(x) for x in (
+            "more", "memo", "timer"))),
+        # home は chara と重なるので外す。alert は固定配置ボタンがあり
+        # 退避パディングの効かない画面なので外す。
     ])
     face_layout = cbor_map([
         ("time", cbor_map([("x", ci(30)), ("y", ci(96)),
@@ -887,12 +891,16 @@ def build_cosmos():
                               ("font", u(20)), ("color", t("0x7E95B8"))])),
         ("notify", cbor_map([("x", ci(-30)), ("y", ci(124)),
                              ("font", u(20)), ("color", t("0xFFB45C"))])),
-        ("bubble", cbor_map([("x", ci(28)), ("y", ci(28)),
+        ("bubble", cbor_map([("x", ci(30)), ("y", ci(32)),
                              ("font", u(20)), ("color", t("0xCFEAFF"))])),
         ("chara", cbor_map([("x", ci(176)), ("y", ci(120)),
                             ("img", t("face_chara.png"))])),
     ])
-    images = cbor_map([("timer_done", t("timer_done.png"))])
+    images = cbor_map([
+        ("timer_done", t("timer_done.png")),
+        # chara_side/chara_bubble など既存文字盤でも使えるようスロットにも入れる
+        ("face_chara", t("face_chara.png")),
+    ])
     bubble = cbor_map([
         ("morning", t("おはよう、宇宙の時間だよ")),
         ("noon", t("こんにちは")),

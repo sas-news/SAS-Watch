@@ -130,7 +130,7 @@ lv_obj_t* build(lv_obj_t* scr) {
         t.face_elem[watch::kThemeFaceElemBubble];
     lv_obj_t* box = lv_obj_create(scr);
     lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_max_width(box, 220, 0);
+    lv_obj_set_style_max_width(box, 300, 0);
     lv_obj_set_style_radius(box, 16, 0);
     lv_obj_set_style_bg_color(box, t.bubble_bg, 0);
     lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
@@ -147,7 +147,7 @@ lv_obj_t* build(lv_obj_t* scr) {
                                   (e.set & (1u << 5))
                                       ? lv_color_hex(e.color)
                                       : t.bubble_text);
-    lv_obj_set_width(l, 200);
+    lv_obj_set_width(l, 276);  // 300 - pad 12x2 (超えると折返しで箱が伸びる)
     place(box, e);
   }
 
