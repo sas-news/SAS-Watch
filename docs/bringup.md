@@ -37,6 +37,8 @@ esptool.py --chip esp32s3 -p /dev/ttyACM0 -b 460800 \
 
 自動でリセットされず真っ暗のままなら PWR を一度押す。
 
+**esptool の注意（実測）**: pacman 版 esptool 5.3.1 の stub flasher は `read_flash` が flash 0x23d000 付近で必ず転送停止する（開始位置・サイズ・ボーレート不問）。バックアップ等の読み出しは `--no-stub`（ROM ローダー経路）か ESP-IDF 同梱の esptool 4.12 を使う。
+
 ## 3. 起動ログ確認（最重要・まずここだけ見る）
 
 別ターミナルで:
@@ -58,18 +60,20 @@ I (xxx) diag: reset_reason=...
 I (xxx) diag: i2c scan start (expect 0x18,0x34,0x38,0x40,0x51,0x6B)
 I (xxx) diag:   found 0x18                 ← ES8311 コーデック
 I (xxx) diag:   found 0x34                 ← AXP2101 PMIC
-I (xxx) diag:   found 0x38                 ← FT3168 タッチ
+I (xxx) diag:   found 0x38                 ← FT3168 タッチ（※下の注意）
 I (xxx) diag:   found 0x40                 ← ES7210 マイクADC
 I (xxx) diag:   found 0x51                 ← PCF85063 RTC
 I (xxx) diag:   found 0x6B                 ← QMI8658 IMU
 I (xxx) pmic: AXP2101 ok: batt=xx% charging=0 vbus=0
 ```
 
+**注意: 0x38 (FT3168) はこの時点で無応答でも正常。** スキャンは BSP のタッチ初期化（TP_RESET=GPIO9 駆動）より前に走るため、IC がまだリセット中。タッチの生死は §4 の実操作で判断する。
+
 **赤信号（どれか出たらその番号の項目は飛ばして報告）:**
 - `AXP2101 begin failed` → 電源系全部 NG
 - `display init failed` → 画面系 NG
 - `watch_app start failed` / `lvgl lock timeout` → 起動自体 NG
-- `i2c scan` で found が 6 個未満 → 欠けたアドレスが犯人（例: 0x38 なし = タッチ死）
+- `i2c scan` で found が 6 個未満 → 0x38 以外が欠けていたらそのアドレスが犯人
 
 ## 4. 画面・タッチ
 

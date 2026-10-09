@@ -86,7 +86,24 @@ lv_display_t* init_display() {
               .swap_bytes = true,
           },
   };
-  s_disp = lvgl_port_add_disp_rgb(&disp_cfg, nullptr);
+  // BSP と同じ rgb_cfg を渡す (esp_lvgl_port は nullptr を assert で弾く)。
+  // QSPI パネルだが BSP v2 は add_disp_rgb 経路を使うのでそれに倣う。
+  const lvgl_port_display_rgb_cfg_t rgb_cfg = {
+      .flags =
+          {
+#if CONFIG_BSP_LCD_RGB_BOUNCE_BUFFER_MODE
+              .bb_mode = 1,
+#else
+              .bb_mode = 0,
+#endif
+#if CONFIG_BSP_DISPLAY_LVGL_AVOID_TEAR
+              .avoid_tearing = true,
+#else
+              .avoid_tearing = false,
+#endif
+          },
+  };
+  s_disp = lvgl_port_add_disp_rgb(&disp_cfg, &rgb_cfg);
   ESP_RETURN_ON_FALSE(s_disp != nullptr, nullptr, TAG, "add_disp_rgb failed");
 
   // 偶数丸め (BSP と同じイベント)。
