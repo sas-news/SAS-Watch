@@ -5,9 +5,11 @@
 // 同じ手順でこちらがハンドルを保持する (board.md / BSP v2.0.0 ソースより)。
 //
 // 手順は BSP ソース (esp32_s3_touch_amoled_2_06.c) と同じ:
-//   lvgl_port_init → bsp_display_new → lvgl_port_add_disp_rgb
+//   lvgl_port_init → bsp_display_new → lvgl_port_add_disp
 //   → rounder (CO5300 は x/y が偶数境界必須) → bsp_touch_new
 //   → lvgl_port_add_touch → bsp_display_brightness_init
+// (BSP は add_disp_rgb を使うが QSPI では flush_ready が早すぎる
+//  ため非RGB経路の add_disp を使う — 下のコメント参照)
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 
@@ -90,25 +92,15 @@ lv_display_t* init_display() {
               .swap_bytes = true,
           },
   };
-  // BSP と同じ rgb_cfg を渡す (esp_lvgl_port は nullptr を assert で弾く)。
-  // QSPI パネルだが BSP v2 は add_disp_rgb 経路を使うのでそれに倣う。
-  const lvgl_port_display_rgb_cfg_t rgb_cfg = {
-      .flags =
-          {
-#if CONFIG_BSP_LCD_RGB_BOUNCE_BUFFER_MODE
-              .bb_mode = 1,
-#else
-              .bb_mode = 0,
-#endif
-#if CONFIG_BSP_DISPLAY_LVGL_AVOID_TEAR
-              .avoid_tearing = true,
-#else
-              .avoid_tearing = false,
-#endif
-          },
-  };
-  s_disp = lvgl_port_add_disp_rgb(&disp_cfg, &rgb_cfg);
-  ESP_RETURN_ON_FALSE(s_disp != nullptr, nullptr, TAG, "add_disp_rgb failed");
+  // QSPI パネルなので非RGB経路の add_disp を使う。
+  // add_disp_rgb (BSP がパラレルRGB用オプション流用で採用) は
+  // flush 時に draw_bitmap をキューイングした直後 flush_ready を
+  // 即返してしまい、DMA 転送中に LVGL がバッファを再描画して
+  // 行単位で混ざる (実機で横縞・色化けを確認)。
+  // 非RGB経路は on_color_trans_done 登録で実転送完了後にのみ
+  // flush_ready になる。
+  s_disp = lvgl_port_add_disp(&disp_cfg);
+  ESP_RETURN_ON_FALSE(s_disp != nullptr, nullptr, TAG, "add_disp failed");
 
   // 偶数丸め (BSP と同じイベント)。
   lv_display_add_event_cb(s_disp, rounder_event_cb, LV_EVENT_INVALIDATE_AREA,
