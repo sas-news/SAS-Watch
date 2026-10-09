@@ -40,6 +40,16 @@ CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=n
 
+# BLE の内蔵RAM使用量を削る (LVGL描画バッファを内蔵SRAMに置くため
+# こちらを削らないと BLE_INIT の malloc が失敗する — 実機確認済み)。
+# NimBLE ホストプールを PSRAM に置く (一番でかい節約)。
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+# 時計は peripheral でスマホ1台だけ繋ぐ → observer/多重接続は不要。
+# (CENTRAL は残す: ble_link が接続後の MTU 交換を ble_gattc_exchange_mtu
+#  で自分から投げるので gattc が必要。外すとリンクが通らない)
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_CTRL_BLE_MAX_ACT=1
+
 # ble_link (docs/protocol-v1.md): ボンド情報を NVS に保存して再接続を速くする
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 # ATT MTU 要求値は 247 (protocol-v1.md)
