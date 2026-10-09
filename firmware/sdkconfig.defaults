@@ -54,6 +54,11 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_PM_ENABLE=y
 CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
+# LVGL 描画バッファ高さ: 既定100行=82KB は大きすぎる。
+# buff_dma=true (内蔵SRAM確保) と組み合わせるため、BLE 等と
+# 共存できる 20行=16KB に下げる (BSP の bounce buffer と同サイズ)。
+CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT=20
+
 # LVGL: 公式サンプル 02_lvgl_demo_v9 / BSP v2 推奨設定ベース
 # 日本語フォントはまだ無し (plan.md I 章)
 CONFIG_LV_USE_CLIB_MALLOC=y

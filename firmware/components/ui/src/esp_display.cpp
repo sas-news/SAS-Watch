@@ -80,7 +80,11 @@ lv_display_t* init_display() {
       .color_format = LV_COLOR_FORMAT_RGB565,
       .flags =
           {
-              .buff_dma = false,
+              // QSPI の SPI DMA は PSRAM を読めない → 描画バッファは
+              // 内蔵 SRAM に確保する。false だと MALLOC_CAP_DEFAULT で
+              // PSRAM に着地し、bounce buffer 化も内部不足で失敗する
+              // (実機で spi tx_color ESP_ERR_NO_MEM 連発を確認)。
+              .buff_dma = true,
               .buff_spiram = false,
               .sw_rotate = true,
               .swap_bytes = true,
