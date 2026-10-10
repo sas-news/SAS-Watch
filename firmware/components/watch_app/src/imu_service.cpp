@@ -105,14 +105,17 @@ ImuMode s_mode = ImuMode::Poll;
 
 esp_sleep_wakeup_cause_t s_last_cause = ESP_SLEEP_WAKEUP_UNDEFINED;
 
-// 直近の light sleep 起床が IMU INT1(GPIO21) なら true。
-// 起床原因の変化が見えた時だけ true を返す (同じ原因の連続は次の
-// timer 起床等で原因が変わるので、そこで解除される)。
+// 直近の起床原因の「変化」を見る。GPIO 起床であれば IMU/タッチ/ボタン
+// 由来の候補としてバーストを取り、向き判定は RaiseDetector に委ねる。
+// 起床原因レジスタは GPIO 起床同士を区別できない (連続 GPIO 起床は
+// 同じ原因のまま見える) ので、非 GPIO 起床で原因が変わるまでは
+// dedup される — 元実装の INT1 ピン HIGH 判定はパルス式 INT だと
+// 読取時に LOW へ戻っていて取りこぼすため使わない。
 bool gpio_woke() {
   const esp_sleep_wakeup_cause_t c = esp_sleep_get_wakeup_cause();
   if (c == s_last_cause) return false;
   s_last_cause = c;
-  return board::sleep::woke_by_imu();
+  return c == ESP_SLEEP_WAKEUP_GPIO;
 }
 
 void burst() {
