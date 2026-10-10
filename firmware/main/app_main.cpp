@@ -104,21 +104,33 @@ extern "C" void app_main(void)
     // alarm_next_fire_epoch() を当日のローカル min-of-day に変換。
     static const ui::face_data::Hooks kFaceData = {
         []() -> int32_t {
+#if SAS_APP_STEPS
             return static_cast<int32_t>(watch::features::steps_today());
+#else
+            return -1;
+#endif
         },
         []() -> int32_t {
             return static_cast<int32_t>(watch_app::settings().steps_goal);
         },
         []() -> int32_t {
+#if SAS_APP_NOTIFY
             return static_cast<int32_t>(watch::features::notify_count());
+#else
+            return -1;
+#endif
         },
         []() -> int32_t {
+#if SAS_APP_ALARM
             const int64_t e = watch::features::alarm_next_fire_epoch();
             if (e <= 0) return -1;
             const int64_t local =
                 e + watch_app::settings().tz_offset_min * 60;
             return static_cast<int32_t>(((local % 86400) + 86400) % 86400 /
                                         60);
+#else
+            return -1;
+#endif
         },
     };
     ui::face_data::set_hooks(&kFaceData);

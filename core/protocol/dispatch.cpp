@@ -63,26 +63,50 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
   if (!param_int(params, "proto", &proto)) return DispatchError::BadRequest;
   if (proto != kProtoVer) return DispatchError::UnsupportedProto;
   const char* fw = svc.fw_version ? svc.fw_version(svc.ctx) : "0.1.0";
+  // caps のアプリ分は apps/enabled.txt (SAS_APP_<ID>=0/1) から数える。
+  constexpr int kCaps = 4 + SAS_APP_TIMER + SAS_APP_STOPWATCH +
+                        SAS_APP_COUNTER + SAS_APP_MEMO + SAS_APP_ALARM +
+                        SAS_APP_NOTIFY + SAS_APP_MEDIA + SAS_APP_STEPS +
+                        SAS_APP_AGENT;
   r->map(3)
       .text("proto")
       .uint_v(kProtoVer)
       .text("fw")
       .text(fw)
       .text("caps")
-      .array(13)
+      .array(kCaps)
+#if SAS_APP_TIMER
       .text("timer")
+#endif
+#if SAS_APP_STOPWATCH
       .text("stopwatch")
+#endif
+#if SAS_APP_COUNTER
       .text("counter")
+#endif
+#if SAS_APP_MEMO
       .text("memo")
+#endif
       .text("theme")
       .text("audio")
+#if SAS_APP_ALARM
       .text("alarm")
+#endif
+#if SAS_APP_NOTIFY
       .text("notify")
+#endif
+#if SAS_APP_MEDIA
       .text("media")
+#endif
       .text("wifi")
       .text("ota")
+#if SAS_APP_STEPS
       .text("steps")
-      .text("agent");
+#endif
+#if SAS_APP_AGENT
+      .text("agent")
+#endif
+      ;
   return DispatchError::Ok;
 }
 
@@ -511,7 +535,9 @@ DispatchError h_notify_post(const cbor::Value& params, Services& svc,
     copy(body_s, sizeof(body_s), body, bn);
     svc.notify_posted(app_s, title_s, body_s, svc.ctx);
   }
+#if SAS_APP_NOTIFY
   if (svc.bus) svc.bus->publish({EventType::NotificationPosted, 0});
+#endif
   r->map(0);
   return DispatchError::Ok;
 }

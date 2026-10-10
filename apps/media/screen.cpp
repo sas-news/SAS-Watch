@@ -1,8 +1,8 @@
 // media.cpp — 音楽操作: 曲名・アーティスト・再生状態 + 縦並びの操作ボタン。
 // ボタン → MediaCommand Action → MediaCmdRequested Event → EVT "media.cmd"。
-#include "../components.hpp"
-#include "../theme.hpp"
-#include "screens.hpp"
+#include "components.hpp"
+#include "theme.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/media.hpp"
 

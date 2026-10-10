@@ -109,6 +109,7 @@ void tap(int x, int y) {
 
 // 歩行っぽい ImuSample を n サンプル流す (50ms 間隔想定)。
 // 大きさが 1400/600mg を 5 サンプルごとに振動 → 約 1 歩/10 サンプル。
+#if SAS_APP_STEPS
 void feed_walk(int n) {
   for (int i = 0; i < n; ++i) {
     watch::Action a{};
@@ -122,6 +123,7 @@ void feed_walk(int n) {
     pump(50);
   }
 }
+#endif  // SAS_APP_STEPS
 
 // ---- parts ギャラリー ----------------------------------------------
 // 全スキンパーツを 1 画面に並べるデバッグ画面。LV_STATE_* を強制付与して
@@ -346,32 +348,54 @@ int main(int argc, char** argv) {
   s_rt.init(fctx);
   s_features.restore_all(fctx);
 
+#if SAS_APP_MEMO
   // メモを2件仕込んでおく (一覧が見えるように)。
   const char* m1 = "買い物: 牛乳、卵、食パン";
   const char* m2 = "TODO: 実機が届いたら輝度・ジェスチャーの確認をする";
   watch::features::memo_create(m1, std::strlen(m1), fctx);
   watch::features::memo_create(m2, std::strlen(m2), fctx);
+#endif
 
   // アラーム 2件 (7:00 平日 / 9:30 毎日) と通知・曲情報。
+#if SAS_APP_ALARM
   watch::features::alarm_set(0, 7, 0, 0x3E, true, fctx);
   watch::features::alarm_set(0, 9, 30, 0, false, fctx);
+#endif
+#if SAS_APP_NOTIFY
   watch::features::notify_add("LINE", "母", "夕飯何にする？");
   watch::features::notify_add("Gmail", "GitHub", "[SAS-Watch] PR #9 merged");
+#endif
+#if SAS_APP_MEDIA
   watch::features::media_set("夜に駆ける", "YOASOBI", true, fctx);
+#endif
 
   // 文字盤の補助データ (ui/face_data.hpp)。歩数・通知数・次のアラーム
   // は実 Feature に結線 (alarm_next_fire_epoch → 当日 min-of-day)。
   static const ui::face_data::Hooks kFaceData = {
-      []() -> int32_t { return static_cast<int32_t>(watch::features::steps_today()); },
+      []() -> int32_t {
+#if SAS_APP_STEPS
+        return static_cast<int32_t>(watch::features::steps_today());
+#else
+        return -1;
+#endif
+      },
       []() -> int32_t { return static_cast<int32_t>(s_settings.steps_goal); },
       []() -> int32_t {
+#if SAS_APP_NOTIFY
         return static_cast<int32_t>(watch::features::notify_count());
+#else
+        return -1;
+#endif
       },
       []() -> int32_t {
+#if SAS_APP_ALARM
         const int64_t e = watch::features::alarm_next_fire_epoch();
         if (e <= 0) return -1;
         const int64_t local = e + s_settings.tz_offset_min * 60;
         return static_cast<int32_t>(((local % 86400) + 86400) % 86400 / 60);
+#else
+        return -1;
+#endif
       },
   };
   ui::face_data::set_hooks(&kFaceData);
@@ -391,6 +415,7 @@ int main(int argc, char** argv) {
   nav_to(watch::Route::More);
   ok &= save(out, "03_applist");
 
+#if SAS_APP_TIMER
   nav_to(watch::Route::Timer);
   ok &= save(out, "04_timer_setup");
 
@@ -405,6 +430,8 @@ int main(int argc, char** argv) {
   s_power.configure(8, 12, 1800);
 
   ui::emit(watch::ActionType::TimerReset);
+#endif
+#if SAS_APP_STOPWATCH
   back_home();
   nav_to(watch::Route::Stopwatch);
   ok &= save(out, "06_stopwatch");
@@ -416,6 +443,8 @@ int main(int argc, char** argv) {
   ok &= save(out, "07_stopwatch_running");
 
   ui::emit(watch::ActionType::StopwatchReset);
+#endif
+#if SAS_APP_COUNTER
   back_home();
   nav_to(watch::Route::Counter);
   ui::emit(watch::ActionType::CounterAdd, 1);
@@ -423,7 +452,9 @@ int main(int argc, char** argv) {
   ui::emit(watch::ActionType::CounterAdd, 1);
   pump(200);
   ok &= save(out, "08_counter");
+#endif
 
+#if SAS_APP_MEMO
   back_home();
   nav_to(watch::Route::Memo);
   ok &= save(out, "09_memo_list");
@@ -434,6 +465,7 @@ int main(int argc, char** argv) {
   // 「一覧に戻る」ボタン (詳細カード末尾) をタップ。
   tap(205, 249);
   pump(200);
+#endif
 
   back_home();
   nav_to(watch::Route::Settings);
@@ -497,6 +529,7 @@ int main(int argc, char** argv) {
   ui::emit_text(watch::ActionType::SetTheme, "standard");
   pump(400);
 
+#if SAS_APP_MEMO
   // 音声メモ: 録音中の表示 → 確定 → 音声メモ詳細 (再生ボタン)。
   back_home();
   nav_to(watch::Route::Memo);
@@ -509,6 +542,7 @@ int main(int argc, char** argv) {
   tap(205, 210);
   pump(300);
   ok &= save(out, "20_memo_voice_detail");
+#endif
 
   // ファーム更新画面: 待機 → 進捗中。
   back_home();
@@ -519,6 +553,7 @@ int main(int argc, char** argv) {
   pump(300);
   ok &= save(out, "22_ota_progress");
 
+#if SAS_APP_ALARM
   // ---- アラーム ----
   back_home();
   nav_to(watch::Route::Alarm);
@@ -530,7 +565,9 @@ int main(int argc, char** argv) {
   ok &= save(out, "41_alarm_alert");
   tap(205, 387);  // 止める (下端 -86 のピル中心)
   pump(300);
+#endif
 
+#if SAS_APP_NOTIFY
   // ---- 通知一覧 ----
   nav_to(watch::Route::Notifications);
   ok &= save(out, "42_notifications");
@@ -547,14 +584,18 @@ int main(int argc, char** argv) {
   pump(300);
   ok &= save(out, "44_notify_popup");
   pump(4500);  // トーストが消えるまで待つ
+#endif
 
+#if SAS_APP_MEDIA
   // ---- 音楽操作 ----
   back_home();
   nav_to(watch::Route::Media);
   ok &= save(out, "45_media");
+#endif
 
+#if SAS_APP_STEPS
   // 歩数: 歩行っぽい加速度を流してから歩数画面を開く。
-  // (ImuSample は電源を蹴らないので、途中で PowerState は ScreenOff へ
+  // (ImuSample ���電源を蹴らないので、途中で PowerState は ScreenOff へ
   //  進んでいる。先に Wake で起こしてから遷移する。)
   back_home();
   feed_walk(24000);  // ~2400 歩 (目標 8000 の ~30%)
@@ -562,6 +603,7 @@ int main(int argc, char** argv) {
   pump(200);
   nav_to(watch::Route::Steps);
   ok &= save(out, "23_steps");
+#endif
 
   // ---- 文字盤 (settings.face) ----
   // standard テーマで4面 (01_home = bold と同じ見えになるが、
@@ -595,6 +637,7 @@ int main(int argc, char** argv) {
   pump(300);
 
 
+#if SAS_APP_AGENT
   // ---- AI (Agent) ----
   // sim には BLE が無いので、ble_connected を立てておき、送信完了/返答は
   // feature の API を直接叩く (実機では ble_glue が agent_pending を拾う)。
@@ -626,6 +669,7 @@ int main(int argc, char** argv) {
                                   *s_fctx);
   pump(300);
   ok &= save(out, "53_agent_reply");
+#endif
 
   // ---- テーマ v2 サンプル「cosmos」 ----
   // sim/themes/cosmos.zip を zip 直読み (展開済み dir は読まない)。
@@ -640,13 +684,17 @@ int main(int argc, char** argv) {
   pump(200);
   ok &= save(out, "61_theme_cosmos_applist");  // icons + mascot
 
+#if SAS_APP_TIMER
   nav_to(watch::Route::Timer);
   ok &= save(out, "62_theme_cosmos_timer");    // 画面別 bg + mascot
+#endif
 
+#if SAS_APP_MEMO
   back_home();
   nav_to(watch::Route::Memo);
   pump(200);
   ok &= save(out, "63_theme_cosmos_memo");
+#endif
 
   back_home();
   nav_to(watch::Route::Settings);
@@ -703,20 +751,24 @@ int main(int argc, char** argv) {
     pump(200);
     shot("settings");  // switch on/off + slider + caption_line
 
+#if SAS_APP_TIMER
     back_home();
     nav_to(watch::Route::Timer);
     pump(200);
     shot("timer");  // button_primary/secondary
+#endif
 
     back_home();
     nav_to(watch::Route::Quick);
     pump(200);
     shot("quick");
 
+#if SAS_APP_MEMO
     back_home();
     nav_to(watch::Route::Memo);
     pump(200);
     shot("memo");
+#endif
 
     // タイマー終了アラート (button_primary/danger + bubble skin)。
     back_home();

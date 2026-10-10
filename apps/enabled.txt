@@ -1,0 +1,11 @@
+# 書き込むアプリを1行ずつ。行を消すか先頭に # でOFF
+# (OFF にしたアプリはビルドに入らず、アプリ一覧にも出ない)
+timer
+stopwatch
+counter
+steps
+memo
+alarm
+notify
+media
+agent

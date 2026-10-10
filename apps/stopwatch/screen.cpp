@@ -1,10 +1,10 @@
 // stopwatch.cpp — ストップウォッチ: 開始/停止、ラップ(最大20)、リセット。
-#include "../components.hpp"
-#include "../faces/faces.hpp"
-#include "../theme.hpp"
+#include "components.hpp"
+#include "faces/faces.hpp"
+#include "theme.hpp"
 
 #include <cstdio>
-#include "screens.hpp"
+#include "screens/screens.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/stopwatch.hpp"

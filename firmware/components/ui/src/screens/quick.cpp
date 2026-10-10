@@ -55,15 +55,21 @@ lv_obj_t* build(lv_obj_t* scr) {
                   true,
                   [](lv_event_t*) { ui::emit(watch::ActionType::ScreenOff); },
                   nullptr);
+#if SAS_APP_ALARM
   ui::c::row_icon(g, "ア", lv_color_hex(0xFF8A3D), "アラーム",
                   alarm_sub[0] ? alarm_sub : nullptr, true,
                   [](lv_event_t*) { nav_to(watch::Route::Alarm); }, nullptr);
+#endif
+#if SAS_APP_NOTIFY
   ui::c::row_icon(g, "通", lv_color_hex(0x4CC9F0), "通知",
                   notify_sub[0] ? notify_sub : nullptr, true,
                   [](lv_event_t*) { nav_to(watch::Route::Notifications); },
                   nullptr);
+#endif
+#if SAS_APP_MEDIA
   ui::c::row_icon(g, "音", lv_color_hex(0xB388FF), "音楽", nullptr, true,
                   [](lv_event_t*) { nav_to(watch::Route::Media); }, nullptr);
+#endif
   ui::c::row_icon(g, "全", lv_color_hex(0x64D6C2), "アプリ一覧", nullptr,
                   true, [](lv_event_t*) { nav_to(watch::Route::More); },
                   nullptr);

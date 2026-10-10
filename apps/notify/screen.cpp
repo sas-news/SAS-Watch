@@ -1,8 +1,8 @@
 // notifications.cpp — 通知一覧: 最新20件 (アプリ名/タイトル/本文1行)。
 // タップで詳細、「すべて消す」でクリア。ポップアップ・振動は shell 側。
-#include "../components.hpp"
-#include "../theme.hpp"
-#include "screens.hpp"
+#include "components.hpp"
+#include "theme.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/notify.hpp"
 

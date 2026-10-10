@@ -1,10 +1,10 @@
 // alarm.cpp — アラーム: 大きな時刻 + 曜日 sub + スイッチの行。
 // 追加・編集はスマホアプリ (alarm.list/alarm.set/alarm.delete) から。
 // 行タップで有効/無効を切替え、鳴動中は shell のアラートが前面に出る。
-#include "../components.hpp"
-#include "../faces/faces.hpp"
-#include "../theme.hpp"
-#include "screens.hpp"
+#include "components.hpp"
+#include "faces/faces.hpp"
+#include "theme.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/alarm.hpp"
 

@@ -74,8 +74,11 @@ void enter_deep_sleep() {
 // 値が変わった時だけ I2C 書き込み (軽量化)。鳴動に入ったら AF をクリアして
 // INT (GPIO39) を HIGH に戻す — LOW のままだと light sleep が即起きてしまう。
 int64_t s_rtc_alarm = -1;   // RTC に書いた最後の発火時刻 (-1 = 未同期)
+#if SAS_APP_ALARM
 bool s_af_cleared = false;  // 鳴動中に AF を1度だけクリアしたか
+#endif
 void alarm_rtc_sync() {
+#if SAS_APP_ALARM
   if (watch::features::alarm_ringing()) {
     if (!s_af_cleared) {
       board::rtc::clear_alarm();
@@ -97,6 +100,13 @@ void alarm_rtc_sync() {
   } else {
     board::rtc::clear_alarm();
   }
+#else
+  // アラームアプリ無し: RTC のアラームは起動時に1度だけ無効化する。
+  if (s_rtc_alarm != 0) {
+    s_rtc_alarm = 0;
+    board::rtc::clear_alarm();
+  }
+#endif
 }
 
 void app_task(void*) {
