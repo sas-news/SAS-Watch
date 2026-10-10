@@ -1,5 +1,7 @@
 #include "diag/diag.hpp"
 
+#include "board/board.hpp"
+
 #include <cinttypes>
 
 #include "esp_log.h"
@@ -60,6 +62,12 @@ void i2c_scan()
     }
     ESP_LOGI(TAG, "i2c scan done: %d device(s)", found);
     // TODO(hw): 実機で全デバイスが応答するか確認
+}
+
+void pmic_rail_dump()
+{
+    // 起動直後の「どのレールが初期から生きてるか」をブリングアップで見る用
+    board::pmic::rail_dump();
 }
 
 }  // namespace diag

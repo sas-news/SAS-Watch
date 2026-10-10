@@ -76,6 +76,8 @@ extern "C" void app_main(void)
 
     ESP_ERROR_CHECK(board::init());
     diag::i2c_scan();
+    // pmic は board::init() の中で初期化されるので、ダンプはこの位置でしか取れない
+    diag::pmic_rail_dump();
 
     if (!s_kv.init()) {
         // NVS が読めなくても既定値で動く。エラーは init 内でログ済み。
