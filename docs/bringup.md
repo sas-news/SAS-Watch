@@ -132,6 +132,9 @@ I (xxx) pmic: AXP2101 ok: batt=xx% charging=0 vbus=0
 - [ ] 10-2 USB 電流計があるなら Active/dim/screen off/deep sleep の mA をメモ
 - [ ] 10-3 microSD を挿しての挙動
 
+### スピーカー未搭載機体について
+この機体はスピーカー/コーデック IC を物理撤去済み → `sdkconfig` の `CONFIG_WATCH_DISABLE_AUDIO=y` で音声初期化（PA/I2S/codec/audio タスク）を全部スキップしている。音声コード自体は残っており、搭載機体では `n` にすればそのまま使える。有効のまま動かすと `bsp_audio_init` 内の `i2s_alloc_dma_desc` が内蔵 RAM 不足で ESP_ERR_NO_MEM → abort する（codec IC が I2C で応答していても起きる。I2S の DMA バッファ確保失敗なので IC 検出では防げない）。
+
 ## 報告の送り方
 
 1. ブートログ全文（コピペ）
