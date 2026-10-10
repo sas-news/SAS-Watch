@@ -71,8 +71,8 @@
 3. **画面のパネル電源`DSI_PWR_EN`はAXP2101のALDO2から来ている。** → 長く消すときはALDO2を切ってパネルの電源ごと落とせる【要実機：再初期化にかかる時間】。
 4. **Deep Sleepから復帰できるのはBOOT(GPIO0)、PWR(GPIO10)、IMU(GPIO21)、タイマーだけ。** タッチで画面を起こすにはLight Sleepである必要がある。
    → 「画面OFF中もタッチで起きる」のがLight Sleep、「PWRボタンか手首を上げないと起きない」のがDeep Sleep、と2段階にする。
-5. **Flash 32MB問題。** ESP32-S3で16MBを超えるQuad Flashを使うには、ESP-IDFの実験的オプション（32bitアドレス）が必要。公式サンプルが16MB設定なのはたぶんこのため【推測】。
-   → **最初は16MBとして使う。** 16MBあればアプリ×2（OTA）＋アセットに十分。32MB全部を使うのはPhase 10で検討する。
+5. ~~**Flash 32MB問題。**~~ 実機で GD25Q256=32MB を確認（flash_id）。ESP32-S3 は `SOC_SPI_MEM_SUPPORT_CACHE_32BIT_ADDR_MAP=1` なので 16MB 超も実験的オプションなしで使える（実験的オプションが要るのは旧ESP32系）。公式サンプルの16MB設定は単なる保守設定だった。
+   → **32MBとして使う**（partitions.csv 参照）。
 6. **I2Cは1本を全員で共有。** Touch・RTC・IMU・PMIC・Codec×2がGPIO14/15を使う。BSPの`bsp_i2c_get_handle()`のバスに`i2c_master_bus_add_device`で全部つなぐ。**I2Cにアクセスするタスクを減らし**、タッチ読み取り（LVGL task）以外は`sensor_service`タスク1つにまとめる。
 
 ### A-4. 公式BSP・サンプルの事実
@@ -429,7 +429,7 @@ struct Theme {
 - 日本語フォントは**使う文字だけ**入れる（JIS第1水準＋UI文言 ≒ 3000字、24pxで約1MB）。
 - Assetは`sha256`と`api_version`を確認し、だめなら標準テーマに戻す。
 
-### パーティション案（16MBとして）
+### パーティション案（実機 GD25Q256 = 32MB）
 
 ```csv
 # Name,   Type, SubType, Offset,  Size
@@ -438,10 +438,12 @@ otadata,  data, ota,     ,        0x2000
 phy_init, data, phy,     ,        0x1000
 ota_0,    app,  ota_0,   ,        4M
 ota_1,    app,  ota_1,   ,        4M
-assets,   data, littlefs,,        6M
-storage,  data, littlefs,,        1900K
+assets,   data, littlefs,,        16M
+storage,  data, littlefs,,        6M
 coredump, data, coredump,,        64K
 ```
+
+末尾に約1.8MBの予備領域を残してある。実際の定義は `firmware/partitions.csv`。
 
 ---
 

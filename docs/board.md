@@ -7,7 +7,7 @@
 | 部品 | 型番 | バス / アドレス |
 |---|---|---|
 | SoC | ESP32-S3R8 (PSRAM 8MB Octal) | |
-| Flash | GD25Q256 (32MB)。当面 16MB として使う | |
+| Flash | GD25Q256 (32MB)。flash_id 実測済み・32MB 全量使用（ESP32-S3 は 32bit アドレスマップ対応で実験的オプション不要） | |
 | Display | 410x502 AMOLED, CO5300 (BSP は esp_lcd_sh8601 で駆動) | QSPI |
 | Touch | FT3168 (BSP は esp_lcd_touch_ft5x06) | I2C 0x38 |
 | PMIC | AXP2101 (XPowersLib) | I2C 0x34 |
