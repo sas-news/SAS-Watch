@@ -10,7 +10,9 @@
 #include <cstdio>
 #include <cstring>
 
+#include "esp_err.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -79,6 +81,44 @@ bool s_bulk_notify;
 watch::proto::Reassembler s_ctrl_rx;  // REQ の組み立て
 watch::proto::Reassembler s_bulk_rx_frames;  // BULK_* の組み立て
 watch::proto::BulkReceiver s_bulk;  // BULK 転送状態 (切断をまたぐ)
+
+// light sleep 抑止用の PM lock (ESP_PM_NO_LIGHT_SLEEP)。
+// ESP32-S3 の BLE は modem sleep 非対応で BLE wakeup source も無いため、
+// 接続中に light sleep へ入るとリンクが壊れる。
+//   s_no_ls_conn: BLE 接続中は常時保持 (CONNECT〜DISCONNECT)
+//   s_no_ls_bulk: BULK 受信の進行中だけ重ねて保持 (切断したら一旦解放)
+esp_pm_lock_handle_t s_no_ls_conn = nullptr;
+esp_pm_lock_handle_t s_no_ls_bulk = nullptr;
+bool s_conn_locked = false;
+bool s_bulk_locked = false;
+
+// 接続/転送の状態に合わせて NO_LIGHT_SLEEP lock を対称に出し入れする。
+// (CONFIG_PM_ENABLE 無しでは handle が NULL のままなので no-op で安全)
+void conn_lock_sync() {
+  const bool want = s_conn != BLE_HS_CONN_HANDLE_NONE;
+  if (want == s_conn_locked || !s_no_ls_conn) return;
+  if (want) {
+    esp_pm_lock_acquire(s_no_ls_conn);
+  } else {
+    esp_pm_lock_release(s_no_ls_conn);
+  }
+  s_conn_locked = want;
+}
+
+// BULK 受信の進行中だけ lock を重ねる。転送状態は切断をまたいで残るが、
+// 切断中は進めないので一旦解放し、再接続後の再送 (BULK_START/CHUNK) で
+// 再取得する。BulkReceiver の状態を変える箇所の最後に呼ぶ。
+void bulk_lock_sync() {
+  const bool want =
+      s_conn != BLE_HS_CONN_HANDLE_NONE && s_bulk.in_progress();
+  if (want == s_bulk_locked || !s_no_ls_bulk) return;
+  if (want) {
+    esp_pm_lock_acquire(s_no_ls_bulk);
+  } else {
+    esp_pm_lock_release(s_no_ls_bulk);
+  }
+  s_bulk_locked = want;
+}
 
 // ---------- 送信 ----------
 
@@ -237,6 +277,7 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
     default:
       break;
   }
+  bulk_lock_sync();  // 転送の開始/完了/中断を反映
 }
 
 int bulk_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -370,6 +411,7 @@ int gap_event(ble_gap_event* event, void* arg) {
     case BLE_GAP_EVENT_CONNECT:
       if (event->connect.status == 0) {
         s_conn = event->connect.conn_handle;
+        conn_lock_sync();  // 接続中は light sleep 禁止
         s_mtu = BLE_ATT_MTU_DFLT;
         s_ctrl_rx.reset();
         s_bulk_rx_frames.reset();
@@ -379,6 +421,8 @@ int gap_event(ble_gap_event* event, void* arg) {
         request_conn_params(s_conn);
         // MTU 交換をこちらからも要求 (protocol: 247 を要求)。
         ble_gattc_exchange_mtu(s_conn, nullptr, nullptr);
+        // 前回切断またぎの転送が残っていれば再開に備えて lock を張り直す。
+        bulk_lock_sync();
       } else {
         start_advertising();
       }
@@ -387,6 +431,8 @@ int gap_event(ble_gap_event* event, void* arg) {
     case BLE_GAP_EVENT_DISCONNECT:
       ESP_LOGI(kTag, "disconnected (reason=0x%02x)", event->disconnect.reason);
       s_conn = BLE_HS_CONN_HANDLE_NONE;
+      conn_lock_sync();  // 接続 lock を解放
+      bulk_lock_sync();  // 転送中でも切断中は進めないので解放
       s_mtu = BLE_ATT_MTU_DFLT;
       s_passkey_conn = BLE_HS_CONN_HANDLE_NONE;
       s_ctrl_rx.reset();
@@ -517,6 +563,20 @@ extern "C" esp_err_t ble_link_start(const ble_link_config_t* cfg) {
   s_ctrl_rx.reset();
   s_bulk_rx_frames.reset();
 
+  // light sleep 抑止の PM lock を起動時に確保しておく (acquire/release は
+  // 実行時に対称に行う)。確保は初期化時のみのルール。
+  esp_err_t prc = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP,
+                                     ESP_PM_CPU_FREQ_MAX, "ble_conn",
+                                     &s_no_ls_conn);
+  if (prc != ESP_OK) {
+    ESP_LOGW(kTag, "pm lock create (conn): %s", esp_err_to_name(prc));
+  }
+  prc = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, ESP_PM_CPU_FREQ_MAX,
+                           "ble_bulk", &s_no_ls_bulk);
+  if (prc != ESP_OK) {
+    ESP_LOGW(kTag, "pm lock create (bulk): %s", esp_err_to_name(prc));
+  }
+
   esp_err_t rc = nimble_port_init();
   if (rc != ESP_OK) return rc;
 
@@ -560,6 +620,9 @@ extern "C" esp_err_t ble_link_stop(void) {
   nimble_port_stop();
   s_started = false;
   s_conn = BLE_HS_CONN_HANDLE_NONE;
+  // DISCONNECT イベントが来ないケースに備えて lock も強制的に解放する。
+  conn_lock_sync();
+  bulk_lock_sync();
   return ESP_OK;
 }
 

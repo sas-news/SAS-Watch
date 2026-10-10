@@ -18,6 +18,7 @@
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 #include "bsp/touch.h"
 #include "esp_check.h"
+#include "esp_lcd_panel_io.h"
 #include "esp_lcd_touch.h"
 #include "esp_lcd_types.h"
 #include "esp_lvgl_port.h"
@@ -125,11 +126,19 @@ lv_display_t* init_display() {
 namespace ui::port {
 
 // パネル表示の ON/OFF — ScreenOff 適用層から呼ぶ。
+// waveshare の sh8601 ドライバは disp_sleep (SLPIN/SLPOUT, 0x10/0x11) を
+// 実装していないので io_tx_param で自前送信する。
+// T-Watch の手順と同じ考え方で ScreenOff は DISPOFF + SLPIN とし、
+// ALDO2 の切断は長時間 OFF/deep sleep 側 (board::pmic::panel_power) が担う。
 void display_power(bool on) {
   if (!s_panel) return;
-  esp_lcd_panel_disp_on_off(s_panel, on);
-  // TODO(hw): 実機で確認 — QSPI パネルが disp_on_off に対応しているか
-  // (対応していなければ BSP の bsp_display_set_display_on_off 経路を検討)
+  if (on) {
+    esp_lcd_panel_io_tx_param(s_io, 0x11, nullptr, 0);  // SLPOUT
+    esp_lcd_panel_disp_on_off(s_panel, true);           // DISPON
+  } else {
+    esp_lcd_panel_io_tx_param(s_io, 0x10, nullptr, 0);  // SLPIN
+    esp_lcd_panel_disp_on_off(s_panel, false);          // DISPOFF
+  }
 }
 
 void brightness_apply(int percent) {

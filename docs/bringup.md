@@ -135,6 +135,10 @@ I (xxx) pmic: AXP2101 ok: batt=xx% charging=0 vbus=0
 ### スピーカー未搭載機体について
 この機体はスピーカー/コーデック IC を物理撤去済み → `sdkconfig` の `CONFIG_WATCH_DISABLE_AUDIO=y` で音声初期化（PA/I2S/codec/audio タスク）を全部スキップしている。音声コード自体は残っており、搭載機体では `n` にすればそのまま使える。有効のまま動かすと `bsp_audio_init` 内の `i2s_alloc_dma_desc` が内蔵 RAM 不足で ESP_ERR_NO_MEM → abort する（codec IC が I2C で応答していても起きる。I2S の DMA バッファ確保失敗なので IC 検出では防げない）。
 
+### 起動ログの既知警告
+
+- `E sleep: sleep_cpu_configure(236): Failed to enable CPU power down during light sleep.` — CPU ドメインを light sleep で OFF にするには retention 用の内蔵 SRAM を ~8.8KB(+tagmem ~9KB) 連続確保する必要があるが、この機体は LVGL バッファ + BLE で内部 RAM が逼迫し確保に失敗する。失敗しても CPU 通電のまま light sleep は動くので実害は警告のみ。`CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n` で明示的に切って消している（内蔵 RAM に余裕ができたら y に戻すと ~650uA 節約できる）。
+
 ## 報告の送り方
 
 1. ブートログ全文（コピペ）
