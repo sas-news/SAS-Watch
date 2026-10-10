@@ -2,12 +2,12 @@
 
 CONFIG_IDF_TARGET="esp32s3"
 
-# Flash: 16MB として使う。実機は GD25Q256 32MB (docs/board.md)
-# 16MB 超のアクセスには実験的オプションが要るので当面 16MB
-# TODO(hw): 実機で flash_id 確認後に 32MB を検討 (plan.md A-3)
+# Flash: 実機は GD25Q256 32MB (docs/board.md, flash_id 実測済み)。
+# ESP32-S3 は SOC_SPI_MEM_SUPPORT_CACHE_32BIT_ADDR_MAP=1 なので
+# 32MB 全体が実験的オプションなしで使える。パーティションも 32MB 前提。
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 
 # パーティションは docs/plan.md I 章の案
 CONFIG_PARTITION_TABLE_CUSTOM=y

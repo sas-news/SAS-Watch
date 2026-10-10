@@ -1,11 +1,14 @@
 # Name,   Type, SubType,  Offset,  Size,   Flags
-# docs/plan.md I 章の案 (16MB Flash として)
+# 実機 GD25Q256 = 32MB (docs/board.md) として 32MB 全量を使う設計。
+# ESP32-S3 は 32bit アドレスマップ対応のため 16MB 超も実験的機能なしで使える。
 nvs,      data, nvs,      0x9000,  0x6000,
 otadata,  data, ota,      ,        0x2000,
 phy_init, data, phy,      ,        0x1000,
 ota_0,    app,  ota_0,    ,        4M,
 ota_1,    app,  ota_1,    ,        4M,
-assets,   data, littlefs, ,        6M,
-# plan.md 案のままだと16MBを約40KBオーバーするため storage を1900K→1800Kに縮小
-storage,  data, littlefs, ,        1800K,
+# assets: テーマ zip / フォント等 (BULK で時計に送る)
+assets,   data, littlefs, ,        16M,
+# storage: 録音メモ等ユーザーデータ
+storage,  data, littlefs, ,        6M,
+# 末尾に約1.8MBの予備領域。coredump だけ後ろに置く
 coredump, data, coredump, ,        64K,
