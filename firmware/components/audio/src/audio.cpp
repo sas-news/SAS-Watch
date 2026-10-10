@@ -15,7 +15,9 @@
 #include <cstring>
 
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
+#include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "esp_codec_dev.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
@@ -43,8 +45,17 @@ SemaphoreHandle_t s_mtx = nullptr;   // エンジン状態の排他
 esp_codec_dev_handle_t s_spk = nullptr;  // ES8311 (lazy)
 esp_codec_dev_handle_t s_mic = nullptr;  // ES7210 (lazy)
 bool s_mounted = false;
+bool s_ready = false;             // init() が最後まで走ったか
 TaskHandle_t s_rec_task = nullptr;
 TaskHandle_t s_play_task = nullptr;
+
+// コーデック IC の 7bit I2C アドレス (docs/board.md)。
+// スピーカー/コーデック未搭載機体では BSP の codec init が
+// 中の assert(BSP_NULL_CHECK) で落ちるため、呼ぶ前に I2C で有無を見る。
+constexpr uint8_t kEs8311Addr = 0x18;
+constexpr uint8_t kEs7210Addr = 0x40;
+bool s_spk_codec = false;  // ES8311 が応答したか
+bool s_mic_codec = false;  // ES7210 が応答したか
 
 // ---- 録音ジョブ ----
 struct RecJob {
@@ -81,11 +92,11 @@ void unlock() { xSemaphoreGive(s_mtx); }
 // ---- コーデック ----
 
 esp_codec_dev_handle_t speaker() {
-  if (!s_spk) s_spk = bsp_audio_codec_speaker_init();
+  if (!s_spk && s_spk_codec) s_spk = bsp_audio_codec_speaker_init();
   return s_spk;
 }
 esp_codec_dev_handle_t mic() {
-  if (!s_mic) s_mic = bsp_audio_codec_microphone_init();
+  if (!s_mic && s_mic_codec) s_mic = bsp_audio_codec_microphone_init();
   return s_mic;
 }
 
@@ -345,7 +356,7 @@ void play_task(void*) {
 class EspAudio : public watch::AudioPort {
  public:
   bool record_begin(uint32_t memo_id, uint32_t max_sec) override {
-    if (!s_mounted || !mic()) return false;
+    if (!s_ready || !s_mounted || !mic()) return false;
     lock();
     if (s_rec.active || s_play.active) {
       unlock();
@@ -357,7 +368,7 @@ class EspAudio : public watch::AudioPort {
     s_rec.max_sec = max_sec;
     memo_path(memo_id, s_rec.path, sizeof(s_rec.path), true);
     unlock();
-    xTaskNotifyGive(s_rec_task);
+    if (s_rec_task) xTaskNotifyGive(s_rec_task);
     return true;
   }
 
@@ -397,7 +408,7 @@ class EspAudio : public watch::AudioPort {
   uint8_t record_level() const override { return s_rec.level; }
 
   bool play_begin(uint32_t memo_id, uint8_t volume) override {
-    if (!s_mounted || !speaker()) return false;
+    if (!s_ready || !s_mounted || !speaker()) return false;
     lock();
     if (s_rec.active || s_play.active) {
       unlock();
@@ -413,7 +424,7 @@ class EspAudio : public watch::AudioPort {
     if (s_deps.power) {
       s_play_lease = s_deps.power->acquire(watch::Res::Audio, "audio.play");
     }
-    xTaskNotifyGive(s_play_task);
+    if (s_play_task) xTaskNotifyGive(s_play_task);
     return true;
   }
 
@@ -436,7 +447,7 @@ class EspAudio : public watch::AudioPort {
   }
 
   void beep(watch::BeepKind kind, uint8_t volume) override {
-    if (volume == 0) return;
+    if (!s_ready || !s_spk_codec || volume == 0) return;
     lock();
     // 録音中・再生中は鳴らさない (時計には1系統しかない)。
     if (s_rec.active || s_play.active) {
@@ -453,7 +464,7 @@ class EspAudio : public watch::AudioPort {
     if (s_deps.power) {
       s_play_lease = s_deps.power->acquire(watch::Res::Audio, "audio.beep");
     }
-    xTaskNotifyGive(s_play_task);
+    if (s_play_task) xTaskNotifyGive(s_play_task);
   }
 
   bool memo_audio_size(uint32_t memo_id, uint32_t* out_size) override {
@@ -563,6 +574,18 @@ bool init(const Deps& deps) {
   gpio_config(&io);
   pa_off();
 
+  // コーデック IC の有無を I2C で確認。未搭載なら codec init に進まない
+  // (BSP 側が assert で落ちるため)。音声機能のみ無効化し残りは動かす。
+  i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
+  s_spk_codec = bus && i2c_master_probe(bus, kEs8311Addr, 50) == ESP_OK;
+  s_mic_codec = bus && i2c_master_probe(bus, kEs7210Addr, 50) == ESP_OK;
+  if (!s_spk_codec) {
+    ESP_LOGW(TAG, "ES8311(0x%02x) no response - speaker/beep disabled", kEs8311Addr);
+  }
+  if (!s_mic_codec) {
+    ESP_LOGW(TAG, "ES7210(0x%02x) no response - mic/rec disabled", kEs7210Addr);
+  }
+
   esp_vfs_littlefs_conf_t conf{};
   conf.base_path = kMountPoint;
   conf.partition_label = "storage";
@@ -584,6 +607,7 @@ bool init(const Deps& deps) {
     ESP_LOGE(TAG, "task create failed");
     return false;
   }
+  s_ready = true;
   return true;
 }
 
