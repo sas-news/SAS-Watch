@@ -23,6 +23,12 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_RODATA=y
 CONFIG_SPIRAM_USE_MALLOC=y
+# 内部SRAMの席取り抑制: 既定16384B以下のMALLOC_CAP_DEFAULT allocは
+# 全部内部に行くので、30KB連続ブロックが必要なBLEコントローラの
+# initと衝突してブート毎に成否が変わっていた (実機計測で内部空き
+# ~4.8KB/min_free枯渇を確認)。1KB超はPSRAMに流して内部連続を残す。
+# DMA必須のallocはMALLOC_CAP_DMA明示なので影響しない。
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
 
 # CPU 240MHz
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
@@ -49,6 +55,10 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
 #  で自分から投げるので gattc が必要。外すとリンクが通らない)
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_CTRL_BLE_MAX_ACT=1
+# observer を切ったのでスキャン側キュー/キャッシュも不要 (コントローラ
+# 側のプリコンパイル lib が内部RAMを占有するのを防ぐ)
+CONFIG_BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_SUPP=n
+CONFIG_BT_CTRL_BLE_SCAN_DUPL=n
 
 # ble_link (docs/protocol-v1.md): ボンド情報を NVS に保存して再接続を速くする
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
