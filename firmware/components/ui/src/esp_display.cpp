@@ -48,6 +48,10 @@ static void rounder_event_cb(lv_event_t* e) {
 
 namespace ui {
 
+// indev の PRESSED で Wake Action を emit する (消灯中のタップ起こし)。
+// widget に当たらない場所のタップでも発火するので全面で起きる。
+static void on_touch_press(lv_event_t*) { emit(watch::ActionType::Wake); }
+
 lv_display_t* init_display() {
   // LVGL タスク (lvgl_port) — core1 相当、prio 4。
   lvgl_port_cfg_t pcfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -114,6 +118,20 @@ lv_display_t* init_display() {
   };
   s_indev = lvgl_port_add_touch(&tcfg);
   ESP_RETURN_ON_FALSE(s_indev != nullptr, nullptr, TAG, "add_touch failed");
+
+  // TP INT(GPIO38) が配線されていると lvgl_port は indev を
+  // LV_INDEV_MODE_EVENT にする (read_timer 停止・割り込み時のみ読取)。
+  // このモードだと低速ドラッグ時の読取が INT の発火間隔まかせになり
+  // スクロールが 1fps 紙芝居化する (実機で確認) ので TIMER モード
+  // (33ms ポーリング) に戻す。INT→portタスク即時 read の経路は残る。
+  // 消灯中のタップ起こし: widget に当たらない場所でも indev の
+  // LV_EVENT_PRESSED は立つので、そこから Wake Action を emit する。
+  // (CLICKED 経由だけだと行タップでしか起きず「たまにしか起きない」)
+  if (lvgl_port_lock(-1)) {
+    lv_indev_set_mode(s_indev, LV_INDEV_MODE_TIMER);
+    lv_indev_add_event_cb(s_indev, on_touch_press, LV_EVENT_PRESSED, nullptr);
+    lvgl_port_unlock();
+  }
 
   // バックライト (DCS 0x51 書き込み。BSP の statics が埋まるので以後使える)。
   bsp_display_brightness_init();
