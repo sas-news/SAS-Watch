@@ -18,6 +18,7 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_system.h"
 #include "ota/ota.hpp"
 #include "theme_store/theme_store.hpp"
@@ -74,9 +75,16 @@ constexpr uint8_t kBulkOutMaxRetry = 5;
 constexpr int64_t kBulkOutAckTimeoutMs = 1200;
 BulkOut s_out;
 
+// light sleep 抑止の PM lock。BULK 送信 (bulk_out) の進行中だけ保持する。
+// ble_link 側の接続 lock とは別に持ち、転送完了/中断で対称に解放する。
+esp_pm_lock_handle_t s_no_ls_out = nullptr;
+void out_pm_acquire() { if (s_no_ls_out) esp_pm_lock_acquire(s_no_ls_out); }
+void out_pm_release() { if (s_no_ls_out) esp_pm_lock_release(s_no_ls_out); }
+
 void bulk_out_stop(const char* why) {
   ESP_LOGW(TAG, "bulk out id=%u stopped: %s", s_out.id, why);
   s_out.active = false;
+  out_pm_release();  // 中断: light sleep 抑止を解除
   if (s_out.done) s_out.done(s_out.id, false);
 }
 
@@ -118,6 +126,7 @@ bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
   s_out.done = done;
   s_out.size = size;
   s_out.last_ms = clock()->now_ms();
+  out_pm_acquire();  // 転送完了/中断 (stop) まで対
   ESP_LOGI(TAG, "bulk out start kind=%s file=%lu size=%lu", kind,
            static_cast<unsigned long>(file_id),
            static_cast<unsigned long>(size));
@@ -201,6 +210,7 @@ void bulk_out_pump() {
     ESP_LOGI(TAG, "bulk out done file=%lu",
              static_cast<unsigned long>(s_out.file_id));
     s_out.active = false;
+    out_pm_release();  // 完了: light sleep 抑止を解除
     if (s_out.done) s_out.done(s_out.id, true);
   }
 }
@@ -666,6 +676,14 @@ const ble_link_config_t* ble_config() { return &s_cfg; }
 
 // watch_app::start から1回呼ぶ。EventBus → EVT notify を配線する。
 void ble_glue_init() {
+  // BULK 送信用の light sleep 抑止 lock は初期化時に1回だけ確保する
+  // (CONFIG_PM_ENABLE 無しでは NOT_SUPPORTED で NULL のまま → no-op)。
+  const esp_err_t pl = esp_pm_lock_create(
+      ESP_PM_NO_LIGHT_SLEEP, ESP_PM_CPU_FREQ_MAX, "ble_bulk_out",
+      &s_no_ls_out);
+  if (pl != ESP_OK) {
+    ESP_LOGW(TAG, "pm lock create: %s", esp_err_to_name(pl));
+  }
   bus().subscribe(watch::EventType::BatteryChanged, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::ChargingChanged, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::TimerFinished, on_bus_evt, nullptr);

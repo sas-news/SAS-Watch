@@ -21,6 +21,7 @@
 #include "esp_codec_dev.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -95,6 +96,13 @@ struct PlayJob {
 PlayJob s_play;
 watch::PowerPolicy::Lease s_play_lease;  // 再生/ビープ中の Deep Sleep 防止
 
+// light sleep 抑止の PM lock。core の Lease (deep sleep 抑止) とは
+// 別系統なので両方持つ。録音/再生ジョブの実行中だけ acquire する。
+// (light sleep に入ると I2S/codec 処理が止まり転送が壊れる)
+esp_pm_lock_handle_t s_pm_lock = nullptr;
+void pm_acquire() { if (s_pm_lock) esp_pm_lock_acquire(s_pm_lock); }
+void pm_release() { if (s_pm_lock) esp_pm_lock_release(s_pm_lock); }
+
 void lock() { xSemaphoreTake(s_mtx, portMAX_DELAY); }
 void unlock() { xSemaphoreGive(s_mtx); }
 
@@ -153,6 +161,7 @@ void rec_task(void*) {
       s_rec.done = true;
       s_rec.active = false;
       unlock();
+      pm_release();  // ジョブ終了: light sleep 抑止を解除
       continue;
     }
     uint8_t hdr[watch::audio::kAdp1HeaderSize];
@@ -218,6 +227,7 @@ void rec_task(void*) {
     s_rec.done = true;
     s_rec.active = false;
     unlock();
+    pm_release();  // ジョブ終了: light sleep 抑止を解除
   }
 }
 
@@ -359,6 +369,7 @@ void play_task(void*) {
     s_play.memo_id = 0;
     s_play_lease.release();
     unlock();
+    pm_release();  // ジョブ終了: light sleep 抑止を解除
   }
 }
 
@@ -379,6 +390,7 @@ class EspAudio : public watch::AudioPort {
     s_rec.max_sec = max_sec;
     memo_path(memo_id, s_rec.path, sizeof(s_rec.path), true);
     unlock();
+    pm_acquire();  // ジョブ完了 (タスク側の pm_release) まで対
     if (s_rec_task) xTaskNotifyGive(s_rec_task);
     return true;
   }
@@ -435,6 +447,7 @@ class EspAudio : public watch::AudioPort {
     if (s_deps.power) {
       s_play_lease = s_deps.power->acquire(watch::Res::Audio, "audio.play");
     }
+    pm_acquire();  // ジョブ完了 (タスク側の pm_release) まで対
     if (s_play_task) xTaskNotifyGive(s_play_task);
     return true;
   }
@@ -475,6 +488,7 @@ class EspAudio : public watch::AudioPort {
     if (s_deps.power) {
       s_play_lease = s_deps.power->acquire(watch::Res::Audio, "audio.beep");
     }
+    pm_acquire();  // ジョブ完了 (タスク側の pm_release) まで対
     if (s_play_task) xTaskNotifyGive(s_play_task);
   }
 
@@ -574,6 +588,13 @@ void click() {
 bool init(const Deps& deps) {
   s_deps = deps;
   s_mtx = xSemaphoreCreateMutex();
+  // light sleep 抑止の PM lock は初期化時に1回だけ確保する
+  // (CONFIG_PM_ENABLE 無しでは NOT_SUPPORTED で NULL のまま → no-op)。
+  const esp_err_t pl = esp_pm_lock_create(
+      ESP_PM_NO_LIGHT_SLEEP, ESP_PM_CPU_FREQ_MAX, "audio", &s_pm_lock);
+  if (pl != ESP_OK) {
+    ESP_LOGW(TAG, "pm lock create: %s", esp_err_to_name(pl));
+  }
 
   if (kAudioEnabled) {
     // PA ピンは「再生中だけON」。起動時は OFF 固定。

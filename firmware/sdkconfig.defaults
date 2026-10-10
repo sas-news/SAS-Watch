@@ -79,6 +79,15 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 # 電源管理: tickless idle で自動 light sleep (plan.md L 章)
 CONFIG_PM_ENABLE=y
 CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+# light sleep 中の CPU パワードメイン OFF (既定y) は明示的に切る。
+# 有効だと esp_pm_configure 時に retention 用の内蔵SRAM を
+# ~8.8KB (CPU) + ~9KB (tagmem) 連続で確保しようとするが、この機体は
+# LVGL 描画バッファ16KB + BLE 30KB連続ブロックで内部RAMが逼迫し
+# 確保に失敗して "sleep_cpu_configure: Failed to enable CPU power down
+# during light sleep." と出る (失敗しても CPU 通電のまま light sleep は
+# 動くので実害は警告のみ)。同じ動作を警告なしにするため n にする。
+# 内部RAMに余裕ができたら y に戻すと light sleep 時 ~650uA 節約できる。
+CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n
 
 # LVGL 描画バッファ高さ: 既定100行=82KB は大きすぎる。
 # buff_dma=true (内蔵SRAM確保) と組み合わせるため、BLE 等と

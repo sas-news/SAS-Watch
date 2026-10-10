@@ -12,6 +12,7 @@
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_pm.h"
 #include "esp_partition.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -73,6 +74,11 @@ FILE* s_f = nullptr;
 uint32_t s_fsize = 0;
 
 watch::PowerPolicy::Lease s_lease;
+// light sleep 抑止の PM lock。s_lease は deep sleep 抑止で、
+// light sleep 用の esp_pm_lock とは別系統なので両方持つ。
+// (OTA 書き込み/ダウンロード中に light sleep へ入ると進行が止まる)
+esp_pm_lock_handle_t s_pm_lock = nullptr;
+bool s_pm_held = false;
 
 // ---- ワーカーの処理本体 ------------------------------------------------------
 
@@ -242,6 +248,13 @@ const char* stage_name(Stage s) {
 void init(watch::PowerPolicy* power, watch::EventBus* bus) {
   s_power = power;
   s_bus = bus;
+  // light sleep 抑止の PM lock は初期化時に1回だけ確保する
+  // (CONFIG_PM_ENABLE 無しでは NOT_SUPPORTED で NULL のまま → no-op)。
+  const esp_err_t pl = esp_pm_lock_create(
+      ESP_PM_NO_LIGHT_SLEEP, ESP_PM_CPU_FREQ_MAX, "ota", &s_pm_lock);
+  if (pl != ESP_OK) {
+    ESP_LOGW(TAG, "pm lock create: %s", esp_err_to_name(pl));
+  }
   if (!s_task) {
     // セッション中しか走らない待機タスク (stack は初期化時のみ確保)。
     xTaskCreate(ota_task, "ota", 8192, nullptr, 4, &s_task);
@@ -357,6 +370,16 @@ void poll() {
                                "ota");
   } else if (!active && s_lease.valid()) {
     s_lease.release();
+  }
+  // light sleep も同じ期間だけ禁止する (s_lease とは別系統)。
+  if (s_pm_lock) {
+    if (active && !s_pm_held) {
+      esp_pm_lock_acquire(s_pm_lock);
+      s_pm_held = true;
+    } else if (!active && s_pm_held) {
+      esp_pm_lock_release(s_pm_lock);
+      s_pm_held = false;
+    }
   }
   // 変化があったときだけ Event にする (app タスクが拾って EVT/UI 更新)。
   static Status s_pub;
