@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "lvgl.h"
 #include "power_apply.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
@@ -105,7 +106,22 @@ void app_task(void*) {
     ota::poll();  // OTA 進捗の Event 化 + 電源 Lease (deep sleep 禁止)
 
     const int64_t now = s_clock->now_ms();
+    // タッチの活動は LVGL 側の計測を活動時刻へ反映する。
+    // 行タップやスクロールのように Action 化されない入力でも
+    // 無操作タイマーをリセットするため。
+    // ScreenOff 中は lv_timer が止まり LVGL 側の時刻が進まないので、
+    // touched が last_activity を越えるのは新しい入力があった時だけ
+    // (強制消灯がタッチで解除されることはない)。
+    int64_t touched = 0;
+    if (ui::port::lock(50)) {
+      touched = now - static_cast<int64_t>(
+                          lv_display_get_inactive_time(nullptr));
+      ui::port::unlock();
+    }
     core_lock();
+    if (touched > s_power.last_activity_ms()) {
+      s_power.kick_activity(touched);
+    }
     s_rt.step(now, *s_fctx);
     // core 状態を読むので lock の内側。I2C 書き込みは値が変わった時だけ。
     alarm_rtc_sync();
