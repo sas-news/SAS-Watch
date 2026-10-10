@@ -1,0 +1,10 @@
+menu "SAS-Watch audio"
+    config WATCH_DISABLE_AUDIO
+        bool "Disable audio (unit without speaker/codec)"
+        default n
+        help
+            スピーカー/コーデック未搭載の個体用。
+            有効にすると PA/I2S/コーデック/音声タスクの初期化を
+            すべてスキップし、beep/録音/再生は何もしなくなる。
+            音声コード自体は残るので、搭載機体では無効のまま使う。
+endmenu
