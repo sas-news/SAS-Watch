@@ -1,12 +1,12 @@
 // steps.cpp — 歩数: 当日歩数・目標・達成率バー。
 //   部品は ui::c と theme トークンのみ (デザイン刷新と競合しないため)。
 //   バーは theme 色だけで組む (surface2 のトラック + primary の塗り)。
-#include "../components.hpp"
-#include "../theme.hpp"
+#include "components.hpp"
+#include "theme.hpp"
 
 #include <cstdio>
 
-#include "screens.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/steps.hpp"
 #include "watch/settings.hpp"

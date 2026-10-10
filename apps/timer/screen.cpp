@@ -1,12 +1,12 @@
 // timer.cpp — タイマー: 分秒の設定・開始/一時停止/リセット。
 // 実行中は残り時間のリング (lv_arc) + 時計フォントの大きな数字。
 // 終了時のフルスクリーン通知は shell.cpp のアラート。
-#include "../components.hpp"
-#include "../faces/faces.hpp"
-#include "../theme.hpp"
+#include "components.hpp"
+#include "faces/faces.hpp"
+#include "theme.hpp"
 
 #include <cstdio>
-#include "screens.hpp"
+#include "screens/screens.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/timer.hpp"

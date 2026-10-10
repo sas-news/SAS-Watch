@@ -53,6 +53,8 @@ char s_pending_font[16] = {};
 // Phone は受信側として BULK_ACK{next} を返す (8チャンクごと/END後)。
 // ACK が来ない/進まない部分はタイムアウトで acked 位置から送り直す。
 // kind="memo" (音声メモ) と "agent_audio" (AI の録音) で共用。1本ずつしか流せない。
+// 両アプリが無い時は未使用になるのでまるごと外す。
+#if SAS_APP_MEMO || SAS_APP_AGENT
 struct BulkOut {
   bool active = false;
   uint16_t id = 0;        // BULK の transfer id
@@ -202,11 +204,12 @@ void bulk_out_pump() {
     if (s_out.done) s_out.done(s_out.id, true);
   }
 }
+#endif  // SAS_APP_MEMO || SAS_APP_AGENT
 
 // ---- agent (AI) の送信 ----------------------------------------------------
 // core が持つ「送りたい物」を app タスクのループで実際に出す。
 // 音声は BULK kind="agent_audio"、定型質問は EVT agent.request。
-
+#if SAS_APP_AGENT
 void agent_bulk_done(uint16_t id, bool ok) {
   core_lock();
   watch::features::agent_sent(id, ok, *fctx());
@@ -246,6 +249,7 @@ void agent_poll_send() {
     }
   }
 }
+#endif  // SAS_APP_AGENT
 
 // ---- EventBus → EVT notify -------------------------------------------------
 // protocol-v1.md の EVT 表に対応する Event を送る。
@@ -258,6 +262,7 @@ void write_evt_battery(watch::cbor::Writer& w, void*) {
       .bool_v(board::pmic::is_charging());
 }
 
+#if SAS_APP_MEMO
 void write_evt_memo_saved(watch::cbor::Writer& w, void* ctx) {
   const uint32_t id = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(ctx));
   watch::features::MemoEntry e;
@@ -271,6 +276,7 @@ void write_evt_memo_saved(watch::cbor::Writer& w, void* ctx) {
       .text("sec")
       .uint_v(found ? e.sec : 0);
 }
+#endif
 
 void write_evt_id(watch::cbor::Writer& w, void* ctx) {
   const uint32_t id = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(ctx));
@@ -325,11 +331,13 @@ void on_bus_evt(const watch::Event& e, void*) {
     case watch::EventType::TimerFinished:
       ok = watch::proto::encode_evt(&w, "timer.finished", nullptr, nullptr);
       break;
+#if SAS_APP_MEMO
     case watch::EventType::MemoSaved:
       ok = watch::proto::encode_evt(
           &w, "memo.saved", write_evt_memo_saved,
           reinterpret_cast<void*>(static_cast<uintptr_t>(e.arg0)));
       break;
+#endif
     case watch::EventType::MemoDeleted:
       ok = watch::proto::encode_evt(
           &w, "memo.deleted", write_evt_id,
@@ -400,6 +408,7 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     a.source = watch::ActionSource::Phone;
     return features().handle(a, *static_cast<watch::FeatureContext*>(c));
   };
+#if SAS_APP_MEMO
   svc.memo_create = [](const char* text, size_t len, void* c) {
     return watch::features::memo_create(
         text, len, *static_cast<watch::FeatureContext*>(c));
@@ -474,10 +483,14 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return bulk_out_begin(id, "memo", static_cast<uint16_t>(id & 0xFFFF),
                           nullptr);
   };
+#endif  // SAS_APP_MEMO
+#if SAS_APP_AGENT
   svc.agent_reply = [](uint16_t id, const char* text, size_t len, void* c) {
     return watch::features::agent_on_reply(
         id, text, len, *static_cast<watch::FeatureContext*>(c));
   };
+#endif
+#if SAS_APP_ALARM
   svc.alarm_count = [](void*) {
     return static_cast<int32_t>(watch::features::alarm_count());
   };
@@ -506,18 +519,25 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return watch::features::alarm_delete(
         id, *static_cast<watch::FeatureContext*>(c));
   };
+#endif  // SAS_APP_ALARM
+#if SAS_APP_NOTIFY
   svc.notify_posted = [](const char* app, const char* title, const char* body,
                          void*) {
     watch::features::notify_add(app, title, body);
   };
+#endif
+#if SAS_APP_MEDIA
   svc.media_state = [](const char* title, const char* artist, bool playing,
                        void* c) {
     watch::features::media_set(title, artist, playing,
                                *static_cast<watch::FeatureContext*>(c));
   };
+#endif
+#if SAS_APP_STEPS
   svc.steps_today = [](void*) {
     return watch::features::steps_today();
   };
+#endif
   svc.ctx = fctx();
   // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。
   // face / clock_font も同じ経路 (dispatch 側で既に Settings へ保存済み、
@@ -635,7 +655,9 @@ ble_link_config_t s_cfg = {
     .bulk_commit = bulk_commit_tr,
     .bulk_abort = bulk_abort_tr,
     .bulk_ctx = nullptr,
+#if SAS_APP_MEMO || SAS_APP_AGENT
     .on_bulk_ack = on_bulk_ack,
+#endif
 };
 
 }  // namespace
@@ -664,17 +686,23 @@ void ble_glue_poll() {
                    static_cast<uint32_t>(conn > 0 ? 1 : 0)});
     ESP_LOGI(TAG, "ble %s%s", conn > 0 ? "connected" : "disconnected",
              conn == 2 ? " (authenticated)" : "");
+#if SAS_APP_MEMO || SAS_APP_AGENT
     if (conn == 0 && s_out.active) {
       bulk_out_stop("disconnected");
     }
+#endif
   }
   const int32_t key = s_pending_key;
   if (key >= 0) {
     s_pending_key = -1;
     ui::request_passkey(static_cast<uint32_t>(key));
   }
+#if SAS_APP_AGENT
   agent_poll_send();
+#endif
+#if SAS_APP_MEMO || SAS_APP_AGENT
   bulk_out_pump();
+#endif
   // テーマ適用待ち (BULK 受信 or settings.set) → SetTheme Action で適用。
   // 画面OFF中でも効くよう source=System (外部入力は dispatch で捨てられる)。
   char theme_id[32];

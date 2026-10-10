@@ -1,9 +1,9 @@
 // counter.cpp — カウンター: ＋/−/リセット。
-#include "../components.hpp"
-#include "../theme.hpp"
+#include "components.hpp"
+#include "theme.hpp"
 
 #include <cstdio>
-#include "screens.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/counter.hpp"
 

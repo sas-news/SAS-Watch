@@ -33,8 +33,10 @@ uint8_t s_last_depth = 1;
 lv_obj_t* s_alert = nullptr;
 lv_timer_t* s_alert_timer = nullptr;
 lv_timer_t* s_alarm_beep_timer = nullptr;  // アラーム繰り返しビープ
+#if SAS_APP_NOTIFY
 lv_obj_t* s_toast = nullptr;               // 通知ポップアップ
 lv_timer_t* s_toast_timer = nullptr;
+#endif
 
 // BLE パスキー確認
 lv_obj_t* s_key_modal = nullptr;
@@ -479,6 +481,7 @@ void show_alarm_alert(uint32_t id) {
 
   // 鳴っているアラームの時刻 (id が見つからなければ時刻は出さない)。
   // 時刻は時計フォント (clock_font 設定)。
+#if SAS_APP_ALARM
   watch::features::AlarmEntry e;
   if (watch::features::alarm_find(id, &e)) {
     char tb[8];
@@ -489,6 +492,9 @@ void show_alarm_alert(uint32_t id) {
     lv_obj_set_style_text_color(tm, t.text, 0);
     lv_obj_align(tm, LV_ALIGN_CENTER, 0, -70);
   }
+#else
+  (void)id;
+#endif
 
   lv_obj_t* stop = alert_button(
       s_alert, "止める", true,
@@ -515,6 +521,7 @@ void show_alarm_alert(uint32_t id) {
 // ---- 通知ポップアップ -------------------------------------------------------
 // 画面上部に短時間だけ出すトースト。タップ操作は下に通す。
 
+#if SAS_APP_NOTIFY
 void hide_toast(lv_timer_t*) {
   if (s_toast) {
     lv_obj_delete(s_toast);
@@ -522,8 +529,10 @@ void hide_toast(lv_timer_t*) {
   }
   s_toast_timer = nullptr;
 }
+#endif
 
 void show_notify_popup() {
+#if SAS_APP_NOTIFY
   watch::features::NotifyEntry e;
   if (!watch::features::notify_at(0, &e)) return;
   hide_toast(nullptr);
@@ -559,6 +568,7 @@ void show_notify_popup() {
   if (!s_ctx.settings || s_ctx.settings->notify_vibrate) {
     port::vibrate(150);  // TODO(hw): 実機で確認 — 通知の振動強さ
   }
+#endif  // SAS_APP_NOTIFY
 }
 
 // ---- パスキー確認モーダル ---------------------------------------------------
@@ -654,9 +664,11 @@ void handle_event(const watch::Event& e) {
     show_timer_alert();
   } else if (e.type == watch::EventType::AlarmRinging) {
     show_alarm_alert(e.arg0);
+#if SAS_APP_ALARM
   } else if (e.type == watch::EventType::AlarmChanged) {
     // 停止/スヌーズ/自動停止で鳴動が終わったら閉じる。
     if (!watch::features::alarm_ringing() && s_alert) hide_alarm_alert();
+#endif
   } else if (e.type == watch::EventType::NotificationPosted) {
     show_notify_popup();
   } else if (e.type == watch::EventType::ThemeChanged) {

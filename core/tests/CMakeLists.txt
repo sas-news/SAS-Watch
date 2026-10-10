@@ -21,7 +21,9 @@ add_executable(watch_core_tests
     test_theme.cpp
     test_audio.cpp
     test_sensors.cpp
-    test_vectors.cpp)
+    test_vectors.cpp
+    # アプリ単体テストは apps/<id>/test_*.cpp に置く (収集は apps.cmake)。
+    ${SAS_APP_TEST_SOURCES})
 
 target_include_directories(watch_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # docs/protocol-vectors/*.json の場所 (core/tests から repo ルートへ)。

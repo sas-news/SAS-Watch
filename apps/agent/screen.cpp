@@ -1,9 +1,9 @@
 // agent.cpp — AI: 「話しかける」(録音→スマホ中継でLLM) と定型質問ボタン。
 // 状態機械は core の features::agent_* が持ち、ここは表示と入力だけ。
 // ui::c の共通部品と ui::theme() のトークンだけで組む (デザイン刷新と衝突しない)。
-#include "../components.hpp"
-#include "../theme.hpp"
-#include "screens.hpp"
+#include "components.hpp"
+#include "theme.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/agent.hpp"
 

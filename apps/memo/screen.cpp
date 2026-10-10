@@ -1,9 +1,9 @@
 // memo.cpp — メモ: 録音・一覧・詳細 (テキスト/音声)。
 // テキストメモの作成はスマホ経由のみ (plan.md メモ入力=Phone の仕様)。
 // 音声メモは時計側で録音でき、実体は AudioPort 側のストレージに置く。
-#include "../components.hpp"
-#include "../theme.hpp"
-#include "screens.hpp"
+#include "components.hpp"
+#include "theme.hpp"
+#include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/memo.hpp"
 

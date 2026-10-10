@@ -18,15 +18,6 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/home.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/quick.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/applist.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/timer.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/stopwatch.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/counter.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/steps.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/memo.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/alarm.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/notifications.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/media.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/screens/agent.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/settings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/ota.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/powermenu.cpp

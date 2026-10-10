@@ -26,13 +26,17 @@ FetchContent_MakeAvailable(lvgl)
 
 # core は sources.cmake が正 (firmware の watch_core と同じ取り込み方)。
 include(${CMAKE_CURRENT_SOURCE_DIR}/../core/sources.cmake)
-add_library(watch_core STATIC ${WATCH_CORE_SOURCES})
+# アプリの有効/無効とソース収集 (firmware と同じ apps.cmake)。
+include(${CMAKE_CURRENT_SOURCE_DIR}/../apps/cmake/apps.cmake)
+add_library(watch_core STATIC ${WATCH_CORE_SOURCES} ${SAS_APP_CORE_SOURCES})
 target_include_directories(watch_core PUBLIC ${WATCH_CORE_INCLUDE_DIRS})
+target_compile_definitions(watch_core PUBLIC ${SAS_APP_DEFINES})
 target_compile_options(watch_core PRIVATE -fno-exceptions -fno-rtti)
 
 # ui の platform 非依存ソース (firmware と共有)。
 include(${CMAKE_CURRENT_SOURCE_DIR}/../firmware/components/ui/sources.cmake)
-add_library(watch_ui STATIC ${WATCH_UI_SOURCES})
+add_library(watch_ui STATIC ${WATCH_UI_SOURCES} ${SAS_APP_UI_SOURCES})
+target_compile_definitions(watch_ui PUBLIC ${SAS_APP_DEFINES})
 target_include_directories(watch_ui PUBLIC ${WATCH_UI_INCLUDE_DIRS})
 target_include_directories(watch_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/components/ui/src)
 target_link_libraries(watch_ui PUBLIC lvgl watch_core)
