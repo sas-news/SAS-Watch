@@ -33,10 +33,42 @@ namespace buttons {
 }
 
 namespace pmic {
+    // AXP2101 の充電ステータス。XPowersLib の xpowers_chg_status_t に対応。
+    // is_charging() では「充電中」と「満充電」を区別できないので詳細化したもの。
+    enum class ChargeStatus : uint8_t {
+        Unknown,          // PMIC 未初期化 / 読み取り失敗
+        NotCharging,      // 放電中 (電池駆動) または電池未接続
+        PreCharging,      // トリクル/プリチャージ (深放電からの回復充電)
+        ConstantCurrent,  // 定電流充電
+        ConstantVoltage,  // 定電圧充電
+        FullCharged,      // 充電完了
+        Stopped,          // 充電停止 (終止/サーマル等。VBUS 接続中の停止)
+    };
+
     esp_err_t init();
-    int  battery_percent();   // 0-100, 取得失敗時 -1
+    int  battery_percent();   // 0-100 (EMA平滑済み), 取得失敗/電池未接続時 -1
     bool is_charging();
     bool is_vbus();           // USB 電源が入っているか
+    ChargeStatus charge_status();
+
+    // 30秒ポーリング等の呼び出し側が一括取得するためのスナップショット。
+    // 個別関数 (battery_percent() 等) も引き続き使える。
+    struct PmicStatus {
+        int percent;          // battery_percent() と同じ
+        bool charging;        // is_charging() と同じ
+        ChargeStatus status;  // charge_status() と同じ
+        bool vbus_good;       // VBUS 電圧が有効範囲か
+        bool discharging;     // 電池が放電中か
+        float batt_v;         // 電池電圧 [V]
+        float vbus_v;         // VBUS 電圧 [V] (未接続時 0)
+        float pmic_temp_c;    // PMIC 内部温度 [℃]
+    };
+    // pmic 未初期化なら false を返し out は書き換えない。
+    bool pmic_status(PmicStatus* out);
+    // 起動時診断用: 全レール (DC1-5/ALDO1-4/BLDO1-2/CPUSLDO/DLDO1-2) の
+    // ON/OFF と電圧をログ出力。ブリングアップで初期状態を確認するためのもの。
+    void rail_dump();
+
     // AXP2101 ALDO2 = DSI_PWR_EN (パネル電源)。
     // 切ると画面の再初期化が必要 // TODO(hw): 実機で再初期化時間を確認
     void panel_power(bool on);
