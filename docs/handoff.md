@@ -12,27 +12,27 @@
 | LVGL バッファ | 410×10行×2枚 (double_buffer) | height20×2枚 (32.8KB) は内蔵SRAMを圧迫し BLE_INIT の 32KB 連続確保が失敗してリブートループ。10行×2=16.4KB で共存 (PR #34) |
 | 内蔵SRAM 余裕 (audio無効時) | 数KB 程度 | I2S init の NO_MEM / BLE malloc 失敗の履歴から、常に逼迫していると思ってよい |
 | `deep_sleep_after_s` の反映 | **BLE settings.set で即時反映** | `h_settings_set` → `apply_settings_side_effects` → `PowerPolicy::configure` (core/protocol/dispatch.cpp:672)。再起動不要 |
+| **角R (パネル角丸)** | **≈100 px** | 実機写真の数値解析: 各辺フレームのクリップ量 85〜104px。対角方向の見え閾値 0.414·R≈41px で r=48(紫)リングのみ覗く観測と一致 |
+| **パネル窓オフセット** | **x_gap=22, y_gap=0 は概ね正しい** | 4辺フレーム全てがアクティブ領域端ギリギリに表示。左上↔右下の見え方差は 2.5D 湾曲ガラスの視差で、窓ずれではない |
+| **safe-area inset** | **32〜36px** | 矩形セーフ域: 隅点が見える条件 s ≥ R(1−1/√2) ≈ 29px → 余裕込みで 36。`kPad`(content 左右余白) を 22→32、mascot 角クランプを 36 に反映済み |
+| **待機 redraw** | **0 (コード側の無駄再描画なし)** | LOG_MODE 計測: 無操作時 `redraw_cnt: 0`、refr timer は常時 30Hz で dirty チェックのみ |
+| **描画コスト** | **render ~50–190ms/全面** | 起動直後の sysmon ログ。全面 redraw 1回が重い → 全面更新の実効 FPS 上限 ~5–6 |
+| **「チラチラ」の原因** | **perf overlay の自己再描画 (確定)** | overlay は 300ms 固定周期でラベル更新→部分 flush。LOG_MODE (overlay 非表示) ビルドで揺れ消失を実機確認 |
+| perf monitor CPU% | **信用できない** | tickless idle + light sleep 下で idle 計測が破綻し 100% 表示になる |
 
-要実機計測 (ユーザーの build/flash 確認待ち):
+要実機体感 (ユーザー判断):
 
-| 項目 | 計測方法 |
+| 項目 | 試し方 |
 |---|---|
-| 角R (切れ始める半径) | `WATCH_DIAG_CORNERS=y` の四隅リング: 赤=0 → 紫=48px、8px 刻み。**見えなくなり始めるリング色を報告してもらう** |
-| 待機 FPS / CPU% | 画面上端中央の perf monitor。無操作時の数値を記録 |
 | deep sleep→PWR 体感 | `settings.set {deep_sleep_after_s: N}` で値を変えて試す (即時反映・再起動不要)。既定 1800s |
 
-## 角R → safe-area 反映先 (値が決まったら)
+## safe-area 反映済み箇所
 
-テーマ manifest の `pad` は skin 飾り用で既に加算機構あり
-(`components.cpp` `apply_skin`, use_pad 経路)。ハード固有の safe-area は
-テーマに書かず、**コード側の固定 inset** にするのが筋:
+- `components.cpp` `kPad` 22→32 (content() 列の左右余白)
+- `components.cpp` mascot 角クランプ 22→36、ヘッダ小型 mascot も角を避けて 6px 下げ
+- 残り: faces の文字盤内要素・alert ボタン幅 366 など、デザイン意匠が絡む所は Opus 判断
 
-- `faces/faces.cpp` — 文字盤ルートの生成箇所 (現状 pad_all=0)
-- `components.cpp` — 画面 content 領域
-- 候補: `ui::` 名前空間に `kSafeInsetPx` のような定数を置き、上記2箇所で使う
-
-値の取り方: 四隅の欠け始め半径 R → 隅からの斜めオフセットは `R·(1−1/√2)≈0.293·R`。
-実効 inset はおおよそ `R×0.3` + 見た目の余裕分。例: R=48 なら inset ≈14〜18px。
+値の取り方 (再掲): 四隅の欠け始め半径 R → 隅からの斜めオフセットは `R·(1−1/√2)≈0.293·R`。
 
 ## Opus に残るデザイン系タスク
 
@@ -45,32 +45,22 @@
 
 ## 未解決の技術課題
 
-### 1. 「チラチラ」(無操作で色が揺れる) — 最有力: perf monitor 自身
+### 1. ~~「チラチラ」~~ → 解決済み
 
-コード側の定期 invalidate は以下のみで、待機中は事実上ゼロ:
+原因は **perf overlay の 300ms 自己再描画** (LOG_MODE ビルドで消失を実機確認)。
+コード側に待機中の無駄更新は存在しない (redraw_cnt=0)。
+`sdkconfig.defaults` で `LV_USE_PERF_MONITOR_LOG_MODE=y` を既定化済み
+(overlay 非表示・UART に `sysmon:` 出力)。
 
-- 文字盤: 分単位 (`face_minimal.cpp:134`, `face_analog.cpp:125`)
-- stopwatch 50ms / timer 250ms: その画面を開いている間だけ
+### 2. 描画の重さ — 残課題 (render 50–190ms/全面)
 
-一方 `LV_USE_PERF_MONITOR` のオーバーレイは **300ms 固定周期**
-(`lv_sysmon.c` の `LV_SYSMON_REFR_PERIOD_DEF`, kconfig 不可) で自身のラベルを
-更新し、その都度部分 invalidate → flush が走る。待機中の揺れはほぼこれと見る。
+実測: 全面 redraw 1回 ~50–190ms → 実効 FPS ~5–6 が上限。スクロール中の
+「紙芝居」感の本体。候補 (未検証):
 
-切り分け:
-
-- perf monitor を `n` (sdkconfig) にして揺れが消えれば確定
-- FPS/CPU% の値だけ欲しい場合は `CONFIG_LV_USE_PERF_MONITOR_LOG_MODE=y`
-  (overlay なし・UART ログ出力) に切り替える手がある
-- 残るなら表示側: 部分フラッシュの見え方 / 輝度遷移 / AMOLED パネル固有
-
-### 2. 描画の重さ — 要実機数値
-
-perf monitor の FPS/CPU% で切り分け:
-
-- CPU% 高い → 描画負荷 (LVGL オブジェクトは
-  `SPIRAM_MALLOC_ALWAYSINTERNAL=1024` で PSRAM 行き → PSRAM アクセス遅延が
-  描画に効く可能性。CPU 周波数も要確認)
-- CPU% 低いのに重い → QSPI 転送帯域 (height10 化でチャンク数 50/全面更新に増)
+- LVGL オブジェクトは `SPIRAM_MALLOC_ALWAYSINTERNAL=1024` で PSRAM 行き
+  → スタイル/レイアウト走査が octal PSRAM にヒットして遅い可能性
+- refr timer 30Hz での dirty チェック自体は軽い (redraw=0 でも 30Hz で回る)
+- QSPI 転送: height10 で 50 チャンク/全面 (double_buffer で重畳は効く)
 
 ### 3. `action queue full; dropped 40` (一過性)
 

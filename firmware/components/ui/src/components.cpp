@@ -1,7 +1,7 @@
 // components.cpp — 共通部品の実装。
 //   見た目は docs/design/ui.html のモックアップに合わせる:
 //   - 黒背景 + 角丸グループ (surface) に行を区切り線で並べる
-//   - 左右 22px、ヘッダ 76px、ボタンは高 58px のピル
+//   - 左右 32px (実測角R≈100px の内側)、ヘッダ 76px、ボタンは高 58px のピル
 //   - 色・角丸・フォントは Theme トークンから取る (file テーマも同じ形)。
 #include "components.hpp"
 
@@ -17,7 +17,7 @@ namespace ui::c {
 namespace {
 
 constexpr lv_coord_t kW = 410;     // 表示幅
-constexpr lv_coord_t kPad = 22;    // コンテンツの左右余白 (角丸 44px の内側)
+constexpr lv_coord_t kPad = 32;    // コンテンツの左右余白 (実測角R≈100px の内側)
 constexpr lv_coord_t kHeaderH = 76;
 constexpr lv_coord_t kBackH = 48;  // 戻るピル高さ
 constexpr lv_coord_t kRowMinH = 60;
@@ -1020,21 +1020,22 @@ lv_obj_t* mascot(lv_obj_t* scr, int screen_index) {
   lv_image_set_src(im, t.mascot_dsc[0]);
   int32_t x, y;
   if (has_header) {
-    // 右端から 22px 以上・タイトルと同じ高さ (ピル中心 ~y41)。
+    // 右端から 36px 以上・タイトルと同じ高さ (ピル中心 ~y41)。
     lv_obj_set_size(im, kMascotSmall, kMascotSmall);
     lv_image_set_scale(im, static_cast<int32_t>(
                                kMascotSmall * LV_SCALE_NONE / w));
-    x = kW - 22 - kMascotSmall;
-    y = 41 - kMascotSmall / 2;
+    x = kW - 36 - kMascotSmall;
+    y = 41 - kMascotSmall / 2 + 6;  // 角クリップ圏 (実測R≈100) を避けて少し下へ
   } else {
     // x/y<0 は右/下端基準のオフセット。
     x = t.mascot.x < 0 ? kW + t.mascot.x - w : t.mascot.x;
     y = t.mascot.y < 0 ? 502 + t.mascot.y - h : t.mascot.y;
-    // 丸角 (~44px) の内側の安全域に収める: 端から 22px 以内は使わない。
-    if (x < 22) x = 22;
-    if (x > kW - 22 - w) x = kW - 22 - w;
-    if (y < 22) y = 22;
-    if (y > 502 - 22 - h) y = 502 - 22 - h;
+    // 丸角 (実測 R≈100px) の内側の安全域に収める: 隅要素は端から
+    // 36px 以内は使わない (R(1-1/√2)≈29px + 余裕)。
+    if (x < 36) x = 36;
+    if (x > kW - 36 - w) x = kW - 36 - w;
+    if (y < 36) y = 36;
+    if (y > 502 - 36 - h) y = 502 - 36 - h;
   }
   lv_obj_set_pos(im, x, y);
   clickable(im);

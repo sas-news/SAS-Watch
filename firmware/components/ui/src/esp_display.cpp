@@ -63,6 +63,8 @@ static void on_touch_press(lv_event_t*) { emit(watch::ActionType::Wake); }
 // 描く。物理的に切れる位置で欠けるので、欠け始めるリング位置から
 // 実効の角 R / safe-area が実機写真で読み取れる。
 // 色順(内→外): 赤0 橙8 黄16 緑24 水32 青40 紫48
+// さらに全面フレーム: 辺ごと別色 (上=白 右=赤 下=緑 左=青) の3px枠
+// +32px刻みの内向き目盛 (12px)。パネル窓(gap)のズレ方向と量が読める。
 void draw_corner_probes() {
   constexpr int SZ = 64;
   constexpr int STEPS = 7;
@@ -72,6 +74,49 @@ void draw_corner_probes() {
       LV_COLOR_MAKE(32, 224, 255),  LV_COLOR_MAKE(96, 128, 255),
       LV_COLOR_MAKE(224, 96, 255),
   };
+  // 全面フレーム (描画領域の物理的位置が一目で分かる目盛付き枠)
+  {
+    const int W = BSP_LCD_H_RES, H = BSP_LCD_V_RES;
+    uint8_t* fbuf = static_cast<uint8_t*>(
+        heap_caps_malloc(W * H * 4, MALLOC_CAP_SPIRAM));
+    if (fbuf) {
+      memset(fbuf, 0, (size_t)W * H * 4);
+      lv_obj_t* fc = lv_canvas_create(lv_layer_top());
+      lv_canvas_set_buffer(fc, fbuf, W, H, LV_COLOR_FORMAT_ARGB8888);
+      // edge: 0=上(白) 1=右(赤) 2=下(緑) 3=左(青)
+      const lv_color_t ecols[4] = {
+          LV_COLOR_MAKE(255, 255, 255), LV_COLOR_MAKE(255, 32, 32),
+          LV_COLOR_MAKE(64, 255, 64),   LV_COLOR_MAKE(64, 64, 255),
+      };
+      for (int e = 0; e < 4; e++) {
+        const bool horz = (e == 0 || e == 2);
+        const int len = horz ? W : H;
+        for (int i = 0; i < len; i++) {
+          for (int t = 0; t < 3; t++) {  // 枠の太さ 3px
+            int x, y;
+            if (e == 0)      { x = i; y = t; }
+            else if (e == 1) { x = W - 1 - t; y = i; }
+            else if (e == 2) { x = i; y = H - 1 - t; }
+            else             { x = t; y = i; }
+            lv_canvas_set_px(fc, x, y, ecols[e], LV_OPA_COVER);
+          }
+          // 目盛: 32px 刻みで 12px 内側へ (辺の色と同色)
+          if (i % 32 == 0) {
+            for (int t = 3; t < 12; t++) {
+              int x, y;
+              if (e == 0)      { x = i; y = t; }
+              else if (e == 1) { x = W - 1 - t; y = i; }
+              else if (e == 2) { x = i; y = H - 1 - t; }
+              else             { x = t; y = i; }
+              lv_canvas_set_px(fc, x, y, ecols[e], LV_OPA_COVER);
+            }
+          }
+        }
+      }
+      lv_obj_set_pos(fc, 0, 0);
+      lv_obj_remove_flag(fc, LV_OBJ_FLAG_CLICKABLE);
+    }
+  }
   // corner: 0=TL 1=TR 2=BL 3=BR
   for (int c = 0; c < 4; c++) {
     uint8_t* buf = static_cast<uint8_t*>(

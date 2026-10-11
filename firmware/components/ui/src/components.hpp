@@ -11,7 +11,7 @@ namespace ui::c {
 // 画面直上のヘッダ (高さ 76px)。back_btn=true で左に「‹ 戻る」ピル。
 lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn);
 
-// 縦積み・スクロール可のコンテンツ列 (左右 22px)。ヘッダの下に敷く。
+// 縦積み・スクロール可のコンテンツ列 (左右 32px)。ヘッダの下に敷く。
 lv_obj_t* content(lv_obj_t* scr);
 
 // フル幅ピルボタン (高さ 58px)。cb は LV_EVENT_CLICKED。
