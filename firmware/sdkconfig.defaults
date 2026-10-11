@@ -143,5 +143,6 @@ CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_PRINTF=y
 
 # 角曲率計測オーバーレイ (ui/Kconfig): 四隅に半径8px刻みの同心弧。
-# 実機写真から safe-area を読み取ったら n に戻す。
-CONFIG_WATCH_DIAG_CORNERS=y
+# 実機写真から角R≈100px・safe-area 32–36px を確定済みのため既定off。
+# 再計測したいときは =y にする。
+CONFIG_WATCH_DIAG_CORNERS=n
