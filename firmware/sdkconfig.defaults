@@ -91,8 +91,12 @@ CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n
 
 # LVGL 描画バッファ高さ: 既定100行=82KB は大きすぎる。
 # buff_dma=true (内蔵SRAM確保) と組み合わせるため、BLE 等と
-# 共存できる 20行=16KB に下げる (BSP の bounce buffer と同サイズ)。
-CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT=20
+# 共存できるサイズに下げる。
+# double_buffer=true (esp_display.cpp) で2枚確保するため、
+# 10行 x2枚 = 16.4KB が内蔵消費 (= 単バッファ20行のときと同量)。
+# 20行 x2枚 = 32.8KB だと BLE_INIT の 32KB 連続確保が失敗して
+# 起動ループになることを実機で確認済み。
+CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT=10
 
 # LVGL: 公式サンプル 02_lvgl_demo_v9 / BSP v2 推奨設定ベース
 # 日本語フォントはまだ無し (plan.md I 章)

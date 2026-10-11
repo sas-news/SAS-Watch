@@ -121,9 +121,12 @@ lv_display_t* init_display() {
       .panel_handle = s_panel,
       .control_handle = nullptr,
       .buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT,
-      // 2枚目のバッファ(+16KB内蔵SRAM)で転送中にもう片方へ描画でき、
-      // 逐次フラッシュの頭打ちとスクロール時の実効FPSが上がる。
-      // 内蔵SRAMを喰うので BLE 等との逼迫は実機で確認。
+      // 2枚バッファで転送中にもう片方へ描画でき、逐次フラッシュの
+      // 頭打ちとスクロール時の実効FPSが上がる。
+      // buff_dma=true (内蔵SRAM) と組み合わせるため、高さは
+      // BSP_DISPLAY_LVGL_BUF_HEIGHT=10 にして2枚合計16.4KBに抑える
+      // (20行x2枚=32.8KB では BLE_INIT の 32KB 連続確保が失敗し
+      // 起動ループになることを実機確認済み)。
       .double_buffer = true,
       .trans_size = 0,
       .hres = BSP_LCD_H_RES,
