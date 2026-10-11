@@ -56,7 +56,15 @@ namespace ui {
 
 // indev の PRESSED で Wake Action を emit する (消灯中のタップ起こし)。
 // widget に当たらない場所のタップでも発火するので全面で起きる。
-static void on_touch_press(lv_event_t*) { emit(watch::ActionType::Wake); }
+// 押下中は LV_EVENT_PRESSED が read 毎 (~66回/秒) に立つため、Wake emit は
+// 間引く。さもないと action queue (40件) が Wake で溢れ、Back/PrimaryAction
+// 等の本物の入力が drop される (実機ログで確認)。
+static uint32_t s_last_wake_emit;
+static void on_touch_press(lv_event_t*) {
+  if (s_last_wake_emit != 0 && lv_tick_elaps(s_last_wake_emit) < 400) return;
+  s_last_wake_emit = lv_tick_get();
+  emit(watch::ActionType::Wake);
+}
 
 #if CONFIG_WATCH_DIAG_CORNERS
 // 角曲率計測オーバーレイ: 四隅の角点を中心に半径8px刻みの同心弧を

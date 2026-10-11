@@ -55,17 +55,54 @@
 ### 2. 描画の重さ — 残課題 (render 50–190ms/全面)
 
 実測: 全面 redraw 1回 ~50–190ms → 実効 FPS ~5–6 が上限。スクロール中の
-「紙芝居」感の本体。候補 (未検証):
+「紙芝居」感の本体。内訳は render (CPU側ラスタライズ) が支配的で
+待機・単発再描画時の flush (QSPI転送) は 5–15ms に過ぎない。
 
-- LVGL オブジェクトは `SPIRAM_MALLOC_ALWAYSINTERNAL=1024` で PSRAM 行き
-  → スタイル/レイアウト走査が octal PSRAM にヒットして遅い可能性
-- refr timer 30Hz での dirty チェック自体は軽い (redraw=0 でも 30Hz で回る)
-- QSPI 転送: height10 で 50 チャンク/全面 (double_buffer で重畳は効く)
+**スクロール/ドラッグ中はさらに悪い** (fprobe 実測): render 280–365ms +
+flush 225–335ms で 1フレーム ~400–500ms → 実効 ~2fps。flush 爆発の構造:
+スクロールは LVGL の無効領域を content 幅 (346px) ×バッファ高10行の帯に
+分割して flush するため 1フレーム ~50回の個別 draw_bitmap が走り、各回
+CASET/RASET (ポーリング送信・先行DMA全件待ち) + RAMWR キューを逐次処理。
+送信サブミット自体は 0–15ms/回だが、転送と描画が交互にブロックし合い
+合計で重くなる。**config レベルの加速手段は実機で全て棄却済み**:
 
-### 3. `action queue full; dropped 40` (一過性)
+- **PPA**: ESP32-S3 にはハード自体が無い (P4系のみ)。LVGL Kconfig の
+  `LV_USE_PPA` は有効化しても `#error "This SoC does not support PPA"` で
+  ビルド不可
+- **S3 SIMD asm** (esp_lvgl_port 2.9.0 内蔵): CMake が LVGL 9.1.x のみに
+  ゲートしており 9.5 では非対象。blend API が 9.3 で変わったためそのまま
+  では動かず、移植は上流規模の作業 (esp-bsp issue #621 が該当)
+- **`LV_DRAW_SW_DRAW_UNIT_CNT=2`** (デュアルコア並列描画): 実機で悪化。
+  起動描画 render 285–315ms (CNT=1 では 125–220ms) + drawスレッド分の
+  8KBスタック増 + `lv_os_get_idle_percent` 警告の毎秒化
+- **`LV_DRAW_BUF_STRIDE_ALIGN=64`**: 効果なし (render ~120ms で不変)
 
-タッチ indev TIMER 化後の1ブートで13件出たが、次ブートでは0件・電源遷移正常。
-タッチ連打等の実入力による輻輳なら問題ないが、無操作で再発するなら上流案件。
+残る本筋のレバー:
+
+- **デザイン側の軽量化** (Opus 領域): shadow/glow・gradient・AAテキストの
+  抑制。`components.cpp` の glow (shadow_width/opa=120) や face 側の
+  効果描画が画素単位コストを積んでいる
+- **上流の S3 SIMD 移植** or `espressif/lvgl` フォーク評価 (LVGL 9.x で
+  PIE命令最適化が取り込まれたら差し替え候補)
+- 参考: LVGL オブジェクトは `SPIRAM_MALLOC_ALWAYSINTERNAL=1024` により
+  ~200B/個は内蔵SRAM、フォント等の大物は PSRAM。QSPI 転送は height10で
+  50チャンク/全面だが double_buffer 重畳で既に速い
+
+### 3. ~~`action queue full; dropped 40`~~ → 根本原因を特定・修正済み
+
+**原因**: `on_touch_press` (esp_display.cpp) が indev の `LV_EVENT_PRESSED`
+毎に `Wake` Action を emit していたが、このイベントは押下中 **read 毎
+(~66回/秒)** に発火する。指を押さえ続けるだけで ActionQueue (40件) が
+Wake で溢れ、同時期に来た Back/PrimaryAction 等の本物の入力が drop
+されていた = **「戻るボタン等の反応が悪い」の主犯**。
+
+**修正**: `on_touch_press` 内で Wake emit を 400ms に1回に間引き
+(`s_last_wake_emit`)。消灯中の最初のタップは必ず間隔が空いているので
+即時 emit される＝wake-on-touch は維持。
+
+**副次的知見**: 長い render 中 (~300–500ms) は LVGL タスクが占有され
+indev read_timer が飢餓 → タッチサンプルに 300ms 級のギャップが生じ
+座標が飛ぶ (tprobe 実測)。ドラッグ中の「座標ジャンプ」はこれ。
 
 ### 4. その他留意
 
@@ -81,3 +118,22 @@
 - ESP-IDF 5.5.1 / LVGL 9.5.0 / NimBLE / C++17 (例外・RTTI なし)
 - `IDF_CCACHE_ENABLE=1` 推奨 (フルリビルド ~7分 → ~55秒)
 - core ホストテスト: `cd core/build && ctest` (189件)
+
+## 実機操作での失敗と教訓 (再発防止)
+
+- **アプリのフラッシュオフセットは `0x20000` (ota_0)**。`0x110000` に
+  書くとパーティション途中を破壊 → `No bootable app partitions` で
+  ブートループし、連続リセット中は USB-Serial が列挙できず
+  `/dev/ttyACM0` 自体が消える (実際に踏んだ)。リカバリ: ケーブル
+  抜き差し or 電源入れ直しでポート復活後、`0x20000` に書き直す
+- アプリのみの再フラッシュは esptool 直叩きが速い
+  (~25秒・再cmake 無し):
+  `python components/esptool_py/esptool/esptool.py -p /dev/ttyACM0
+  -b 460800 --before default_reset --after hard_reset --chip esp32s3
+  write_flash 0x20000 build/sas_watch.bin`
+- **`idf.py -p flash` は cmake を再実行する**: `IDF_CCACHE_ENABLE=1`
+  の env 無しで呼ぶと `CCACHE_ENABLE=0` で 2145 ターゲットの
+  全リビルドに化けた (実際に踏んだ)。フラッシュ時も env を渡すか、
+  上記 esptool を使う
+- 監視は `python -m esp_idf_monitor --port /dev/ttyACM0 build/sas_watch.elf`
+  を `timeout` 付きでファイルにリダイレクトするのが安定
