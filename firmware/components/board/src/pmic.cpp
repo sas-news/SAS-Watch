@@ -112,8 +112,7 @@ esp_err_t init()
     ESP_LOGI(TAG, "AXP2101 ok: batt=%d%% charging=%d vbus=%d",
              s_pmu.getBatteryPercent(), (int)s_pmu.isCharging(), (int)s_pmu.isVbusIn());
     // reg 0x24 (Vsys power-off 閾値) は既定値の確認のみで変更はしない。
-    // T-Watch 系の知見では最小値 2.6V 付近が安全。実機で既定値を見てから判断
-    // TODO(hw): 実機で出力された値を確認してから変更を検討
+    // 実機ログで 2600mV を確認済み。リチウム実用下限として妥当なので既定維持。
     ESP_LOGI(TAG, "vsys power-off threshold=%umV (reg 0x24)",
              (unsigned)s_pmu.getSysPowerDownVoltage());
     return ESP_OK;
