@@ -5,6 +5,7 @@
 // Deep Sleep への移行は watch_app.cpp のタスクが行う (保存・起床設定があるため)。
 #include "power_apply.hpp"
 
+#include "ble_link.h"
 #include "esp_log.h"
 #include "lvgl.h"
 #include "ui/port.hpp"
@@ -45,6 +46,11 @@ void power_apply(watch::PowerState st, const watch::Settings& settings) {
       break;
   }
   ui::port::unlock();
+
+  // 画面OFF中ポリシー (C案): 画面が消えたら広告を止めて新規接続を受け付けない。
+  // 既存の接続は維持する (切らない)。画面ONに戻ると未接続時のみ広告再開。
+  ble_link_set_advertising(st == watch::PowerState::Active ||
+                           st == watch::PowerState::Dim);
 }
 
 }  // namespace watch_app

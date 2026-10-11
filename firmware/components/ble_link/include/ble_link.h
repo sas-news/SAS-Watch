@@ -73,6 +73,12 @@ esp_err_t ble_link_stop(void);
 // BLE リンクが張っているか (ボンドの有無は問わない)。
 bool ble_link_is_connected(void);
 
+// 広告の出し入れ (画面OFFポリシー C案: 接続中のみ維持・新規広告停止)。
+// false → 広告停止 (既存接続は切らない)。true → 未接続なら広告再開。
+// 切断/再接続時の自動広告再開にもこのフラグが効く。
+// ble_link_start 前に呼んでもよい (フラグだけ保持される)。
+void ble_link_set_advertising(bool enable);
+
 // EVT payload (CBOR {"e":..,"d":{..}}) を event characteristic で notify。
 // 未接続/未購読なら ESP_ERR_INVALID_STATE。大きい EVT は MTU で分割される。
 esp_err_t ble_link_send_event(const uint8_t* cbor, size_t len);
