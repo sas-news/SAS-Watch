@@ -22,7 +22,12 @@
 #include "esp_lcd_touch.h"
 #include "esp_lcd_types.h"
 #include "esp_lvgl_port.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
+
+#include <cmath>
+#include <cstring>
 
 static const char* TAG = "ui.display";
 
@@ -53,6 +58,50 @@ namespace ui {
 // widget に当たらない場所のタップでも発火するので全面で起きる。
 static void on_touch_press(lv_event_t*) { emit(watch::ActionType::Wake); }
 
+#if CONFIG_WATCH_DIAG_CORNERS
+// 角曲率計測オーバーレイ: 四隅の角点を中心に半径8px刻みの同心弧を
+// 描く。物理的に切れる位置で欠けるので、欠け始めるリング位置から
+// 実効の角 R / safe-area が実機写真で読み取れる。
+// 色順(内→外): 赤0 橙8 黄16 緑24 水32 青40 紫48
+void draw_corner_probes() {
+  constexpr int SZ = 64;
+  constexpr int STEPS = 7;
+  const lv_color_t cols[STEPS] = {
+      LV_COLOR_MAKE(255, 64, 64),   LV_COLOR_MAKE(255, 160, 32),
+      LV_COLOR_MAKE(255, 232, 48),  LV_COLOR_MAKE(96, 255, 96),
+      LV_COLOR_MAKE(32, 224, 255),  LV_COLOR_MAKE(96, 128, 255),
+      LV_COLOR_MAKE(224, 96, 255),
+  };
+  // corner: 0=TL 1=TR 2=BL 3=BR
+  for (int c = 0; c < 4; c++) {
+    uint8_t* buf = static_cast<uint8_t*>(
+        heap_caps_malloc(SZ * SZ * 4, MALLOC_CAP_SPIRAM));
+    if (!buf) return;
+    memset(buf, 0, SZ * SZ * 4);
+    lv_obj_t* cv = lv_canvas_create(lv_layer_top());
+    lv_canvas_set_buffer(cv, buf, SZ, SZ, LV_COLOR_FORMAT_ARGB8888);
+    // キャンバス内の円心 (画面角点がローカル原点に写るよう配置)
+    const float cx = (c == 1 || c == 3) ? SZ : 0.0f;
+    const float cy = (c >= 2) ? SZ : 0.0f;
+    for (int y = 0; y < SZ; y++) {
+      for (int x = 0; x < SZ; x++) {
+        const float d = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+        for (int r = 0; r < STEPS; r++) {
+          if (d >= r * 8 - 1.5f && d <= r * 8 + 1.5f) {
+            lv_canvas_set_px(cv, x, y, cols[r], LV_OPA_COVER);
+            break;
+          }
+        }
+      }
+    }
+    lv_obj_set_pos(cv, (c == 1 || c == 3) ? BSP_LCD_H_RES - SZ : 0,
+                   (c >= 2) ? BSP_LCD_V_RES - SZ : 0);
+    // クリック対象にしない (入力を透過させる)。
+    lv_obj_remove_flag(cv, LV_OBJ_FLAG_CLICKABLE);
+  }
+}
+#endif
+
 lv_display_t* init_display() {
   // LVGL タスク (lvgl_port) — core1 相当、prio 4。
   lvgl_port_cfg_t pcfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -72,7 +121,10 @@ lv_display_t* init_display() {
       .panel_handle = s_panel,
       .control_handle = nullptr,
       .buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT,
-      .double_buffer = false,
+      // 2枚目のバッファ(+16KB内蔵SRAM)で転送中にもう片方へ描画でき、
+      // 逐次フラッシュの頭打ちとスクロール時の実効FPSが上がる。
+      // 内蔵SRAMを喰うので BLE 等との逼迫は実機で確認。
+      .double_buffer = true,
       .trans_size = 0,
       .hres = BSP_LCD_H_RES,
       .vres = BSP_LCD_V_RES,
@@ -131,6 +183,9 @@ lv_display_t* init_display() {
   if (lvgl_port_lock(-1)) {
     lv_indev_set_mode(s_indev, LV_INDEV_MODE_TIMER);
     lv_indev_add_event_cb(s_indev, on_touch_press, LV_EVENT_PRESSED, nullptr);
+#if CONFIG_WATCH_DIAG_CORNERS
+    draw_corner_probes();
+#endif
     lvgl_port_unlock();
   }
 
