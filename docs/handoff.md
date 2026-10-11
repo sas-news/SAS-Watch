@@ -55,12 +55,31 @@
 ### 2. 描画の重さ — 残課題 (render 50–190ms/全面)
 
 実測: 全面 redraw 1回 ~50–190ms → 実効 FPS ~5–6 が上限。スクロール中の
-「紙芝居」感の本体。候補 (未検証):
+「紙芝居」感の本体。内訳は render (CPU側ラスタライズ) が支配的で
+flush (QSPI転送) は 5–15ms に過ぎない。**config レベルの加速手段は実機で
+全て棄却済み**:
 
-- LVGL オブジェクトは `SPIRAM_MALLOC_ALWAYSINTERNAL=1024` で PSRAM 行き
-  → スタイル/レイアウト走査が octal PSRAM にヒットして遅い可能性
-- refr timer 30Hz での dirty チェック自体は軽い (redraw=0 でも 30Hz で回る)
-- QSPI 転送: height10 で 50 チャンク/全面 (double_buffer で重畳は効く)
+- **PPA**: ESP32-S3 にはハード自体が無い (P4系のみ)。LVGL Kconfig の
+  `LV_USE_PPA` は有効化しても `#error "This SoC does not support PPA"` で
+  ビルド不可
+- **S3 SIMD asm** (esp_lvgl_port 2.9.0 内蔵): CMake が LVGL 9.1.x のみに
+  ゲートしており 9.5 では非対象。blend API が 9.3 で変わったためそのまま
+  では動かず、移植は上流規模の作業 (esp-bsp issue #621 が該当)
+- **`LV_DRAW_SW_DRAW_UNIT_CNT=2`** (デュアルコア並列描画): 実機で悪化。
+  起動描画 render 285–315ms (CNT=1 では 125–220ms) + drawスレッド分の
+  8KBスタック増 + `lv_os_get_idle_percent` 警告の毎秒化
+- **`LV_DRAW_BUF_STRIDE_ALIGN=64`**: 効果なし (render ~120ms で不変)
+
+残る本筋のレバー:
+
+- **デザイン側の軽量化** (Opus 領域): shadow/glow・gradient・AAテキストの
+  抑制。`components.cpp` の glow (shadow_width/opa=120) や face 側の
+  効果描画が画素単位コストを積んでいる
+- **上流の S3 SIMD 移植** or `espressif/lvgl` フォーク評価 (LVGL 9.x で
+  PIE命令最適化が取り込まれたら差し替え候補)
+- 参考: LVGL オブジェクトは `SPIRAM_MALLOC_ALWAYSINTERNAL=1024` により
+  ~200B/個は内蔵SRAM、フォント等の大物は PSRAM。QSPI 転送は height10で
+  50チャンク/全面だが double_buffer 重畳で既に速い
 
 ### 3. `action queue full; dropped 40` (一過性)
 
