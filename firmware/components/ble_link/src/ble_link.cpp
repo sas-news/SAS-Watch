@@ -62,6 +62,9 @@ constexpr uint16_t kSupervisionTimeout = 500;  // 5s (単位 10ms)
 
 ble_link_config_t s_cfg;
 bool s_started = false;
+// 画面OFFポリシー (C案): false の間は広告を出さず新規接続を受け付けない。
+// 既存の接続は維持する。切断中に画面ONへ戻ると広告を再開する。
+bool s_adv_wanted = true;
 uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 uint16_t s_mtu = BLE_ATT_MTU_DFLT;
 uint8_t s_addr_type = 0;
@@ -424,7 +427,7 @@ int gap_event(ble_gap_event* event, void* arg) {
         // 前回切断またぎの転送が残っていれば再開に備えて lock を張り直す。
         bulk_lock_sync();
       } else {
-        start_advertising();
+        if (s_adv_wanted) start_advertising();
       }
       break;
 
@@ -439,7 +442,7 @@ int gap_event(ble_gap_event* event, void* arg) {
       s_bulk_rx_frames.reset();
       // BULK の転送状態は残す: Phone が BULK_START を再送して再開する。
       notify_conn_state(false);
-      start_advertising();
+      if (s_adv_wanted) start_advertising();
       break;
 
     case BLE_GAP_EVENT_CONN_UPDATE:
@@ -532,7 +535,7 @@ void bulk_abort_tr(uint16_t id, void* ctx) {
 void on_sync() {
   // アドレスタイプが確定してから advertising を始める。
   ble_hs_id_infer_auto(0, &s_addr_type);
-  start_advertising();
+  if (s_adv_wanted) start_advertising();
 }
 
 void on_reset(int reason) {
@@ -624,6 +627,18 @@ extern "C" esp_err_t ble_link_stop(void) {
   conn_lock_sync();
   bulk_lock_sync();
   return ESP_OK;
+}
+
+extern "C" void ble_link_set_advertising(bool enable) {
+  s_adv_wanted = enable;
+  // 接続中は広告していない (UND 広告は接続で自動停止) ので何もしない。
+  // 未起動でもフラグだけ記録し、on_sync が開始時にこれを見る。
+  if (!s_started || s_conn != BLE_HS_CONN_HANDLE_NONE) return;
+  if (enable) {
+    start_advertising();
+  } else if (ble_gap_adv_active()) {
+    ble_gap_adv_stop();
+  }
 }
 
 extern "C" bool ble_link_is_connected(void) {
