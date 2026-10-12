@@ -9,44 +9,64 @@ namespace {
 
 #define WATCH_SSET_U32(name_, field_)                                  \
   {                                                                    \
-    name_, SettingType::U32, offsetof(Settings, field_), sizeof(uint32_t) \
+    name_, nullptr, SettingType::U32, offsetof(Settings, field_),      \
+        sizeof(uint32_t)                                               \
+  }
+#define WATCH_SSET_U32_S(name_, store_, field_)                        \
+  {                                                                    \
+    name_, store_, SettingType::U32, offsetof(Settings, field_),       \
+        sizeof(uint32_t)                                               \
   }
 #define WATCH_SSET_I32(name_, field_)                                  \
   {                                                                    \
-    name_, SettingType::I32, offsetof(Settings, field_), sizeof(int32_t) \
+    name_, nullptr, SettingType::I32, offsetof(Settings, field_),      \
+        sizeof(int32_t)                                                \
+  }
+#define WATCH_SSET_I32_S(name_, store_, field_)                        \
+  {                                                                    \
+    name_, store_, SettingType::I32, offsetof(Settings, field_),       \
+        sizeof(int32_t)                                                \
   }
 #define WATCH_SSET_STR(name_, field_)                                  \
   {                                                                    \
-    name_, SettingType::Str, offsetof(Settings, field_),               \
+    name_, nullptr, SettingType::Str, offsetof(Settings, field_),      \
+        sizeof(((Settings*)nullptr)->field_)                           \
+  }
+#define WATCH_SSET_STR_S(name_, store_, field_)                        \
+  {                                                                    \
+    name_, store_, SettingType::Str, offsetof(Settings, field_),       \
         sizeof(((Settings*)nullptr)->field_)                           \
   }
 
 // protocol-v1.md の settings keys + core 拡張 (deep_sleep_after_s,
-// tz_offset_min, button.pwr.double)。
+// tz_offset_min, button.pwr.double, usb_keep_awake)。
+// "set." + name が NVS の 15 文字上限を超えるキーだけ、store に短縮
+// エイリアスを持つ (BLE のキー名は変えない)。これが無いと書き込みが
+// ESP_ERR_NVS_KEY_TOO_LONG で静かに失敗する (tz_offset_min など)。
 constexpr SettingKey kKeys[] = {
     WATCH_SSET_U32("brightness", brightness),
     WATCH_SSET_U32("dim_after_s", dim_after_s),
-    WATCH_SSET_U32("screen_off_after_s", screen_off_after_s),
-    WATCH_SSET_U32("deep_sleep_after_s", deep_sleep_after_s),
-    WATCH_SSET_I32("tz_offset_min", tz_offset_min),
+    WATCH_SSET_U32_S("screen_off_after_s", "scr_off_s", screen_off_after_s),
+    WATCH_SSET_U32_S("deep_sleep_after_s", "deep_s", deep_sleep_after_s),
+    WATCH_SSET_I32_S("tz_offset_min", "tz_off", tz_offset_min),
     WATCH_SSET_STR("theme", theme),
-    WATCH_SSET_STR("button.boot.short", button_boot_short),
-    WATCH_SSET_STR("button.boot.long", button_boot_long),
-    WATCH_SSET_STR("button.boot.double", button_boot_double),
-    WATCH_SSET_STR("button.pwr.short", button_pwr_short),
-    WATCH_SSET_STR("button.pwr.long", button_pwr_long),
-    WATCH_SSET_STR("button.pwr.double", button_pwr_double),
-    WATCH_SSET_U32("audio.volume", audio_volume),
+    WATCH_SSET_STR_S("button.boot.short", "bb.short", button_boot_short),
+    WATCH_SSET_STR_S("button.boot.long", "bb.long", button_boot_long),
+    WATCH_SSET_STR_S("button.boot.double", "bb.dbl", button_boot_double),
+    WATCH_SSET_STR_S("button.pwr.short", "bp.short", button_pwr_short),
+    WATCH_SSET_STR_S("button.pwr.long", "bp.long", button_pwr_long),
+    WATCH_SSET_STR_S("button.pwr.double", "bp.dbl", button_pwr_double),
+    WATCH_SSET_U32_S("audio.volume", "audio.vol", audio_volume),
     WATCH_SSET_U32("audio.click", audio_click),
-    WATCH_SSET_U32("notify.vibrate", notify_vibrate),
-    WATCH_SSET_U32("raise_to_wake", raise_to_wake),
+    WATCH_SSET_U32_S("notify.vibrate", "notif.vib", notify_vibrate),
+    WATCH_SSET_U32_S("raise_to_wake", "rtw", raise_to_wake),
     WATCH_SSET_U32("steps.goal", steps_goal),
     WATCH_SSET_STR("face", face),
     WATCH_SSET_STR("clock_font", clock_font),
     WATCH_SSET_STR("agent.q1", agent_q1),
     WATCH_SSET_STR("agent.q2", agent_q2),
     WATCH_SSET_STR("agent.q3", agent_q3),
-    WATCH_SSET_U32("usb_keep_awake", usb_keep_awake),
+    WATCH_SSET_U32_S("usb_keep_awake", "usb_awake", usb_keep_awake),
 };
 
 char* field_ptr(Settings& s, const SettingKey& k) {
@@ -56,19 +76,10 @@ const char* field_ptr(const Settings& s, const SettingKey& k) {
   return reinterpret_cast<const char*>(&s) + k.offset;
 }
 
-// KV のキー名。"set." プレフィックス。buf は 40 バイトあれば足りる。
-size_t kv_key(const SettingKey& k, char* buf, size_t cap) {
-  const size_t need = 4 + std::strlen(k.name) + 1;
-  if (need > cap) return 0;
-  std::memcpy(buf, "set.", 4);
-  std::strcpy(buf + 4, k.name);
-  return need - 1;
-}
-
 bool persist_one(KeyValueStore* kv, const Settings& s, const SettingKey& k) {
   if (!kv) return true;
   char key[48];
-  if (kv_key(k, key, sizeof(key)) == 0) return false;
+  if (settings_kv_key(k, key, sizeof(key)) == 0) return false;
   const char* p = field_ptr(s, k);
   const size_t n = (k.type == SettingType::Str)
                        ? (std::strlen(p) + 1)
@@ -88,6 +99,16 @@ const SettingKey* settings_find(const char* name) {
     if (std::strcmp(kKeys[i].name, name) == 0) return &kKeys[i];
   }
   return nullptr;
+}
+
+size_t settings_kv_key(const SettingKey& k, char* buf, size_t cap) {
+  // ストレージ名は store エイリアス優先 (NVS の 15 文字制限対応)。
+  const char* s = k.store ? k.store : k.name;
+  const size_t need = 4 + std::strlen(s) + 1;
+  if (need > cap) return 0;
+  std::memcpy(buf, "set.", 4);
+  std::strcpy(buf + 4, s);
+  return need - 1;
 }
 
 bool settings_get_u32(const Settings& s, const SettingKey& k, uint32_t* out) {
@@ -142,7 +163,7 @@ void settings_load(Settings& s, KeyValueStore& kv) {
   for (size_t i = 0; i < settings_key_count(); ++i) {
     const SettingKey& k = kKeys[i];
     char key[48];
-    if (kv_key(k, key, sizeof(key)) == 0) continue;
+    if (settings_kv_key(k, key, sizeof(key)) == 0) continue;
     const size_t have = kv.size(key);
     if (have == 0) continue;
     if (k.type == SettingType::Str) {

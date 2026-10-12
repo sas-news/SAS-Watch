@@ -49,7 +49,9 @@ struct Settings {
 };
 
 struct SettingKey {
-  const char* name;    // "brightness" など (protocol-v1.md 準拠)
+  const char* name;    // "brightness" など (protocol-v1.md 準拠、BLE キー名)
+  const char* store;   // NVS 用の短いストレージ名。nullptr なら name を使う。
+                       // "set." + この名前が NVS の 15 文字上限に収まること。
   SettingType type;
   uint16_t offset;     // Settings 内のオフセット
   uint16_t max_len;    // Str のバッファ長 (NUL 含む)
@@ -58,6 +60,11 @@ struct SettingKey {
 const SettingKey* settings_keys();
 size_t settings_key_count();
 const SettingKey* settings_find(const char* name);
+
+// この設定の NVS ストレージキーを buf に生成する ("set." + store/name)。
+// NVS は 15 文字までなので長い設定名は短縮エイリアスに置き換わる。
+// 戻り値は書き込んだ長さ (NUL 除く)。失敗時 0。
+size_t settings_kv_key(const SettingKey& k, char* buf, size_t cap);
 
 bool settings_get_u32(const Settings& s, const SettingKey& k, uint32_t* out);
 bool settings_get_i32(const Settings& s, const SettingKey& k, int32_t* out);

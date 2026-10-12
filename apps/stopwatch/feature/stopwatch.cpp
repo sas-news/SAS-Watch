@@ -9,6 +9,8 @@ namespace {
 
 StopwatchState g_st;
 constexpr const char* kKey = "feat.stopwatch";
+// NVS のキーは 15 文字まで (feat.stopwatch.laps は超過していた)。
+constexpr const char* kLapsKey = "feat.sw.laps";
 
 struct Persist {
   uint8_t version;
@@ -75,10 +77,10 @@ void save(FeatureContext& ctx) {
   ctx.storage.set(kKey, &p, sizeof(p));
   // ラップは別キーにまとめて (ラップ無しなら消す)。
   if (g_st.lap_count > 0) {
-    ctx.storage.set("feat.stopwatch.laps", g_st.laps,
+    ctx.storage.set(kLapsKey, g_st.laps,
                     g_st.lap_count * sizeof(g_st.laps[0]));
   } else {
-    ctx.storage.erase("feat.stopwatch.laps");
+    ctx.storage.erase(kLapsKey);
   }
 }
 
@@ -97,7 +99,7 @@ void restore(FeatureContext& ctx) {
                                                   : kStopwatchMaxLaps;
   if (g_st.lap_count > 0) {
     size_t ln = 0;
-    ctx.storage.get("feat.stopwatch.laps", g_st.laps, sizeof(g_st.laps), &ln);
+    ctx.storage.get(kLapsKey, g_st.laps, sizeof(g_st.laps), &ln);
   }
   if (p.running) {
     // 走ったままスリープしたものは「積み上げ直後から再開」とみなす。

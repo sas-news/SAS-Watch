@@ -5,8 +5,10 @@
 #include "nvs_flash.h"
 
 // NVS blob の KeyValueStore。キーは "watch" namespace の直下。
-// NVS のキー長制限 (15文字) は core 側のキー設計 ("feat.*", settings keys) が
-// 既に満たしている。
+// 注意: NVS のキー長は 15 文字まで。settings は "set." プレフィックスを
+// 付ける関係で、長い設定名は kKeys の store エイリアスに短縮してある
+// (core/src/settings.cpp)。feature のキー ("feat.*") も同じ上限内に
+// 収めること。
 
 namespace platform_esp {
 

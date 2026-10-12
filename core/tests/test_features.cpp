@@ -388,6 +388,65 @@ TEST(Settings, SaveAllAndLoad) {
   EXPECT_EQ(s2.tz_offset_min, -300);
 }
 
+TEST(Settings, StorageKeysFitNvsLimit) {
+  // NVS のキー長制限は 15 文字。超えると書き込みが
+  // ESP_ERR_NVS_KEY_TOO_LONG で静かに失敗する (tz_offset_min で実機確認済み)。
+  char key[48];
+  for (size_t i = 0; i < settings_key_count(); ++i) {
+    const SettingKey& k = settings_keys()[i];
+    const size_t n = settings_kv_key(k, key, sizeof(key));
+    ASSERT_GT(n, 0u) << k.name;
+    EXPECT_LE(n, 15u) << "key " << key << " (" << n << " chars) for " << k.name;
+  }
+}
+
+TEST(Settings, StorageKeysUnique) {
+  char a[48], b[48];
+  for (size_t i = 0; i < settings_key_count(); ++i) {
+    ASSERT_GT(settings_kv_key(settings_keys()[i], a, sizeof(a)), 0u);
+    for (size_t j = i + 1; j < settings_key_count(); ++j) {
+      ASSERT_GT(settings_kv_key(settings_keys()[j], b, sizeof(b)), 0u);
+      EXPECT_STRNE(a, b)
+          << "duplicate storage key " << a << " for "
+          << settings_keys()[i].name << " / " << settings_keys()[j].name;
+    }
+  }
+}
+
+TEST(Settings, PersistRoundTripLongNames) {
+  // 長い設定名 (短縮エイリアス経由) でも保存→復元が通ること。
+  test::MemoryKeyValueStore kv;
+  Settings s;
+  EXPECT_TRUE(settings_set_i32(s, &kv, "tz_offset_min", 540));
+  EXPECT_TRUE(settings_set_str(s, &kv, "button.boot.double", "nav.dev"));
+  EXPECT_TRUE(settings_set_str(s, &kv, "button.pwr.long", "power_menu"));
+  EXPECT_TRUE(settings_set_u32(s, &kv, "usb_keep_awake", 2));
+  EXPECT_TRUE(settings_set_u32(s, &kv, "screen_off_after_s", 30));
+  EXPECT_TRUE(settings_set_u32(s, &kv, "notify.vibrate", 0));
+
+  Settings s2;
+  settings_load(s2, kv);
+  EXPECT_EQ(s2.tz_offset_min, 540);
+  EXPECT_STREQ(s2.button_boot_double, "nav.dev");
+  EXPECT_STREQ(s2.button_pwr_long, "power_menu");
+  EXPECT_EQ(s2.usb_keep_awake, 2u);
+  EXPECT_EQ(s2.screen_off_after_s, 30u);
+  EXPECT_EQ(s2.notify_vibrate, 0u);
+}
+
+TEST(Settings, StorageKeyAliases) {
+  // 15 文字を超えた分だけ store エイリアスに置き換わっている。
+  char key[48];
+  const SettingKey* tz = settings_find("tz_offset_min");
+  ASSERT_NE(tz, nullptr);
+  ASSERT_GT(settings_kv_key(*tz, key, sizeof(key)), 0u);
+  EXPECT_STREQ(key, "set.tz_off");
+  const SettingKey* br = settings_find("brightness");
+  ASSERT_NE(br, nullptr);
+  ASSERT_GT(settings_kv_key(*br, key, sizeof(key)), 0u);
+  EXPECT_STREQ(key, "set.brightness");  // 短いキーは従来名のまま
+}
+
 // ---------- Agent (AI) ----------
 
 // audio/power/settings が必要なので配線済みの fixture を足す。
