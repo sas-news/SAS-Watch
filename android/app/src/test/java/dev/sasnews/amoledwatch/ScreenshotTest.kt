@@ -3,6 +3,7 @@ package dev.sasnews.amoledwatch
 import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.roborazziSystemPropertyOutputDirectory
+import dev.sasnews.amoledwatch.InstalledApp
 import dev.sasnews.amoledwatch.agent.AgentConfig
 import dev.sasnews.amoledwatch.agent.AgentEngine
 import dev.sasnews.amoledwatch.connection.LinkState
@@ -166,7 +167,7 @@ class ScreenshotTest {
                         SettingsKeys.SCREEN_OFF_AFTER_S to Cbor.Cint(12),
                         SettingsKeys.BUTTON_BOOT_SHORT to Cbor.Ctext("timer.start"),
                         SettingsKeys.BUTTON_BOOT_LONG to Cbor.Ctext("nav.dev"),
-                        SettingsKeys.BUTTON_BOOT_DOUBLE to Cbor.Ctext("memo.record"),
+                        SettingsKeys.BUTTON_BOOT_DOUBLE to Cbor.Ctext("none"),
                         SettingsKeys.BUTTON_PWR_SHORT to Cbor.Ctext("back"),
                         SettingsKeys.BUTTON_PWR_LONG to Cbor.Ctext("power_menu"),
                         SettingsKeys.BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
@@ -347,9 +348,9 @@ class ScreenshotTest {
                     hasAccess = true,
                     enabledPackages = setOf("com.spotify.music"),
                     apps = listOf(
-                        "com.spotify.music" to "Spotify",
-                        "jp.co.sony.himedia" to "X-アプリ",
-                        "com.example.mail" to "メール",
+                        InstalledApp("com.spotify.music", "Spotify"),
+                        InstalledApp("jp.co.sony.himedia", "X-アプリ"),
+                        InstalledApp("com.example.mail", "メール"),
                     ),
                     nowPlaying = MediaBridge.NowPlaying("時をかける少女", "椎名林檎", true),
                     onToggle = { _, _ -> },

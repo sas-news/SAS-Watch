@@ -74,6 +74,7 @@
     <string name="settings_steps_refresh">歩数を更新</string>
     <string name="settings_face">文字盤</string>
     <string name="settings_clock_font">時計の数字フォント</string>
+    <string name="settings_usb_keep_awake">USB接続中のスリープ抑制</string>
     <string name="settings_raw_hint">設定値は時計の settings keys（protocol-v1.md）に対応しています。</string>
 
     <!-- AI設定 -->
@@ -122,6 +123,10 @@
     <string name="notif_access_granted">通知アクセスは許可済みです。</string>
     <string name="notif_apps_title">転送するアプリ</string>
     <string name="notif_apps_none">まだアプリが選ばれていません。選んだアプリの通知だけを時計に送ります。</string>
+    <string name="notif_apps_loading">アプリ一覧を読み込み中…</string>
+    <string name="notif_apps_empty">該当するアプリはありません</string>
+    <string name="notif_search_hint">アプリ名・パッケージ名で検索</string>
+    <string name="notif_only_enabled">転送ONのみ表示</string>
     <string name="media_title">メディア連携</string>
     <string name="media_body">再生中の曲を時計に送り、時計からの操作（再生/停止/次/前/音量）を受け付けます。通知アクセスが必要です。</string>
     <string name="media_now_playing">再生中: %1$s / %2$s</string>

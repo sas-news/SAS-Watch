@@ -18,6 +18,8 @@ class WatchApp : Application() {
         private set
     lateinit var agentBridge: AgentBridge
         private set
+    lateinit var installedApps: InstalledAppsRepo
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -25,6 +27,7 @@ class WatchApp : Application() {
         agentBridge = AgentBridge(AgentPrefs(this))
         manager = WatchLinkManager(this)
         mediaBridge = MediaBridge(this).also { it.start() }
+        installedApps = InstalledAppsRepo(this)
 
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(

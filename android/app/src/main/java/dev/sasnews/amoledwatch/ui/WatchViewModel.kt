@@ -2,12 +2,11 @@ package dev.sasnews.amoledwatch.ui
 
 import android.app.Application
 import android.bluetooth.BluetoothDevice
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.sasnews.amoledwatch.FirmwareRepo
+import dev.sasnews.amoledwatch.InstalledApp
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.agent.AgentConfig
@@ -467,17 +466,9 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
         if (_notifAccess.value) watchApp.mediaBridge.start()
     }
 
-    /** インストール済みアプリ（ランチャーに出るもの）の (packageName, ラベル) 一覧。 */
-    fun installedApps(): List<Pair<String, String>> {
-        val pm = watchApp.packageManager
-        val apps = if (Build.VERSION.SDK_INT >= 33) {
-            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
-        } else {
-            @Suppress("DEPRECATION")
-            pm.getInstalledApplications(0)
-        }
-        return apps
-            .map { it.packageName to pm.getApplicationLabel(it).toString() }
-            .sortedBy { it.second.lowercase() }
-    }
+    /** インストール済みアプリ一覧。null = 未読込/読込中。 */
+    val installedApps: StateFlow<List<InstalledApp>?> = watchApp.installedApps.apps
+
+    /** 未取得 or stale のときだけ再スキャンを起動する (画面表示時に呼ぶ)。 */
+    fun ensureInstalledApps() = watchApp.installedApps.ensureLoaded()
 }

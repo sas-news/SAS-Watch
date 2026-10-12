@@ -45,6 +45,7 @@ import dev.sasnews.amoledwatch.protocol.ClockFontNames
 import dev.sasnews.amoledwatch.protocol.FaceNames
 import dev.sasnews.amoledwatch.protocol.SettingsKeys
 import dev.sasnews.amoledwatch.protocol.StepsInfo
+import dev.sasnews.amoledwatch.protocol.UsbKeepAwakeModes
 import dev.sasnews.amoledwatch.protocol.bool
 import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.text
@@ -193,6 +194,9 @@ private fun SettingsEditor(
     var raiseToWake by remember(settings) {
         mutableStateOf((settings[SettingsKeys.RAISE_TO_WAKE]?.int ?: 1L) != 0L)
     }
+    var usbKeepAwake by remember(settings) {
+        mutableStateOf((settings[SettingsKeys.USB_KEEP_AWAKE]?.int ?: 1L).toString())
+    }
     var stepsGoal by remember(settings) {
         mutableFloatStateOf(settings[SettingsKeys.STEPS_GOAL]?.int?.toFloat() ?: 8000f)
     }
@@ -275,6 +279,13 @@ private fun SettingsEditor(
                 )
                 Switch(checked = raiseToWake, onCheckedChange = { raiseToWake = it })
             }
+            ActionDropdown(
+                label = stringResource(R.string.settings_usb_keep_awake),
+                selected = usbKeepAwake,
+                options = UsbKeepAwakeModes.ALL,
+                labelOf = UsbKeepAwakeModes::label,
+                onSelect = { usbKeepAwake = it },
+            )
             SliderRow(
                 label = stringResource(R.string.settings_steps_goal),
                 value = stepsGoal,
@@ -319,6 +330,7 @@ private fun SettingsEditor(
                             SettingsKeys.SCREEN_OFF_AFTER_S to Cbor.Cint(screenOff.roundToInt().toLong()),
                             SettingsKeys.THEME to Cbor.Ctext(theme),
                             SettingsKeys.RAISE_TO_WAKE to Cbor.Cint(if (raiseToWake) 1 else 0),
+                            SettingsKeys.USB_KEEP_AWAKE to Cbor.Cint(usbKeepAwake.toLong()),
                             SettingsKeys.STEPS_GOAL to Cbor.Cint(stepsGoal.roundToInt().toLong()),
                             SettingsKeys.FACE to Cbor.Ctext(face),
                             SettingsKeys.CLOCK_FONT to Cbor.Ctext(clockFont),

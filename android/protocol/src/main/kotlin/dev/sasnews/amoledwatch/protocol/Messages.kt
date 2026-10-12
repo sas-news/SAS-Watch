@@ -339,6 +339,7 @@ object SettingsKeys {
     const val AGENT_Q1 = "agent.q1"
     const val AGENT_Q2 = "agent.q2"
     const val AGENT_Q3 = "agent.q3"
+    const val USB_KEEP_AWAKE = "usb_keep_awake"
 
     /** kKeys と同じ順。 */
     val ALL = listOf(
@@ -350,6 +351,7 @@ object SettingsKeys {
         RAISE_TO_WAKE, STEPS_GOAL,
         FACE, CLOCK_FONT,
         AGENT_Q1, AGENT_Q2, AGENT_Q3,
+        USB_KEEP_AWAKE,
     )
 
     /** button.* のデフォルト値（core `settings.hpp` と一致）。 */
@@ -362,7 +364,7 @@ object SettingsKeys {
         THEME to Cbor.Ctext("standard"),
         BUTTON_BOOT_SHORT to Cbor.Ctext("primary"),
         BUTTON_BOOT_LONG to Cbor.Ctext("nav.dev"),
-        BUTTON_BOOT_DOUBLE to Cbor.Ctext("memo.record"),
+        BUTTON_BOOT_DOUBLE to Cbor.Ctext("none"),
         BUTTON_PWR_SHORT to Cbor.Ctext("back"),
         BUTTON_PWR_LONG to Cbor.Ctext("power_menu"),
         BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
@@ -376,6 +378,7 @@ object SettingsKeys {
         AGENT_Q1 to Cbor.Ctext("今日の予定は？"),
         AGENT_Q2 to Cbor.Ctext("今の天気は？"),
         AGENT_Q3 to Cbor.Ctext(""),
+        USB_KEEP_AWAKE to Cbor.Cint(1),
     )
 }
 
@@ -402,6 +405,17 @@ object ClockFontNames {
         ActionSpec("orbitron", "Orbitron"),
         ActionSpec("outfit", "Outfit"),
         ActionSpec("chakra", "Chakra Petch"),
+    )
+
+    fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
+}
+
+/** `usb_keep_awake` に設定できる値 (watch 側 PowerPolicy のモード)。 */
+object UsbKeepAwakeModes {
+    val ALL: List<ActionSpec> = listOf(
+        ActionSpec("0", "無効"),
+        ActionSpec("1", "USB接続中はディープスリープしない"),
+        ActionSpec("2", "USB接続中は画面も消さない"),
     )
 
     fun label(name: String): String = ALL.find { it.name == name }?.labelJa ?: name
