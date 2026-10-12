@@ -31,10 +31,10 @@ void arm_light_sleep_wake()
 
 void arm_light_sleep_imu()
 {
-    // INT1(GPIO21) は HIGH アクティブ想定。
-    // TODO(hw): 実機で極性を確認 (逆なら GPIO_INTR_LOW_LEVEL)
-    gpio_wakeup_enable(pins::kImuInt1, GPIO_INTR_HIGH_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
+    // GPIO21 は imu_service が GPIO 割り込み (POSEDGE) で WoM を受けるので
+    // gpio_wakeup_enable (LEVEL 型に int 型を書き換える) は呼べない。
+    // light sleep が現状未使用のため何もしない。
+    // TODO(hw): light sleep 実装時に再検討 (割り込み型の共存 or 排他)
 }
 
 void disarm_light_sleep_imu()

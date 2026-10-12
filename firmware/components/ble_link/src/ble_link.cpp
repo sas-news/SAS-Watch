@@ -59,6 +59,10 @@ constexpr ble_uuid128_t kChrBulkUuid = BLE_UUID128_INIT(
 // Advertising / 接続パラメータ (plan.md: 省電力)。
 constexpr uint16_t kAdvItvlMin = 800;   // 500ms (単位 0.625ms)
 constexpr uint16_t kAdvItvlMax = 1600;  // 1000ms
+// 画面OFF中の低速広告 (~1.0–1.3s)。接続を絶やさないため (一度切れると
+// 電話が再接続できず通知が届かない)。TODO(hw): 消費電流を実機で確認
+constexpr uint16_t kAdvItvlSlowMin = 1600;  // 1000ms
+constexpr uint16_t kAdvItvlSlowMax = 2080;  // 1300ms
 constexpr uint16_t kConnItvlMin = 80;   // 100ms (単位 1.25ms)
 constexpr uint16_t kConnItvlMax = 160;  // 200ms
 constexpr uint16_t kConnLatency = 4;    // slave latency
@@ -66,9 +70,11 @@ constexpr uint16_t kSupervisionTimeout = 500;  // 5s (単位 10ms)
 
 ble_link_config_t s_cfg;
 bool s_started = false;
-// 画面OFFポリシー (C案): false の間は広告を出さず新規接続を受け付けない。
-// 既存の接続は維持する。切断中に画面ONへ戻ると広告を再開する。
+// 画面OFFポリシー (C案改): false の間は広告を出さない (現状は常に true で
+// 低頻度化に切り替える方式)。既存の接続は維持する。
 bool s_adv_wanted = true;
+// true なら広告間隔を低速化する (画面OFF中 ~1.0–1.3s)。
+bool s_adv_slow = false;
 uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 uint16_t s_mtu = BLE_ATT_MTU_DFLT;
 uint8_t s_addr_type = 0;
@@ -397,8 +403,8 @@ int start_advertising() {
   ble_gap_adv_params params = {};
   params.conn_mode = BLE_GAP_CONN_MODE_UND;
   params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-  params.itvl_min = kAdvItvlMin;
-  params.itvl_max = kAdvItvlMax;
+  params.itvl_min = s_adv_slow ? kAdvItvlSlowMin : kAdvItvlMin;
+  params.itvl_max = s_adv_slow ? kAdvItvlSlowMax : kAdvItvlMax;
   const int rc = ble_gap_adv_start(s_addr_type, nullptr, BLE_HS_FOREVER,
                                    &params, gap_event, nullptr);
   if (rc != 0 && rc != BLE_HS_EALREADY) {
@@ -678,6 +684,18 @@ extern "C" void ble_link_set_advertising(bool enable) {
     start_advertising();
   } else if (ble_gap_adv_active()) {
     ble_gap_adv_stop();
+  }
+}
+
+extern "C" void ble_link_set_adv_rate(bool slow) {
+  if (slow == s_adv_slow) return;
+  s_adv_slow = slow;
+  // 広告中なら新しい間隔で張り直す (ble_gap_adv_stop 単体では
+  // 広告停止イベントが来ないので、ここで止めて再開する)。
+  if (!s_started || s_conn != BLE_HS_CONN_HANDLE_NONE) return;
+  if (s_adv_wanted) {
+    if (ble_gap_adv_active()) ble_gap_adv_stop();
+    start_advertising();
   }
 }
 

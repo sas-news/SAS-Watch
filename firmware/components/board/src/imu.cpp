@@ -59,37 +59,6 @@ esp_err_t read_accel_mg(float* x, float* y, float* z)
     return qmi8658_read_accel(&s_imu, x, y, z);
 }
 
-esp_err_t arm_wake_on_motion()
-{
-    if (!s_ready) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    // threshold は plan.md Q 章の例値。INT1(GPIO21)の極性は board.md【要実機】
-    // TODO(hw): 実機で閾値と極性を確認
-    return qmi8658_enable_wake_on_motion(&s_imu, 0x40);
-}
-
-esp_err_t disarm_wake_on_motion()
-{
-    if (!s_ready) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    // disable はセンサーを止めて設定も 2G/LP のまま残すので、
-    // ポーリング用の通常設定に戻す。
-    esp_err_t ret = qmi8658_disable_wake_on_motion(&s_imu);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    apply_normal_config();
-    return ESP_OK;
-}
-
-// --- ハードウェア歩数計 -------------------------------------------------
-// QMI8658A DS §11: pedometer パラメータを CAL レジスタ経由で CTRL9 コマンド
-// 0x0D ×2回で投入 → CTRL8.bit4 でエンジン有効化 → STEP_CNT(0x5A-5C) 読み出し。
-// rev0.8 C datasheet には pedometer 節が無い (rev0.9 C は CTRL8.bit4 と
-// STATUS1.bit4 だけ確認可) → 値は A datasheet 準拠の推測。// TODO(hw): 実機で確認
-
 namespace {
 
 // レジスタ (QMI8658A DS Table 22/28/38)
@@ -105,8 +74,10 @@ constexpr uint8_t kRegCal3H    = 0x10;
 constexpr uint8_t kRegCal4L    = 0x11;
 constexpr uint8_t kRegCal4H    = 0x12;
 constexpr uint8_t kRegStatusInt = 0x2D;
+constexpr uint8_t kRegStatus1   = 0x2F;  // WoM イベント (読取でクリア)
 constexpr uint8_t kRegStepCnt  = 0x5A;  // STEP_CNT_LOW/MIDL/HIGH (3連番)
 
+constexpr uint8_t kCtrl9CmdWriteWom        = 0x08;  // CTRL_CMD_WRITE_WOM_SETTING
 constexpr uint8_t kCtrl9CmdConfigPedometer = 0x0D;  // CTRL_CMD_CONFIGURE_PEDOMETER
 constexpr uint8_t kCtrl9CmdResetPedometer  = 0x0F;  // CTRL_CMD_RESET_PEDOMETER
 constexpr uint8_t kCtrl8PedEnable          = 0x10;  // CTRL8.bit4
@@ -139,6 +110,71 @@ esp_err_t ctrl9_exec(uint8_t cmd)
 }
 
 }  // namespace
+
+esp_err_t arm_wake_on_motion()
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // WoM 本体の有効化 (QMI8658C DS §9.4 Fig.13):
+    //   CTRL7=0 → CTRL2 (range/ODR) → CAL1_L=閾値(mg), CAL1_H[7:6]=INT選択・
+    //   初期値, CAL1_H[5:0]=blanking(サンプル数) → CTRL9=WRITE_WOM_SETTING
+    //   → CTRL7.aEN=1。
+    // GPIO21 は INT1 (docs/board.md:37) なので [7:6]=00 (INT1, 初期値0)。
+    // INT はイベント毎にトグルし STATUS1 読取で初期値に戻る (§9.3) —
+    // 初期値0 でイベント時 0→1 = POSEDGE (imu_service の ISR と一致)。
+    // 旧 vendored 実装は閾値を書くだけで CTRL9 を送らず WoM 無効のまま。
+    // TODO(hw): 実機で閾値と極性を確認
+    esp_err_t ret = qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL);
+    if (ret != ESP_OK) return ret;
+    ret = qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_2G);
+    if (ret != ESP_OK) return ret;
+    ret = qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_LOWPOWER_21HZ);
+    if (ret != ESP_OK) return ret;
+    wreg(kRegCal1L, 0x40);  // threshold 64mg (plan.md Q章の例値)
+    wreg(kRegCal1H, 0x04);  // INT1 初期値0 (7:6=00) + blanking 4 samples
+    ret = ctrl9_exec(kCtrl9CmdWriteWom);
+    if (ret != ESP_OK) return ret;
+    ret = qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL);
+    return ret;
+}
+
+esp_err_t wom_clear()
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // WoM イベントと INT は STATUS1 (0x2F) 読取で初期値に戻る (§9.3)。
+    // クリアしないと次のイベントが 1→0 (NEGEDGE) になり取りこぼす。
+    uint8_t s1 = 0;
+    return qmi8658_read_register(&s_imu, kRegStatus1, &s1, 1);
+}
+
+esp_err_t disarm_wake_on_motion()
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    // DS §9.6: CTRL7=0 → threshold=0 (CAL1_L) → CTRL9 WRITE_WOM_SETTING
+    // → 以後は通常設定に戻せる (INT は本来機能に復帰)。
+    esp_err_t ret = qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL);
+    if (ret != ESP_OK) return ret;
+    wreg(kRegCal1L, 0x00);
+    wreg(kRegCal1H, 0x00);
+    ret = ctrl9_exec(kCtrl9CmdWriteWom);
+    if (ret != ESP_OK) {
+        apply_normal_config();
+        return ret;
+    }
+    apply_normal_config();
+    return ESP_OK;
+}
+
+// --- ハードウェア歩数計 -------------------------------------------------
+// QMI8658A DS §11: pedometer パラメータを CAL レジスタ経由で CTRL9 コマンド
+// 0x0D ×2回で投入 → CTRL8.bit4 でエンジン有効化 → STEP_CNT(0x5A-5C) 読み出し。
+// rev0.8 C datasheet には pedometer 節が無い (rev0.9 C は CTRL8.bit4 と
+// STATUS1.bit4 だけ確認可) → 値は A datasheet 準拠の推測。// TODO(hw): 実機で確認
 
 esp_err_t hw_pedometer_init()
 {

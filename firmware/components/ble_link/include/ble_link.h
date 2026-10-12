@@ -78,6 +78,9 @@ bool ble_link_is_connected(void);
 // 切断/再接続時の自動広告再開にもこのフラグが効く。
 // ble_link_start 前に呼んでもよい (フラグだけ保持される)。
 void ble_link_set_advertising(bool enable);
+// 広告間隔を低速 (~1.0–1.3s) と通常 (0.5–1.0s) で切り替える。
+// 広告中なら張り直し、接続中はフラグだけ記録して次の広告開始に反映。
+void ble_link_set_adv_rate(bool slow);
 
 // EVT payload (CBOR {"e":..,"d":{..}}) を event characteristic で notify。
 // 未接続/未購読なら ESP_ERR_INVALID_STATE。大きい EVT は MTU で分割される。

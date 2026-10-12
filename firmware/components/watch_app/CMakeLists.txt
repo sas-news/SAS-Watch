@@ -6,7 +6,7 @@ idf_component_register(
          "src/imu_service.cpp"
     INCLUDE_DIRS "include" "src"
     REQUIRES watch_core platform_esp board ui ble_link theme_store audio
-    PRIV_REQUIRES esp_pm esp_timer lvgl esp_app_format wifi ota
+    PRIV_REQUIRES esp_pm esp_timer lvgl esp_app_format wifi ota esp_driver_gpio
 )
 
 # アプリの有効/無効 define (features:: 参照の #if ガード用)。

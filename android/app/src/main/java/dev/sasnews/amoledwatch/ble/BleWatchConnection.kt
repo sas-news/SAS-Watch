@@ -114,7 +114,13 @@ class BleWatchConnection(
     private val pending = ConcurrentHashMap<Int, CompletableDeferred<Res>>()
 
     // ---- 直列化された GATT 操作の完了シグナル ----
+    // opMutex: 単発の GATT 操作 (write/discover/mtu/descriptor) を
+    //   直列化。BluetoothGatt は同時に1操作しか受理しない。
+    // reqMutex: REQ の複数フレーム + 応答待ちを直列化 (フレーム
+    //   インターリーブ防止)。bulk 側は bulk char 用の別 reassembler
+    //   なので ctrl とは衝突しない。
     private val opMutex = Mutex()
+    private val reqMutex = Mutex()
     @Volatile private var connectSignal = CompletableDeferred<Boolean>()
     @Volatile private var servicesSignal = CompletableDeferred<Boolean>()
     @Volatile private var mtuSignal = CompletableDeferred<Boolean>()
@@ -223,23 +229,31 @@ class BleWatchConnection(
         gatt = g
 
         if (!awaitSignal(connectSignal, "connect")) { closeGatt(); return false }
-        if (!g.discoverServices() || !awaitSignal(servicesSignal, "services")) { closeGatt(); return false }
 
-        val service = g.getService(BleUuids.SERVICE)
-        ctrlChar = service?.getCharacteristic(BleUuids.CTRL)
-        eventChar = service?.getCharacteristic(BleUuids.EVENT)
-        bulkChar = service?.getCharacteristic(BleUuids.BULK)
-        if (ctrlChar == null || eventChar == null) {
-            Log.w(TAG, "service/chars not found: service=$service")
-            closeGatt(); return false
-        }
+        // discoverServices / requestMtu / CCCD 書込みも GATT 操作なので、
+        // writeRaw (request / bulk) と同じ opMutex で直列化する。
+        // ここを素通しさせると接続途中に来た media.state 等の write が
+        // デスクリプタ書込みと重なり、writeCharacteristic が false を返す
+        // ("internal write failed" の一因)。
+        opMutex.withLock {
+            if (!g.discoverServices() || !awaitSignal(servicesSignal, "services")) { closeGatt(); return false }
 
-        if (!g.requestMtu(BleUuids.MTU) || !awaitSignal(mtuSignal, "mtu")) { closeGatt(); return false }
-        Log.i(TAG, "MTU=$mtu")
+            val service = g.getService(BleUuids.SERVICE)
+            ctrlChar = service?.getCharacteristic(BleUuids.CTRL)
+            eventChar = service?.getCharacteristic(BleUuids.EVENT)
+            bulkChar = service?.getCharacteristic(BleUuids.BULK)
+            if (ctrlChar == null || eventChar == null) {
+                Log.w(TAG, "service/chars not found: service=$service")
+                closeGatt(); return false
+            }
 
-        // notify 購読（ctrl / event / bulk を順に）
-        for (c in listOfNotNull(ctrlChar, eventChar, bulkChar)) {
-            if (!enableNotify(g, c)) { closeGatt(); return false }
+            if (!g.requestMtu(BleUuids.MTU) || !awaitSignal(mtuSignal, "mtu")) { closeGatt(); return false }
+            Log.i(TAG, "MTU=$mtu")
+
+            // notify 購読（ctrl / event / bulk を順に）
+            for (c in listOfNotNull(ctrlChar, eventChar, bulkChar)) {
+                if (!enableNotify(g, c)) { closeGatt(); return false }
+            }
         }
         return true
     }
@@ -302,28 +316,31 @@ class BleWatchConnection(
         return v and Frame.MAX_MSG_ID
     }
 
-    override suspend fun request(req: Req): Res {
-        if (closed) return Res.Err("internal", "closed")
-        val g = gatt ?: return Res.Err("internal", "not connected")
-        val ctrl = ctrlChar ?: return Res.Err("internal", "ctrl characteristic not found")
+    override suspend fun request(req: Req): Res = reqMutex.withLock {
+        if (closed) return@withLock Res.Err("internal", "closed")
+        val g = gatt ?: return@withLock Res.Err("internal", "not connected")
+        val ctrl = ctrlChar ?: return@withLock Res.Err("internal", "ctrl characteristic not found")
         val id = nextMsgId()
         val deferred = CompletableDeferred<Res>()
         pending[id] = deferred
         try {
+            // REQ の複数フレームは時計側の Reassembler が seq 順に継ぐ
+            // (seq==0 で状態リセット) ので、別 request とフレームが
+            // インターリーブすると両方壊れる — 要求単位でも直列化する。
             val frames = Fragmenter.fragment(Frame.TYPE_REQ, id, CborCodec.encode(req.toCbor()), mtu)
             for (f in frames) {
                 if (!writeRaw(g, ctrl, f.encode(), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)) {
                     pending.remove(id)
-                    return Res.Err("internal", "write failed")
+                    return@withLock Res.Err("internal", "write failed")
                 }
             }
-            return withTimeout(REQ_TIMEOUT_MS) { deferred.await() }
+            return@withLock withTimeout(REQ_TIMEOUT_MS) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
             pending.remove(id)
-            return Res.Err("internal", "timeout (5s)")
+            return@withLock Res.Err("internal", "timeout (5s)")
         } catch (e: Exception) {
             pending.remove(id)
-            return Res.Err("internal", e.message ?: "request failed")
+            return@withLock Res.Err("internal", e.message ?: "request failed")
         }
     }
 

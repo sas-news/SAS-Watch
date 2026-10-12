@@ -6,13 +6,16 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.SystemClock
 import android.util.Log
 import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.notif.NotificationForwarder
 import dev.sasnews.amoledwatch.protocol.MediaCmd
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +40,14 @@ class MediaBridge(private val app: WatchApp) {
 
     private var active: MediaController? = null
     private var registered = false
+
+    // PlaybackState の進行位置更新等で ~1s 毎に push が来ても、
+    // 送信内容が同じ/直近なら BLE 書き込みを間引く (media.state 連発の
+    // GATT 競合 → "internal write failed" の対策)。
+    private val coalescer = MediaStateCoalescer()
+    private var coalesceJob: Job? = null
+
+    private fun now(): Long = SystemClock.elapsedRealtime()
 
     private val sessionsListener =
         MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
@@ -87,8 +98,25 @@ class MediaBridge(private val app: WatchApp) {
         val playing = c?.playbackState?.state == PlaybackState.STATE_PLAYING
         val np = if (title.isEmpty() && artist.isEmpty()) null else NowPlaying(title, artist, playing)
         _nowPlaying.value = np
-        if (np != null) {
-            scope.launch { app.manager.mediaState(np.title, np.artist, np.playing) }
+        if (np == null) return
+        val st = MediaStateCoalescer.State(np.title, np.artist, np.playing)
+        when (val d = coalescer.offer(now(), st)) {
+            is MediaStateCoalescer.Decision.SendNow -> sendState(d.state)
+            is MediaStateCoalescer.Decision.Pending -> armTrailing(d.sendAfterMs)
+            MediaStateCoalescer.Decision.Suppress -> Unit
+        }
+    }
+
+    private fun sendState(s: MediaStateCoalescer.State) {
+        scope.launch { app.manager.mediaState(s.title, s.artist, s.playing) }
+    }
+
+    /** 間引き中の最後の状態を trailing で送る遅延ジョブ。 */
+    private fun armTrailing(sendAfterMs: Long) {
+        coalesceJob?.cancel()
+        coalesceJob = scope.launch {
+            delay((sendAfterMs - now()).coerceAtLeast(0L))
+            coalescer.flush(now())?.let(::sendState)
         }
     }
 

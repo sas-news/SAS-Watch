@@ -47,10 +47,12 @@ void power_apply(watch::PowerState st, const watch::Settings& settings) {
   }
   ui::port::unlock();
 
-  // 画面OFF中ポリシー (C案): 画面が消えたら広告を止めて新規接続を受け付けない。
-  // 既存の接続は維持する (切らない)。画面ONに戻ると未接続時のみ広告再開。
-  ble_link_set_advertising(st == watch::PowerState::Active ||
-                           st == watch::PowerState::Dim);
+  // 画面OFF中ポリシー (C案改): 広告は止めず低頻度化して再接続窓を残す
+  // (停止にすると一度切れた電話が再接続できず通知が届かない)。
+  // 既存の接続は維持。画面ONに戻ると通常間隔に戻す。
+  ble_link_set_advertising(true);
+  ble_link_set_adv_rate(st == watch::PowerState::ScreenOff ||
+                        st == watch::PowerState::DeepSleepCandidate);
 }
 
 }  // namespace watch_app

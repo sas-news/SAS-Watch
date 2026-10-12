@@ -102,6 +102,8 @@ namespace imu {
     esp_err_t arm_wake_on_motion();
     // WoM を解除し、加速度計を通常設定 (init 時と同じ range/ODR) に戻す。
     esp_err_t disarm_wake_on_motion();
+    // WoM のイベントラッチ/INT1 を解除 (STATUS1 読取)。
+    esp_err_t wom_clear();
 
     // --- ハードウェア歩数計 (QMI8658A DS §11; C rev0.9 も CTRL8.bit4 あり) ---
     // 未設定なら CTRL9 でパラメータ書込み → CTRL8.bit4 で有効化。

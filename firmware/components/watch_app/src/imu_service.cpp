@@ -12,12 +12,14 @@
 #include "internal.hpp"
 
 #include "board/board.hpp"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "watch/action.hpp"
+
 #include "watch/event.hpp"
 #include "watch/power.hpp"
 
@@ -95,27 +97,22 @@ bool screen_on() {
 }
 
 // ---- 画面OFF中の起床検出 ---------------------------------------------------
-// light sleep では CPU 自体が眠るので、GPIO21(INT1) 起床後に誰も即座には
-// 動かない。idle 中は何度も light sleep を繰り返すので、センサータスクが
-// 短い周期で起床原因レジスタを読み、「GPIO で起きた」直後だけバーストする。
-// 連続同じ原因は 1 度として扱う (次に timer 等で wake した時点で解除される)。
+// light sleep には入っていない (esp_pm 設定で無効) ので、WoM の INT1
+// (GPIO21) を通常の GPIO 割り込みで受けて burst を起こす。
+// WoM INT は STATUS1 読取まで保持されるレベル出力なので、ISR は
+// POSEDGE のみで、フラグを立ててタスクへ通知するだけにする。
 
 enum class ImuMode : uint8_t { Poll, IdleArmed, IdleDisarmed };
 ImuMode s_mode = ImuMode::Poll;
 
-esp_sleep_wakeup_cause_t s_last_cause = ESP_SLEEP_WAKEUP_UNDEFINED;
+volatile bool s_wom_seen = false;
 
-// 直近の起床原因の「変化」を見る。GPIO 起床であれば IMU/タッチ/ボタン
-// 由来の候補としてバーストを取り、向き判定は RaiseDetector に委ねる。
-// 起床原因レジスタは GPIO 起床同士を区別できない (連続 GPIO 起床は
-// 同じ原因のまま見える) ので、非 GPIO 起床で原因が変わるまでは
-// dedup される — 元実装の INT1 ピン HIGH 判定はパルス式 INT だと
-// 読取時に LOW へ戻っていて取りこぼすため使わない。
-bool gpio_woke() {
-  const esp_sleep_wakeup_cause_t c = esp_sleep_get_wakeup_cause();
-  if (c == s_last_cause) return false;
-  s_last_cause = c;
-  return c == ESP_SLEEP_WAKEUP_GPIO;
+void IRAM_ATTR wom_isr(void*) {
+  s_wom_seen = true;
+  if (!s_task) return;
+  BaseType_t woken = pdFALSE;
+  vTaskNotifyGiveFromISR(s_task, &woken);
+  if (woken) portYIELD_FROM_ISR();
 }
 
 void burst() {
@@ -131,12 +128,14 @@ void apply_idle_mode() {
   if (settings_mut().raise_to_wake) {
     if (s_mode != ImuMode::IdleArmed) {
       board::imu::arm_wake_on_motion();
-      board::sleep::arm_light_sleep_imu();
+      s_wom_seen = false;
+      gpio_intr_enable(GPIO_NUM_21);  // WoM INT (POSEDGE)
       s_mode = ImuMode::IdleArmed;
     }
   } else {
     if (s_mode != ImuMode::IdleDisarmed) {
-      board::sleep::disarm_light_sleep_imu();
+      gpio_intr_disable(GPIO_NUM_21);
+      s_wom_seen = false;
       board::imu::disarm_wake_on_motion();
       s_mode = ImuMode::IdleDisarmed;
     }
@@ -145,7 +144,8 @@ void apply_idle_mode() {
 
 void apply_poll_mode() {
   if (s_mode == ImuMode::Poll) return;
-  board::sleep::disarm_light_sleep_imu();
+  gpio_intr_disable(GPIO_NUM_21);
+  s_wom_seen = false;
   // WoM arm が 2G/LP 設定を残すので通常値へ戻す。
   board::imu::disarm_wake_on_motion();
   s_mode = ImuMode::Poll;
@@ -160,6 +160,7 @@ void raise_cb(const watch::Event&, void*) {
     return;
   }
   if (!settings_mut().raise_to_wake) return;
+  ESP_LOGI(TAG, "raise detected -> wake");
   watch::Action a{};
   a.type = watch::ActionType::Wake;
   a.source = watch::ActionSource::Imu;
@@ -171,7 +172,6 @@ void notify_task(const watch::Event&, void*) {
 }
 
 void imu_task(void*) {
-  s_last_cause = esp_sleep_get_wakeup_cause();
   for (;;) {
     if (screen_on()) {
       apply_poll_mode();
@@ -190,10 +190,16 @@ void imu_task(void*) {
     } else {
       apply_idle_mode();
       ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kIdleCheckMs));
-      // light sleep から戻った等でループが回った時に同期判定。
+      // ループが回った時に歩数同期判定 (kHwRtcSyncUs 相当の間隔で届く)。
       maybe_sync_hw();
-      if (s_mode == ImuMode::IdleArmed && gpio_woke()) {
-        burst();
+      // WoM 割り込み (ISR → s_wom_seen)。画面OFF中のみ burst する。
+      if (s_mode == ImuMode::IdleArmed && s_wom_seen) {
+        s_wom_seen = false;
+        if (!screen_on()) {
+          ESP_LOGI(TAG, "wom int");
+          burst();
+          board::imu::wom_clear();
+        }
       }
     }
   }
@@ -229,6 +235,26 @@ void imu_service_start() {
       xTaskCreate(imu_task, "imu_svc", 4096, nullptr, 4, &s_task);
   if (ok != pdPASS) {
     ESP_LOGE(TAG, "xTaskCreate failed");
+  }
+
+  // WoM INT (GPIO21) を GPIO 割り込みで受ける。INT1 は STATUS1 読取まで
+  // 保持されるので POSEDGE のみ (LEVEL だと割り込み嵐になる)。
+  // 有効化/無効化自体は IdleArmed/Poll のモード遷移側で行う。
+  const esp_err_t isr_ret = gpio_install_isr_service(0);
+  if (isr_ret != ESP_OK && isr_ret != ESP_ERR_INVALID_STATE) {
+    ESP_LOGW(TAG, "isr service: %s", esp_err_to_name(isr_ret));
+  }
+  gpio_config_t icfg = {};
+  icfg.pin_bit_mask = 1ULL << GPIO_NUM_21;
+  icfg.mode = GPIO_MODE_INPUT;
+  icfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  icfg.pull_up_en = GPIO_PULLUP_DISABLE;
+  icfg.intr_type = GPIO_INTR_POSEDGE;  // INT1 は HIGH アクティブ想定 // TODO(hw): 実機で確認
+  gpio_config(&icfg);
+  gpio_intr_disable(GPIO_NUM_21);
+  const esp_err_t add_ret = gpio_isr_handler_add(GPIO_NUM_21, wom_isr, nullptr);
+  if (add_ret != ESP_OK) {
+    ESP_LOGW(TAG, "isr add failed: %s", esp_err_to_name(add_ret));
   }
 }
 

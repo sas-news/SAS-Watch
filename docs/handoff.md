@@ -57,9 +57,23 @@
 - **USB 接続中はスリープしない設定**: PC 接続中に画面OFF→deep sleep
   されるとデバッグしにくい。VBUS 検知 (AXP2101 は isVbusIn 取得可)
   で deep sleep / screen off を抑制する設定項目
-- **腕上げ点灯 (raise-to-wake) / 歩数 / IMU 系が正しく動いていない**:
-  IMU 経路の見直し (RaiseDetected Event、hw pedometer、
-  `board.imu` / `imu_service`)。実機挙動の検証も必要
+- ~~**腕上げ点灯 (raise-to-wake) / 歩数 / IMU 系が正しく動いていない**~~
+  → 原因特定・修正済み (実機での腕上げ確認は未):
+  - vendored `qmi8658_enable_wake_on_motion` は WoM 閾値を書くだけで
+    CTRL9 `CTRL_CMD_WRITE_WOM_SETTING` (0x08) を送らず **WoM が一度も
+    有効になっていなかった**。`board::imu::arm_wake_on_motion` を
+    QMI8658C DS §9.4 Fig.13 準拠で実装 (CAL1_L=閾値mg, CAL1_H[7:6]=
+    INT選択・初期値, CAL1_H[5:0]=blanking → GPIO21=INT1 init0+blanking4)
+  - light sleep は未使用 (esp_pm 無効) ので `esp_sleep_get_wakeup_cause`
+    を見る従来経路は絶対に発火しない → GPIO21 に本物の GPIO ISR
+    (POSEDGE、WoM INT はイベント毎トグルで STATUS1 読取で初期値戻り)
+    → imu_task 通知 → burst → RaiseDetector。常設ログ `wom int` /
+    `raise detected -> wake` あり
+  - hw pedometer は WoM 中も STEP_CNT 読取可 (arm 前後で ESP_OK、
+    連続性の実機検証は未)
+  - touch の `FT5x06 I2C read error` は ~13.8s に1回の単発 NACK (reader
+    タスク 100ms ポーリングで即復帰、wake-on-touch への影響なし) — 
+    FT3168 の省電力周期と推定、実害なしでコード変更なし
 - **直感的でない操作の修正**: ユーザー体感としての違和ポイント全般
   (戻る/確定の一貫性、スワイプ方向など)
 
@@ -78,14 +92,21 @@
   小さいので BULK or 新フレーム種で JPEG/PNG (or 縮小 RGB) を送り、
   media 画面に表示。Android 側は MediaMetadata の ART/ALBUM_ART を
   縮小して送る
-- **`internal write failed` の定期発生**: 曲停止時など「実際は成功
-  してるのに」出る。接続中に `NOTIFY_TX` が ~300ms 間隔で流れる
-  (EVENT chr) 現象を調査済み — EventBus→EVT のどれかが spam して
-  いる疑い。`ble_glue.cpp` の `on_bus_evt` に一時ログ
-  `evt notify type=` を入れた build が実機に入っているので、
-  再現時の type 値で犯人を確定できる (type 値は
-  `core/include/watch/event.hpp` の EventType)。原因を直したら
-  このログは消す
+- ~~**`internal write failed` の定期発生**~~ → 確定・修正済み:
+  「NOTIFY_TX ~300-700ms」の正体は接続 handshake (7 req) と、
+  それに続く **`media.state` の ~1s/混雑時 ~360ms 連発** (一時
+  `req op=` ログで実測)。時計側の EVT spam (att_handle=19) は
+  0件だった。電話側は `writeRaw` が false を返すと
+  `Res.Err("internal","write failed")` — GATT 操作の重なりで
+  writeCharacteristic が失敗する。
+  - 修正 (Android): `BleWatchConnection` の GATT 操作を opMutex
+    で完全直列化 (connectOnce の discover/mtu/CCCD も含む) +
+    REQ 単位の reqMutex (複数フレームのインターリーブ防止)。
+    `MediaBridge` に `MediaStateCoalescer` (同一抑制 + 500ms
+    間引き + trailing) を追加。一時ログ (req op / evt notify /
+    steps dbg) は撤去済み
+  - 原因として残る可能性: media.state が他の write と同期中に
+    割り込む等 — 再発したら同じ手順で op を採取する
 
 ### D. メモ/エージェント (時計↔電話)
 
@@ -254,7 +275,9 @@ indev read_timer が飢餓 → タッチサンプルに 300ms 級のギャップ
   light sleep 抑止は wake 遅延への効果が薄い (light sleep 復帰は元々速い)
 - 音声関連: この個体は `CONFIG_WATCH_DISABLE_AUDIO=y` で全スキップ。
   littlefs `/storage` マウントは audio init 内で行われるが無効化時も残る
-- `ble_link_set_advertising` (PR #35): 画面OFF中は広告停止・接続維持の C案
+- 画面OFF中の広告 (旧 C案): 停止ではなく低頻度化
+  (`ble_link_set_adv_rate`, ~1.0–1.3s)。一度切れると電話が
+  再接続できず通知が届かないため。消費電流は実機で要確認
 
 ## 検証済み環境
 
