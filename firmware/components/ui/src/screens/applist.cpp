@@ -12,19 +12,19 @@
 
 namespace {
 
-void app_row(lv_obj_t* grp, const char* app_id, const char* icon,
-             uint32_t icon_bg, const char* name, const char* sub,
-             watch::Route r) {
+void nav_click(lv_event_t* e) {
+  const auto r = static_cast<watch::Route>(
+      reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
+  ui::emit(watch::ActionType::Navigate, static_cast<uint32_t>(r));
+}
+
+lv_obj_t* app_row(lv_obj_t* grp, const char* app_id, const char* icon,
+                  uint32_t icon_bg, const char* name, const char* sub,
+                  watch::Route r) {
   // テーマのアイコン画像があればタイルの代わりに使う (無ければ文字タイル)。
-  ui::c::row_icon_img(
+  return ui::c::row_icon_img(
       grp, ui::theme_icon(app_id), icon, lv_color_hex(icon_bg), name, sub,
-      true,
-      [](lv_event_t* e) {
-        const auto r = static_cast<watch::Route>(
-            reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
-        ui::emit(watch::ActionType::Navigate,
-                 static_cast<uint32_t>(r));
-      },
+      true, nav_click,
       reinterpret_cast<void*>(static_cast<uintptr_t>(r)));
 }
 
@@ -44,41 +44,59 @@ lv_obj_t* build(lv_obj_t* scr) {
     std::snprintf(steps_sub, sizeof(steps_sub), "%s 歩", nb);
   }
 
+  lv_obj_t* rows[12];
+  watch::Route routes[12];
+  size_t rn = 0;
+  const auto add = [&](const char* id, const char* icon, uint32_t bg,
+                       const char* name, const char* sub, watch::Route r) {
+    rows[rn] = app_row(g, id, icon, bg, name, sub, r);
+    routes[rn] = r;
+    rn++;
+  };
+
 #if SAS_APP_TIMER
-  app_row(g, "timer", "タ", 0xFF8A3D, "タイマー", nullptr,
-          watch::Route::Timer);
+  add("timer", "タ", 0xFF8A3D, "タイマー", nullptr, watch::Route::Timer);
 #endif
 #if SAS_APP_STOPWATCH
-  app_row(g, "stopwatch", "ス", 0xFFD166, "ストップウォッチ", nullptr,
-          watch::Route::Stopwatch);
+  add("stopwatch", "ス", 0xFFD166, "ストップウォッチ", nullptr,
+      watch::Route::Stopwatch);
 #endif
 #if SAS_APP_COUNTER
-  app_row(g, "counter", "カ", 0xC0CA33, "カウンター", nullptr,
-          watch::Route::Counter);
+  add("counter", "カ", 0xC0CA33, "カウンター", nullptr,
+      watch::Route::Counter);
 #endif
 #if SAS_APP_MEMO
-  app_row(g, "memo", "メ", 0x64D6C2, "メモ", nullptr, watch::Route::Memo);
+  add("memo", "メ", 0x64D6C2, "メモ", nullptr, watch::Route::Memo);
 #endif
 #if SAS_APP_ALARM
-  app_row(g, "alarm", "ア", 0xFF7AA2, "アラーム", nullptr,
-          watch::Route::Alarm);
+  add("alarm", "ア", 0xFF7AA2, "アラーム", nullptr, watch::Route::Alarm);
 #endif
 #if SAS_APP_NOTIFY
-  app_row(g, "notifications", "通", 0x4CC9F0, "通知", nullptr,
-          watch::Route::Notifications);
+  add("notifications", "通", 0x4CC9F0, "通知", nullptr,
+      watch::Route::Notifications);
 #endif
 #if SAS_APP_MEDIA
-  app_row(g, "media", "音", 0xB388FF, "音楽", nullptr, watch::Route::Media);
+  add("media", "音", 0xB388FF, "音楽", nullptr, watch::Route::Media);
 #endif
 #if SAS_APP_STEPS
-  app_row(g, "steps", "歩", 0x3DDC97, "歩数", steps_sub,
-          watch::Route::Steps);
+  add("steps", "歩", 0x3DDC97, "歩数", steps_sub, watch::Route::Steps);
 #endif
 #if SAS_APP_AGENT
-  app_row(g, "agent", "AI", 0xB388FF, "AI", nullptr, watch::Route::Agent);
+  add("agent", "AI", 0xB388FF, "AI", nullptr, watch::Route::Agent);
 #endif
-  app_row(g, "settings", "設", 0x8A8F9C, "設定", nullptr,
-          watch::Route::Settings);
+  add("settings", "設", 0x8A8F9C, "設定", nullptr, watch::Route::Settings);
+
+  // 押しっぱスクロールの軽量化: 静的な行一覧を1枚の画像に焼き、
+  // 各行のクリックは透明ゾーンで復元する (再描画が全行再描画から
+  // 画像ブリットに変わる)。
+  ui::c::BakeZone zones[12];
+  lv_obj_update_layout(scr);
+  for (size_t i = 0; i < rn; i++) {
+    zones[i] = ui::c::bake_rect(col, rows[i], nav_click,
+                                reinterpret_cast<void*>(
+                                    static_cast<uintptr_t>(routes[i])));
+  }
+  ui::c::bake_scroll(col, g, zones, rn);
   return scr;
 }
 

@@ -472,6 +472,58 @@ lv_obj_t* content(lv_obj_t* scr) {
   return c;
 }
 
+// ---- bake_scroll: 静的スクロール内容の画像化 ----
+
+static void bake_free_buf(lv_event_t* e) {
+  lv_draw_buf_destroy(
+      static_cast<lv_draw_buf_t*>(lv_event_get_user_data(e)));
+}
+
+BakeZone bake_rect(lv_obj_t* col, lv_obj_t* row, lv_event_cb_t cb,
+                   void* ud) {
+  lv_area_t ca, ra;
+  lv_obj_get_content_coords(col, &ca);
+  lv_obj_get_coords(row, &ra);
+  BakeZone z{static_cast<lv_coord_t>(ra.x1 - ca.x1),
+             static_cast<lv_coord_t>(ra.y1 - ca.y1),
+             static_cast<lv_coord_t>(lv_area_get_width(&ra)),
+             static_cast<lv_coord_t>(lv_area_get_height(&ra)),
+             cb,
+             ud};
+  return z;
+}
+
+bool bake_scroll(lv_obj_t* col, lv_obj_t* inner, const BakeZone* zones,
+                 size_t zone_cnt) {
+  lv_obj_update_layout(col);
+  lv_area_t ca, ia;
+  lv_obj_get_content_coords(col, &ca);
+  lv_obj_get_coords(inner, &ia);
+
+  lv_draw_buf_t* buf = lv_snapshot_take(inner, LV_COLOR_FORMAT_RGB565);
+  if (!buf) return false;
+
+  lv_obj_clean(col);
+
+  lv_obj_t* im = lv_image_create(col);
+  lv_obj_add_flag(im, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_image_set_src(im, reinterpret_cast<const lv_image_dsc_t*>(buf));
+  lv_obj_set_pos(im, ia.x1 - ca.x1, ia.y1 - ca.y1);
+  lv_obj_add_event_cb(im, bake_free_buf, LV_EVENT_DELETE, buf);
+
+  // 行位置に透明クリックゾーンを復元。
+  for (size_t i = 0; i < zone_cnt; i++) {
+    const BakeZone& z = zones[i];
+    lv_obj_t* t = flat(col);
+    lv_obj_add_flag(t, static_cast<lv_obj_flag_t>(
+                           LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_IGNORE_LAYOUT));
+    lv_obj_set_pos(t, z.x, z.y);
+    lv_obj_set_size(t, z.w, z.h);
+    lv_obj_add_event_cb(t, z.cb, LV_EVENT_CLICKED, z.ud);
+  }
+  return true;
+}
+
 namespace {
 
 lv_obj_t* mk_button(lv_obj_t* parent, const char* text,

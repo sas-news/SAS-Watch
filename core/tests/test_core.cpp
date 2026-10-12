@@ -318,6 +318,55 @@ TEST(PowerPolicy, NextTransition) {
   EXPECT_EQ(p.next_transition_ms(), 1000 + 12'000);
 }
 
+TEST(PowerPolicy, UsbKeepAwakeMode0) {
+  // mode 0: 抑制なし。VBUS 中でも通常通り deep sleep へ。
+  PowerPolicy p = make_policy();
+  p.set_usb_keep_awake(0);
+  p.set_external_power(true);
+  p.kick_activity(0);
+  p.update(3'000'000);
+  EXPECT_EQ(p.state(), PowerState::DeepSleepCandidate);
+}
+
+TEST(PowerPolicy, UsbKeepAwakeMode1) {
+  // mode 1 (既定): VBUS 中は deep sleep だけ抑制 (画面OFF は来る)。
+  PowerPolicy p = make_policy();
+  p.set_usb_keep_awake(1);
+  p.set_external_power(true);
+  p.kick_activity(0);
+  p.update(13'000);
+  EXPECT_EQ(p.state(), PowerState::ScreenOff);
+  p.update(3'000'000);
+  EXPECT_EQ(p.state(), PowerState::ScreenOff);
+  EXPECT_EQ(p.next_transition_ms(), 0);  // deep sleep への遷移なし
+  // VBUS 抜きで抑制解除 → deep sleep 候補へ。
+  p.set_external_power(false);
+  p.update(3'000'000);
+  EXPECT_EQ(p.state(), PowerState::DeepSleepCandidate);
+}
+
+TEST(PowerPolicy, UsbKeepAwakeMode2) {
+  // mode 2: VBUS 中は画面OFF も抑制 (Dim までは許可)。
+  PowerPolicy p = make_policy();
+  p.set_usb_keep_awake(2);
+  p.set_external_power(true);
+  p.kick_activity(0);
+  p.update(9'000);
+  EXPECT_EQ(p.state(), PowerState::Dim);
+  p.update(3'000'000);
+  EXPECT_EQ(p.state(), PowerState::Dim);  // ScreenOff に行かない
+  EXPECT_EQ(p.next_transition_ms(), 0);
+  // 手動消灯 (request_screen_off) は抑制されない。
+  p.request_screen_off(3'100'000);
+  EXPECT_EQ(p.state(), PowerState::ScreenOff);
+}
+
+TEST(PowerPolicy, UsbKeepAwakeModeClamp) {
+  PowerPolicy p = make_policy();
+  p.set_usb_keep_awake(9);  // 範囲外は 2 に丸める
+  EXPECT_EQ(p.usb_keep_awake(), 2u);
+}
+
 // ---------- InputMapper ----------
 
 TEST(InputMapper, DefaultsMatchPlan) {
@@ -326,7 +375,7 @@ TEST(InputMapper, DefaultsMatchPlan) {
                "primary");
   EXPECT_STREQ(m.action_name(PhysicalButton::Boot, PressType::Long), "nav.dev");
   EXPECT_STREQ(m.action_name(PhysicalButton::Boot, PressType::Double),
-               "memo.record");
+               "none");
   EXPECT_STREQ(m.action_name(PhysicalButton::Pwr, PressType::Short), "back");
   EXPECT_STREQ(m.action_name(PhysicalButton::Pwr, PressType::Long),
                "power_menu");

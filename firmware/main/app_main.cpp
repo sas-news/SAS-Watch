@@ -35,13 +35,16 @@ static platform_esp::NvsKv s_kv;
 #endif
 
 // 電池ポーリング (AXP IRQ 線が無いので定期 — plan.md A-3)。
-// 変化があったときだけ Event を出す。
+// 変化があったときだけ Event を出す。VBUS 有無は usb_keep_awake の
+// スリープ抑制に使うので PowerPolicy へも通知する。
 static void battery_poll(void*) {
   int last_pct = -2;
   bool last_chg = false;
+  int last_vbus = -1;
   while (true) {
     const int pct = board::pmic::battery_percent();
     const bool chg = board::pmic::is_charging();
+    const bool vbus = board::pmic::is_vbus();
     if (pct != last_pct) {
       last_pct = pct;
       watch_app::bus().publish(
@@ -52,6 +55,10 @@ static void battery_poll(void*) {
       last_chg = chg;
       watch_app::bus().publish(
           {watch::EventType::ChargingChanged, chg ? 1u : 0u});
+    }
+    if (vbus != last_vbus) {
+      last_vbus = vbus ? 1 : 0;
+      watch_app::set_external_power(vbus);
     }
     vTaskDelay(pdMS_TO_TICKS(30000));
   }
@@ -149,7 +156,10 @@ extern "C" void app_main(void)
 #if CONFIG_SAS_BLE_LINK
     // パスキー確認の「はい/いいえ」→ NimBLE へ
     ui::set_passkey_confirm([](bool ok) { ble_link_confirm_passkey(ok); });
-    ble_link_start(watch_app::ble_config());
+    const esp_err_t ble_rc = ble_link_start(watch_app::ble_config());
+    if (ble_rc != ESP_OK) {
+        ESP_LOGE(TAG, "ble_link_start failed: %s", esp_err_to_name(ble_rc));
+    }
 #endif
 
     xTaskCreate(battery_poll, "batt", 2048, nullptr, 3, nullptr);

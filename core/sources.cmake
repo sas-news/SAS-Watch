@@ -21,6 +21,7 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/src/feature.cpp
     ${WATCH_CORE_DIR}/src/settings.cpp
     ${WATCH_CORE_DIR}/src/sensors.cpp
+    ${WATCH_CORE_DIR}/src/timeconv.cpp
     ${WATCH_CORE_DIR}/src/runtime.cpp
     ${WATCH_CORE_DIR}/features/clock/clock.cpp
     ${WATCH_CORE_DIR}/features/registry.cpp

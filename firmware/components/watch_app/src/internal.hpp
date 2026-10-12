@@ -18,6 +18,9 @@ void core_unlock();
 
 watch::PowerPolicy& power();
 watch::InputMapper& input();
+// input.cpp: mapper の Double 割り当てをボタン即時化の atomic キャッシュへ
+// 反映する。core_lock 下 (mapper を書く側と同じ排他) で呼ぶ。
+void input_sync_double_enabled();
 watch::FeatureRegistry& features();
 watch::FeatureContext* fctx();
 watch::Clock* clock();

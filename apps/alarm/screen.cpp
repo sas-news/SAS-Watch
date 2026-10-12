@@ -2,13 +2,14 @@
 // 追加・編集はスマホアプリ (alarm.list/alarm.set/alarm.delete) から。
 // 行タップで有効/無効を切替え、鳴動中は shell のアラートが前面に出る。
 #include "components.hpp"
-#include "faces/faces.hpp"
 #include "theme.hpp"
 #include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/alarm.hpp"
 
 #include <cstdio>
+
+LV_FONT_DECLARE(font_num_40);
 
 namespace {
 
@@ -57,7 +58,7 @@ void rebuild_list() {
         reinterpret_cast<void*>(static_cast<uintptr_t>(a.id)));
     lv_obj_set_style_min_height(r, 80, 0);
 
-    // 時刻は時計フォント (34px)、曜日は本文フォントの薄い sub。
+    // 時刻は等幅数字フォント (40px)、曜日は本文フォントの薄い sub。
     lv_obj_t* cell = lv_obj_create(r);
     lv_obj_add_flag(cell, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_set_size(cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -66,8 +67,7 @@ void rebuild_list() {
     lv_obj_set_style_border_width(cell, 0, 0);
     lv_obj_set_style_pad_all(cell, 0, 0);
     // 数字フォントと本文フォントの行高が大きいので負値で曜日行を近づける。
-    // digits(34) はグリフが箱いっぱいなので強く詰めると時刻と曜日が重なる。
-    // ~4px 隙間になるよう -4 にとどめる。
+    // font_num_40 (line_height ~37px) で ~4px 隙間になるよう -4 にとどめる。
     lv_obj_set_style_pad_row(cell, -4, 0);
     // セル自体を行の最低高さいっぱいにして上下中央揃えにする
     // (行は SIZE_CONTENT で LVGL の track_place が START に固定されるため)。
@@ -81,7 +81,7 @@ void rebuild_list() {
     lv_obj_t* tl = lv_label_create(cell);
     lv_obj_add_flag(tl, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_label_set_text(tl, time_s);
-    lv_obj_set_style_text_font(tl, ui::face::digits(34), 0);
+    lv_obj_set_style_text_font(tl, &font_num_40, 0);
     lv_obj_set_style_text_color(tl, t.text, 0);
     lv_obj_t* dl = lv_label_create(cell);
     lv_obj_add_flag(dl, LV_OBJ_FLAG_EVENT_BUBBLE);

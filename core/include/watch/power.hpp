@@ -54,6 +54,18 @@ class PowerPolicy {
   void set_ble_connected(bool connected) { ble_connected_ = connected; }
   bool ble_connected() const { return ble_connected_; }
 
+  // 外部電源 (USB VBUS) 接続中のスリープ抑制。抑制量は設定
+  // `usb_keep_awake` に従う:
+  //   0 = 抑制なし / 1 = Deep Sleep 抑制 (既定) /
+  //   2 = Deep Sleep + 画面OFF 抑制 (Dim までは許可)
+  // 手動消灯 (request_screen_off) は 2 でも抑制しない。
+  void set_external_power(bool on) { external_power_ = on; }
+  bool external_power() const { return external_power_; }
+  void set_usb_keep_awake(uint32_t mode) {
+    usb_keep_awake_ = mode > 2 ? 2 : mode;
+  }
+  uint32_t usb_keep_awake() const { return usb_keep_awake_; }
+
   // Deep Sleep に進んでよいか。状態 + Lease + BLE の総合判断。
   bool wants_deep_sleep() const { return state_ == PowerState::DeepSleepCandidate; }
 
@@ -103,12 +115,21 @@ class PowerPolicy {
 
   void set_state(PowerState s);
   void release_slot(uint8_t slot);
+  // usb_keep_awake モードに従う抑制条件。
+  bool suppress_deep_sleep() const {
+    return external_power_ && usb_keep_awake_ >= 1;
+  }
+  bool suppress_screen_off() const {
+    return external_power_ && usb_keep_awake_ >= 2;
+  }
 
   EventBus* bus_;
   Thresholds th_{8, 12, 1800};
   PowerState state_ = PowerState::Active;
   int64_t last_activity_ms_ = 0;
   bool ble_connected_ = false;
+  bool external_power_ = false;
+  uint32_t usb_keep_awake_ = 1;
   bool screen_off_forced_ = false;  // request_screen_off で立つ。kick で降りる
   LeaseSlot leases_[kMaxLeases] = {};
   uint8_t lease_count_ = 0;

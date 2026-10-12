@@ -94,7 +94,7 @@ error code:
 | `theme` | text | `standard` | theme id 文字列 |
 | `button.boot.short` | text | `primary` | BOOT 短押しの Action 名 |
 | `button.boot.long` | text | `nav.dev` | BOOT 長押しの Action 名 |
-| `button.boot.double` | text | `memo.record` | BOOT 2回押しの Action 名 |
+| `button.boot.double` | text | `none` | BOOT 2回押しの Action 名 |
 | `button.pwr.short` | text | `back` | PWR 短押しの Action 名 |
 | `button.pwr.long` | text | `power_menu` | PWR 長押しの Action 名 |
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
@@ -108,6 +108,7 @@ error code:
 | `agent.q1` | text | `今日の予定は？` | AI の定型質問ボタン 1 (空 = 非表示、63バイトまで) |
 | `agent.q2` | text | `今の天気は？` | AI の定型質問ボタン 2 (同左) |
 | `agent.q3` | text | (空) | AI の定型質問ボタン 3 (同左) |
+| `usb_keep_awake` | u32 | 1 | USB (VBUS) 接続中のスリープ抑制: 0=なし, 1=deep sleep 抑制, 2=deep sleep+画面OFF 抑制 (Dim までは許可。手動消灯は抑制しない) |
 
 ### Action 名 (button.* の値)
 `button.*` キーに設定できる Action 名はこの表が唯一の正

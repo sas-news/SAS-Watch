@@ -26,6 +26,7 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstring>
 
@@ -60,7 +61,25 @@ namespace ui {
 // 間引く。さもないと action queue (40件) が Wake で溢れ、Back/PrimaryAction
 // 等の本物の入力が drop される (実機ログで確認)。
 static uint32_t s_last_wake_emit;
-static void on_touch_press(lv_event_t*) {
+// パネル消灯状態 (display_power(false))。LVGL 側で知る手段が無いので
+// ui::port::display_power で更新する。消灯中のタップは「起こすだけ」に
+// して、その押下の RELEASE 以降のイベントを復帰後の UI に流さない。
+static std::atomic<bool> s_panel_off{false};
+static void on_touch_press(lv_event_t* e) {
+  if (s_panel_off.load(std::memory_order_relaxed)) {
+    // 消灯中は間引きに関係なく必ず Wake を出す。
+    s_last_wake_emit = lv_tick_get();
+    emit(watch::ActionType::Wake);
+    // この押下の残りを捨てる。LVGL 9.5 の lv_indev.c:
+    // wait_until_release=1 で indev_proc_press が冒頭 return (press 以降の
+    // scroll/gesture 蓄積も起きない) し、release 時には act_obj への
+    // PRESS_LOST だけを送って act_obj=NULL にするため RELEASED/CLICKED は
+    // 一切発行されない。これが無いと、起こしタップと同じ指の RELEASE が
+    // 復帰後の画面上のボタンを誤タップする。
+    lv_indev_t* indev = static_cast<lv_indev_t*>(lv_event_get_target(e));
+    lv_indev_wait_release(indev ? indev : s_indev);
+    return;
+  }
   if (s_last_wake_emit != 0 && lv_tick_elaps(s_last_wake_emit) < 400) return;
   s_last_wake_emit = lv_tick_get();
   emit(watch::ActionType::Wake);
@@ -260,6 +279,9 @@ namespace ui::port {
 // T-Watch の手順と同じ考え方で ScreenOff は DISPOFF + SLPIN とし、
 // ALDO2 の切断は長時間 OFF/deep sleep 側 (board::pmic::panel_power) が担う。
 void display_power(bool on) {
+  // on_touch_press が「起こしタップか」を判定するためのフラグ。
+  // display_power(false) → true の間にある PRESSED だけが対象になる。
+  s_panel_off.store(!on, std::memory_order_relaxed);
   if (!s_panel) return;
   if (on) {
     esp_lcd_panel_io_tx_param(s_io, 0x11, nullptr, 0);  // SLPOUT

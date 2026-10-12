@@ -14,6 +14,15 @@ static const char* TAG = "board.buttons";
 static constexpr uint16_t kLongPressMs = 800;
 
 static ButtonCallback s_cb = nullptr;
+static bool (*s_dbl_pred)(Button) = nullptr;
+// 押下中に LONG_PRESS_START が出たか (PRESS_UP での即時発火を抑止する)。
+// ボタンタスクからのみ読み書きされる。
+static bool s_long_fired[2] = {};
+
+static size_t idx_of(Button b) { return static_cast<size_t>(b); }
+static Button btn_of(void* usr) {
+    return static_cast<Button>(reinterpret_cast<intptr_t>(usr));
+}
 
 static void fire(Button b, ButtonEvent e)
 {
@@ -22,9 +31,40 @@ static void fire(Button b, ButtonEvent e)
     }
 }
 
-static void cb_short(void*, void* usr)  { fire(static_cast<Button>(reinterpret_cast<intptr_t>(usr)), ButtonEvent::ShortPress); }
-static void cb_long(void*, void* usr)   { fire(static_cast<Button>(reinterpret_cast<intptr_t>(usr)), ButtonEvent::LongPress); }
-static void cb_double(void*, void* usr) { fire(static_cast<Button>(reinterpret_cast<intptr_t>(usr)), ButtonEvent::DoubleClick); }
+// 2回押しが有効なボタンか。predicate 未登録なら全ボタン有効 (=従来動作)。
+static bool double_enabled(Button b)
+{
+    return s_dbl_pred == nullptr || s_dbl_pred(b);
+}
+
+static void cb_press_down(void*, void* usr) { s_long_fired[idx_of(btn_of(usr))] = false; }
+static void cb_press_up(void*, void* usr)
+{
+    const Button b = btn_of(usr);
+    // 長押し済みでなく、2回押しが無効なボタンは即 ShortPress。
+    // 2回押し有効なボタンは従来どおり SINGLE_CLICK/DOUBLE_CLICK を待つ。
+    if (!s_long_fired[idx_of(b)] && !double_enabled(b)) {
+        fire(b, ButtonEvent::ShortPress);
+    }
+}
+static void cb_long(void*, void* usr)
+{
+    const Button b = btn_of(usr);
+    s_long_fired[idx_of(b)] = true;
+    fire(b, ButtonEvent::LongPress);
+}
+static void cb_short(void*, void* usr)
+{
+    const Button b = btn_of(usr);
+    // 2回押し有効なボタンのみここで発火 (PRESS_UP では出していない)。
+    if (double_enabled(b)) fire(b, ButtonEvent::ShortPress);
+}
+static void cb_double(void*, void* usr)
+{
+    const Button b = btn_of(usr);
+    // 2回押し無効なら各 PRESS_UP で既に発火しているので二重発火させない。
+    if (double_enabled(b)) fire(b, ButtonEvent::DoubleClick);
+}
 
 static esp_err_t create_one(gpio_num_t gpio, uint8_t active_level, Button id, const char* name)
 {
@@ -46,8 +86,10 @@ static esp_err_t create_one(gpio_num_t gpio, uint8_t active_level, Button id, co
     }
 
     void* usr = reinterpret_cast<void*>(static_cast<intptr_t>(id));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(iot_button_register_cb(handle, BUTTON_SINGLE_CLICK, nullptr, cb_short, usr));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(iot_button_register_cb(handle, BUTTON_PRESS_DOWN, nullptr, cb_press_down, usr));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(iot_button_register_cb(handle, BUTTON_PRESS_UP, nullptr, cb_press_up, usr));
     ESP_ERROR_CHECK_WITHOUT_ABORT(iot_button_register_cb(handle, BUTTON_LONG_PRESS_START, nullptr, cb_long, usr));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(iot_button_register_cb(handle, BUTTON_SINGLE_CLICK, nullptr, cb_short, usr));
     ESP_ERROR_CHECK_WITHOUT_ABORT(iot_button_register_cb(handle, BUTTON_DOUBLE_CLICK, nullptr, cb_double, usr));
 
     ESP_LOGI(TAG, "%s: GPIO%d active=%s", name, (int)gpio, active_level ? "HIGH" : "LOW");
@@ -64,6 +106,11 @@ esp_err_t init()
 void set_callback(ButtonCallback cb)
 {
     s_cb = cb;
+}
+
+void set_double_click_predicate(bool (*fn)(Button))
+{
+    s_dbl_pred = fn;
 }
 
 }  // namespace board::buttons

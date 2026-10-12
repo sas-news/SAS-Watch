@@ -33,6 +33,10 @@ watch::Runtime& runtime();
 watch::Navigator& navigator();
 watch::EventBus& bus();
 const watch::Settings& settings();
+// USB (VBUS) 接続の有無を PowerPolicy に通知する (settings.usb_keep_awake
+// に従って deep sleep / 画面OFF が抑制される)。電池ポーリング等から呼ぶ。
+// 内部で core 排他を取るのでどのタスクからでも呼べる。
+void set_external_power(bool on);
 // FeatureContext (audio の有無など UI が直接読む情報用)。start() 済みなら非null。
 watch::FeatureContext* fctx();
 

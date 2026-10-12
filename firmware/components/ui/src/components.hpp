@@ -14,6 +14,27 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn);
 // 縦積み・スクロール可のコンテンツ列 (左右 32px)。ヘッダの下に敷く。
 lv_obj_t* content(lv_obj_t* scr);
 
+// スクロール内容のスナップショット化 (押しっぱスクロール軽量化)。
+// col の子 inner (内容全高のコンテナ) を RGB565 の1枚の画像に焼き直し、
+// zones[] の矩形に透明クリックゾーンを復元する。スクロール中の再描画が
+// 全子要素の再描画から画像ブリットに変わり大幅に軽くなる。
+// ※ 静的リスト専用。動的更新・スイッチ等の状態付き部品は焼き込めない。
+struct BakeZone {
+  lv_coord_t x;
+  lv_coord_t y;
+  lv_coord_t w;
+  lv_coord_t h;
+  lv_event_cb_t cb;
+  void* ud;
+};
+// row の矩形を col 基準の BakeZone に変換 (レイアウト確定後に呼ぶ)。
+BakeZone bake_rect(lv_obj_t* col, lv_obj_t* row, lv_event_cb_t cb,
+                   void* ud);
+// inner を画像に置き換え、zones のクリックゾーンを col 内に作る。
+// スナップショット失敗時は false で何もしない。
+bool bake_scroll(lv_obj_t* col, lv_obj_t* inner, const BakeZone* zones,
+                 size_t zone_cnt);
+
 // フル幅ピルボタン (高さ 58px)。cb は LV_EVENT_CLICKED。
 lv_obj_t* button(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
                  void* user_data);

@@ -23,7 +23,7 @@ struct Settings {
   // ボタン割り当て (Action 名)。既定は plan.md G章。
   char button_boot_short[24] = "primary";
   char button_boot_long[24] = "nav.dev";
-  char button_boot_double[24] = "memo.record";
+  char button_boot_double[24] = "none";  // この個体は録音不可のため
   char button_pwr_short[24] = "back";
   char button_pwr_long[24] = "power_menu";
   char button_pwr_double[24] = "none";
@@ -43,6 +43,9 @@ struct Settings {
   char agent_q1[64] = "今日の予定は？";
   char agent_q2[64] = "今の天気は？";
   char agent_q3[64] = "";
+  // USB (VBUS) 接続中のスリープ抑制: 0=なし / 1=Deep Sleep 抑制 /
+  // 2=Deep Sleep + 画面OFF 抑制 (Dim までは許可)。
+  uint32_t usb_keep_awake = 1;
 };
 
 struct SettingKey {

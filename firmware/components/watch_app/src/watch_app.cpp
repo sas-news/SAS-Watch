@@ -135,6 +135,8 @@ void app_task(void*) {
     s_rt.step(now, *s_fctx);
     // core 状態を読むので lock の内側。I2C 書き込みは値が変わった時だけ。
     alarm_rtc_sync();
+    // settings.set (BLE) で変わった Double 割り当てをボタン即時化に反映。
+    input_sync_double_enabled();
     core_unlock();
     power_apply(s_power.state(), s_settings);
 
@@ -184,6 +186,7 @@ bool start(const Deps& deps) {
   watch::settings_load(s_settings, *s_kv);
   s_power.configure(s_settings.dim_after_s, s_settings.screen_off_after_s,
                     s_settings.deep_sleep_after_s);
+  s_power.set_usb_keep_awake(s_settings.usb_keep_awake);
   s_input.map(watch::PhysicalButton::Boot, watch::PressType::Short,
               s_settings.button_boot_short);
   s_input.map(watch::PhysicalButton::Boot, watch::PressType::Long,
@@ -225,11 +228,14 @@ bool start(const Deps& deps) {
   // 起動時輝度 = 保存値。画面ONは ui::init_display 側。
   ui::port::brightness_apply(static_cast<int>(s_settings.brightness));
 
-  // esp_pm: 動的クロック + 自動 light sleep (sdkconfig PM_ENABLE/TICKLESS)。
+  // esp_pm: CPU 240MHz 固定・自動 light sleep 無効。
+  // TODO(hw): 実機で確認 — 応答性優先で固定にしている。DFS (min=40MHz)
+  // 復帰はレンダリング遅延とのトレードオフ、light sleep 復帰は
+  // touch/panel の復帰確認が必要。
   const esp_pm_config_t pm_cfg = {
       .max_freq_mhz = 240,
-      .min_freq_mhz = 40,
-      .light_sleep_enable = true,  // TODO(hw): 実機で確認 — touch/panel の復帰
+      .min_freq_mhz = 240,
+      .light_sleep_enable = false,
   };
   const esp_err_t pm_ret = esp_pm_configure(&pm_cfg);
   if (pm_ret != ESP_OK) {
@@ -262,6 +268,14 @@ watch::Runtime& runtime() { return s_rt; }
 watch::Navigator& navigator() { return s_nav; }
 watch::EventBus& bus() { return s_bus; }
 const watch::Settings& settings() { return s_settings; }
+
+void set_external_power(bool on) {
+  core_lock();
+  s_power.set_external_power(on);
+  core_unlock();
+  // 変化を即座に遷移評価させる (VBUS 抜き → 抑制解除など)。
+  wake_task();
+}
 
 // ---- 内部公開口 (internal.hpp) ---------------------------------------------
 

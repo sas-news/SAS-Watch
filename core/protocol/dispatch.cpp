@@ -673,6 +673,7 @@ void apply_settings_side_effects(const Settings& s, Services& svc) {
   if (svc.power) {
     svc.power->configure(s.dim_after_s, s.screen_off_after_s,
                          s.deep_sleep_after_s);
+    svc.power->set_usb_keep_awake(s.usb_keep_awake);
   }
   if (svc.input) {
     svc.input->map(PhysicalButton::Boot, PressType::Short, s.button_boot_short);

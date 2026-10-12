@@ -1,8 +1,7 @@
 // timer.cpp — タイマー: 分秒の設定・開始/一時停止/リセット。
-// 実行中は残り時間のリング (lv_arc) + 時計フォントの大きな数字。
+// 実行中は残り時間のリング (lv_arc) + 等幅数字フォントの大きな数字。
 // 終了時のフルスクリーン通知は shell.cpp のアラート。
 #include "components.hpp"
-#include "faces/faces.hpp"
 #include "theme.hpp"
 
 #include <cstdio>
@@ -10,6 +9,8 @@
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/timer.hpp"
+
+LV_FONT_DECLARE(font_num_72);
 
 namespace {
 
@@ -131,7 +132,8 @@ lv_obj_t* build(lv_obj_t* scr) {
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   s.setup_l = lv_label_create(s.setup_box);
   lv_obj_add_flag(s.setup_l, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_set_style_text_font(s.setup_l, ui::face::digits(112), 0);
+  // 等幅数字 (JetBrains Mono)。「MM:SS」= 5字 × ~43px ≈ 216px で収まる。
+  lv_obj_set_style_text_font(s.setup_l, &font_num_72, 0);
   lv_obj_set_style_text_color(s.setup_l, t.text, 0);
 
   ui::c::button(s.setup_box, "＋1分", [](lv_event_t*) { adj(60); }, nullptr);
@@ -186,14 +188,9 @@ lv_obj_t* build(lv_obj_t* scr) {
   s.remain_l = lv_label_create(ring);
   lv_obj_add_flag(s.remain_l, LV_OBJ_FLAG_EVENT_BUBBLE);
   lv_label_set_text(s.remain_l, "00:00");
-  // 時計フォントのまま ~68% に縮小し、リング内に余白を持たせる (モック ~76px)。
-  // ピボット未指定だとレイヤ変換が左上基準で行われ、見た目が左上にずれる。
-  // 中心基準にすると ALIGN_CENTER のまま正しく中央に収まる。
-  lv_obj_set_style_text_font(s.remain_l, ui::face::digits(112), 0);
-  lv_obj_set_style_transform_pivot_x(s.remain_l, LV_PCT(50), 0);
-  lv_obj_set_style_transform_pivot_y(s.remain_l, LV_PCT(50), 0);
-  lv_obj_set_style_transform_scale_x(s.remain_l, 174, 0);
-  lv_obj_set_style_transform_scale_y(s.remain_l, 174, 0);
+  // 等幅数字 (JetBrains Mono)。72px のまま「MM:SS」≈ 216px で
+  // リング (260px) 内に収まるので縮小は不要。
+  lv_obj_set_style_text_font(s.remain_l, &font_num_72, 0);
   lv_obj_set_style_text_color(s.remain_l, t.text, 0);
   lv_obj_align(s.remain_l, LV_ALIGN_CENTER, 0, -12);
 

@@ -28,13 +28,16 @@ void PowerPolicy::request_screen_off(int64_t /*now_ms*/) {
 
 PowerState PowerPolicy::update(int64_t now_ms) {
   const int64_t idle_ms = now_ms - last_activity_ms_;
-  const bool can_deep = !ble_connected_ && lease_count_ == 0;
+  const bool can_deep =
+      !ble_connected_ && !suppress_deep_sleep() && lease_count_ == 0;
   PowerState next;
   if (can_deep &&
       idle_ms >= static_cast<int64_t>(th_.deep_sleep_after_s) * 1000) {
     next = PowerState::DeepSleepCandidate;
   } else if (screen_off_forced_ ||
-             idle_ms >= static_cast<int64_t>(th_.screen_off_after_s) * 1000) {
+             (idle_ms >=
+                  static_cast<int64_t>(th_.screen_off_after_s) * 1000 &&
+              !suppress_screen_off())) {
     next = PowerState::ScreenOff;
   } else if (idle_ms >= static_cast<int64_t>(th_.dim_after_s) * 1000) {
     next = PowerState::Dim;
@@ -51,9 +54,11 @@ int64_t PowerPolicy::next_transition_ms() const {
     case PowerState::Active:
       return last_activity_ms_ + static_cast<int64_t>(th_.dim_after_s) * s;
     case PowerState::Dim:
+      // 画面OFF 抑制中は Dim で止まる (遷移なし)。
+      if (suppress_screen_off()) return 0;
       return last_activity_ms_ + static_cast<int64_t>(th_.screen_off_after_s) * s;
     case PowerState::ScreenOff:
-      if (!ble_connected_ && lease_count_ == 0) {
+      if (!ble_connected_ && !suppress_deep_sleep() && lease_count_ == 0) {
         return last_activity_ms_ +
                static_cast<int64_t>(th_.deep_sleep_after_s) * s;
       }

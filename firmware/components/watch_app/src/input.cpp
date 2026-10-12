@@ -1,12 +1,25 @@
 // input.cpp — board の物理ボタン → InputMapper → Action → queue。
 // board 側のコールバックはボタンタスクのコンテキストで来る。
+#include <atomic>
+#include <cstring>
+
 #include "board/board.hpp"
 #include "watch/input_mapper.hpp"
 #include "watch_app/watch_app.hpp"
 
+#include "internal.hpp"
+
 namespace watch_app {
 
 static watch::InputMapper* s_mapper = nullptr;
+
+// ボタンタスクから読むので、mapper の表を直接見ずに atomic にキャッシュする
+// (mapper の更新は core_lock 下で行われ、同期は input_sync_double_enabled)。
+static std::atomic<bool> s_dbl_enabled[2] = {};
+
+static bool double_click_enabled(board::Button b) {
+  return s_dbl_enabled[static_cast<size_t>(b)].load(std::memory_order_relaxed);
+}
 
 static void on_button(board::Button b, board::ButtonEvent ev) {
   if (!s_mapper) return;
@@ -27,8 +40,23 @@ static void on_button(board::Button b, board::ButtonEvent ev) {
   }
 }
 
+// mapper の Double 割り当て (「none」以外なら 2回押し有効) を
+// s_dbl_enabled に反映する。core_lock 下 (mapper と同じ排他) で呼ぶこと。
+void input_sync_double_enabled() {
+  if (!s_mapper) return;
+  const watch::PhysicalButton bs[2] = {watch::PhysicalButton::Boot,
+                                       watch::PhysicalButton::Pwr};
+  for (int i = 0; i < 2; ++i) {
+    const char* n = s_mapper->action_name(bs[i], watch::PressType::Double);
+    s_dbl_enabled[i].store(n != nullptr && std::strcmp(n, "none") != 0,
+                           std::memory_order_relaxed);
+  }
+}
+
 void input_init(watch::InputMapper* mapper) {
   s_mapper = mapper;
+  input_sync_double_enabled();
+  board::buttons::set_double_click_predicate(double_click_enabled);
   board::buttons::set_callback(on_button);
 }
 

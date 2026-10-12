@@ -30,6 +30,10 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+// NVS バックエンドのボンド永続化ストア初期化（ヘッダ非公開のため前方宣言。
+// esp-nimble 公式サンプル bleprph と同じ方法）。
+extern "C" void ble_store_config_init(void);
+
 #include "watch/protocol/bulk.hpp"
 #include "watch/protocol/cbor.hpp"
 #include "watch/protocol/frame.hpp"
@@ -306,6 +310,13 @@ int bulk_access(uint16_t conn_handle, uint16_t attr_handle,
   return 0;
 }
 
+// NimBLE は全特性に access_cb を要求する (ble_gatts_chr_is_sane)。
+// notify 専用特性でも no-op が必要 — 実際に read/write は来ないが、
+// 来た場合は属性エラーを返す。
+int noop_access(uint16_t, uint16_t, ble_gatt_access_ctxt*, void*) {
+  return BLE_ATT_ERR_UNLIKELY;
+}
+
 // ---------- GATT テーブル ----------
 
 // ctrl/bulk の write は BLE_GATT_CHR_F_WRITE_AUTHEN: ボンド済み(MITM認証済み)
@@ -325,7 +336,7 @@ ble_gatt_chr_def kSasChrs[] = {
     },
     {
         .uuid = &kChrEventUuid.u,
-        .access_cb = nullptr,  // notify 専用
+        .access_cb = noop_access,  // notify 専用 (NULL 不可)
         .arg = nullptr,
         .descriptors = nullptr,
         .flags = BLE_GATT_CHR_F_NOTIFY,
@@ -424,6 +435,16 @@ int gap_event(ble_gap_event* event, void* arg) {
         request_conn_params(s_conn);
         // MTU 交換をこちらからも要求 (protocol: 247 を要求)。
         ble_gattc_exchange_mtu(s_conn, nullptr, nullptr);
+        // セキュリティは時計側から開始する: ctrl/bulk の write に
+        // WRITE_AUTHEN を要求していても、電話側アプリが自発的にボンドを
+        // 始めるとは限らないため (実機で対向待ちになった)。ボンド済み
+        // なら再暗号化だけでペアリング UI は出ない。
+        {
+          const int src = ble_gap_security_initiate(s_conn);
+          if (src != 0 && src != BLE_HS_EALREADY) {
+            ESP_LOGW(kTag, "security initiate: %d", src);
+          }
+        }
         // 前回切断またぎの転送が残っていれば再開に備えて lock を張り直す。
         bulk_lock_sync();
       } else {
@@ -481,6 +502,7 @@ int gap_event(ble_gap_event* event, void* arg) {
       break;
 
     case BLE_GAP_EVENT_PASSKEY_ACTION:
+      ESP_LOGI(kTag, "passkey action=%d", event->passkey.params.action);
       if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
         s_passkey_conn = event->passkey.conn_handle;
         if (s_cfg.on_passkey) {
@@ -507,6 +529,7 @@ int gap_event(ble_gap_event* event, void* arg) {
     }
 
     default:
+      ESP_LOGD(kTag, "gap event %d", event->type);
       break;
   }
   return 0;
@@ -581,7 +604,10 @@ extern "C" esp_err_t ble_link_start(const ble_link_config_t* cfg) {
   }
 
   esp_err_t rc = nimble_port_init();
-  if (rc != ESP_OK) return rc;
+  if (rc != ESP_OK) {
+    ESP_LOGE(kTag, "nimble_port_init failed: %s", esp_err_to_name(rc));
+    return rc;
+  }
 
   ble_hs_cfg.reset_cb = on_reset;
   ble_hs_cfg.sync_cb = on_sync;
@@ -602,15 +628,29 @@ extern "C" esp_err_t ble_link_start(const ble_link_config_t* cfg) {
   ble_att_set_preferred_mtu(watch::proto::kDefaultMtu);
 
   int r = ble_gatts_count_cfg(kGattSvcs);
-  if (r != 0) return ESP_FAIL;
+  if (r != 0) {
+    ESP_LOGE(kTag, "ble_gatts_count_cfg failed: %d", r);
+    return ESP_FAIL;
+  }
   r = ble_gatts_add_svcs(kGattSvcs);
-  if (r != 0) return ESP_FAIL;
+  if (r != 0) {
+    ESP_LOGE(kTag, "ble_gatts_add_svcs failed: %d", r);
+    return ESP_FAIL;
+  }
   r = ble_gatts_start();
-  if (r != 0) return ESP_FAIL;
+  if (r != 0) {
+    ESP_LOGE(kTag, "ble_gatts_start failed: %d", r);
+    return ESP_FAIL;
+  }
+
+  // ボンド永続化ストア（NVS バックエンド）。未登録だと NimBLE が
+  // Pairing Request を ENOTSUP で拒否してペアリングが完走しない。
+  ble_store_config_init();
 
   nimble_port_freertos_init(host_task);
   s_started = true;
-  ESP_LOGI(kTag, "ble_link started");
+  ESP_LOGI(kTag, "ble_link started (ctrl=%u event=%u bulk=%u)",
+           s_ctrl_val_handle, s_event_val_handle, s_bulk_val_handle);
   return ESP_OK;
 }
 

@@ -15,6 +15,8 @@
 // disp->scr_to_load / prev_scr を掃くために private 構造体が必要
 #include "lvgl_private.h"
 
+LV_FONT_DECLARE(font_num_72);
+
 #include <cstdio>
 
 namespace ui {
@@ -397,10 +399,10 @@ void show_timer_alert() {
     lv_obj_align(tag, LV_ALIGN_CENTER, 0, -108);
   }
 
-  // 00:00 は時計フォント (clock_font 設定)。
+  // 00:00 は等幅数字フォント (JetBrains Mono 72px)。
   lv_obj_t* digits = lv_label_create(s_alert);
   lv_label_set_text(digits, "00:00");
-  lv_obj_set_style_text_font(digits, face::digits(96), 0);
+  lv_obj_set_style_text_font(digits, &font_num_72, 0);
   lv_obj_set_style_text_color(digits, t.text, 0);
   lv_obj_align(digits, LV_ALIGN_CENTER, 0, -34);
 
@@ -480,7 +482,7 @@ void show_alarm_alert(uint32_t id) {
   lv_obj_align(l, LV_ALIGN_CENTER, 0, -170);
 
   // 鳴っているアラームの時刻 (id が見つからなければ時刻は出さない)。
-  // 時刻は時計フォント (clock_font 設定)。
+  // 時刻は等幅数字フォント (JetBrains Mono 72px)。
 #if SAS_APP_ALARM
   watch::features::AlarmEntry e;
   if (watch::features::alarm_find(id, &e)) {
@@ -488,7 +490,7 @@ void show_alarm_alert(uint32_t id) {
     std::snprintf(tb, sizeof(tb), "%u:%02u", e.hour, e.min);
     lv_obj_t* tm = lv_label_create(s_alert);
     lv_label_set_text(tm, tb);
-    lv_obj_set_style_text_font(tm, face::digits(96), 0);
+    lv_obj_set_style_text_font(tm, &font_num_72, 0);
     lv_obj_set_style_text_color(tm, t.text, 0);
     lv_obj_align(tm, LV_ALIGN_CENTER, 0, -70);
   }

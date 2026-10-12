@@ -46,6 +46,7 @@ constexpr SettingKey kKeys[] = {
     WATCH_SSET_STR("agent.q1", agent_q1),
     WATCH_SSET_STR("agent.q2", agent_q2),
     WATCH_SSET_STR("agent.q3", agent_q3),
+    WATCH_SSET_U32("usb_keep_awake", usb_keep_awake),
 };
 
 char* field_ptr(Settings& s, const SettingKey& k) {

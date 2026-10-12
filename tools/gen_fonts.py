@@ -7,13 +7,17 @@ firmware/components/ui/src/fonts/ に LVGL フォントを生成する。
   - font_digits_56/96  : 時刻・タイマー用 (0-9 : . - + のみ)
   - font_fc_<fam>_<px> : 文字盤の時計数字用 (0-9 : のみ)。
                           <fam> = oswald / bebas / orbitron / outfit / chakra
+  - font_num_40/72     : 機能画面の等幅数字用 (0-9 : , . - / % 空白)。
+                          JetBrains Mono Bold (OFL、tools/fonts/num/)
 
 使い方:
   python3 tools/gen_fonts.py --font /path/to/NotoSansJP.ttf
   python3 tools/gen_fonts.py --faces          # 文字盤フォントだけ生成
+  python3 tools/gen_fonts.py --num            # 等幅数字フォントだけ生成
 
 依存: lv_font_conv (npm i -g lv_font_conv)
-フォント: Noto Sans JP + Google Fonts 5 種 (OFL、tools/fonts/face/)。
+フォント: Noto Sans JP + Google Fonts 5 種 (OFL、tools/fonts/face/) +
+          JetBrains Mono (OFL、tools/fonts/num/)。
           生成物と一緒に OFL.txt / OFL-face.txt を同梱すること。
 """
 
@@ -100,6 +104,11 @@ FACE_FONT_SPECS = [
 ]
 FACE_FONT_SYMBOLS = "0123456789:."
 
+# 等幅数字 (機能画面用)。JetBrains Mono は全数字が同じ進幅 (tabular)。
+NUM_FONT_TTF = REPO / "tools" / "fonts" / "num" / "JetBrainsMono-Bold.ttf"
+NUM_FONT_SIZES = (40, 72)
+NUM_SYMBOLS = "0123456789:.,-/% "
+
 STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -127,14 +136,18 @@ def main() -> int:
     ap.add_argument("--font", help="NotoSansJP.ttf のパス (省略時は日本語系を生成しない)")
     ap.add_argument("--faces", action="store_true",
                     help="文字盤フォントを tools/fonts/face/ から生成する")
+    ap.add_argument("--num", action="store_true",
+                    help="等幅数字フォントを tools/fonts/num/ から生成する")
+    ap.add_argument("--num-ttf", default=str(NUM_FONT_TTF),
+                    help="等幅数字フォントの TTF (既定: JetBrains Mono Bold)")
     ap.add_argument("--face-ttf-dir", default=str(FACE_FONT_TTF_DIR),
                     help="文字盤フォント TTF の場所")
     ap.add_argument("--out", default=str(FONT_OUT))
     ap.add_argument("--bpp", default="4")
     args = ap.parse_args()
 
-    if not args.font and not args.faces:
-        ap.error("--font か --faces のどちらかを指定して")
+    if not args.font and not args.faces and not args.num:
+        ap.error("--font か --faces か --num のどれかを指定して")
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -170,6 +183,23 @@ def main() -> int:
                 "--symbols", DIGIT_SYMBOLS,
                 "--lv-font-name", f"font_digits_{size}",
                 "-o", str(out / f"font_digits_{size}.c"),
+            ])
+
+    if args.num:
+        src = pathlib.Path(args.num_ttf)
+        if not src.exists():
+            sys.exit(f"missing TTF: {src}")
+        for size in NUM_FONT_SIZES:
+            run([
+                "lv_font_conv",
+                "--font", str(src),
+                "--size", str(size),
+                "--bpp", args.bpp,
+                "--format", "lvgl",
+                "--lv-include", "lvgl.h",
+                "--symbols", NUM_SYMBOLS,
+                "--lv-font-name", f"font_num_{size}",
+                "-o", str(out / f"font_num_{size}.c"),
             ])
 
     if args.faces:

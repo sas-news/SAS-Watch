@@ -7,7 +7,8 @@ idf_component_register(
          "src/haptics.cpp"
          "src/sleep.cpp"
     INCLUDE_DIRS "include"
-    PRIV_REQUIRES waveshare__esp32_s3_touch_amoled_2_06
+    PRIV_REQUIRES watch_core
+                  waveshare__esp32_s3_touch_amoled_2_06
                   waveshare__qmi8658
                   waveshare__pcf85063a
                   espressif__button

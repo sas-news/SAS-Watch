@@ -60,7 +60,10 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
 # (CENTRAL は残す: ble_link が接続後の MTU 交換を ble_gattc_exchange_mtu
 #  で自分から投げるので gattc が必要。外すとリンクが通らない)
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
-CONFIG_BT_CTRL_BLE_MAX_ACT=1
+# コントローラの BLE activity 枠。connectable 広告は「広告1枠 + 着信
+# 接続1枠」を占有するため最低2必要 (1 だと adv_start が HCI
+# MEM_CAPACITY (0x0207) で失敗する — 実機確認済み)。
+CONFIG_BT_CTRL_BLE_MAX_ACT=2
 # observer を切ったのでスキャン側キュー/キャッシュも不要 (コントローラ
 # 側のプリコンパイル lib が内部RAMを占有するのを防ぐ)
 CONFIG_BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_SUPP=n
@@ -75,6 +78,9 @@ CONFIG_BT_NIMBLE_SM_LEGACY=n
 CONFIG_BT_NIMBLE_SM_SC=y
 # 時計は同時に1台だけ繋ぐ (RAM 節約)
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# ボンド保存時の NVS 書込みが nimble_host 上で走るため 4096 では
+# スタックオーバーフローする。mbedTLS SC 計算込みで 8192 に拡大。
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192
 
 # 電源管理: tickless idle で自動 light sleep (plan.md L 章)
 CONFIG_PM_ENABLE=y
@@ -141,6 +147,14 @@ CONFIG_LV_PERF_MONITOR_ALIGN_TOP_MID=y
 # LOG_MODE の出力に必要 (LV_LOG → printf)
 CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_PRINTF=y
+
+# 静的リストのスナップショット化 (ui::c::bake_scroll)。押しっぱスクロールを
+# 全行再描画から画像ブリットに変えて軽量化する用途。
+CONFIG_LV_USE_SNAPSHOT=y
+
+# LVGL 描画スレッド優先度 (Kconfig 既定 3)。実機でスクロール中の
+# バンド描画待ちを減らすため LVGL タスクと同じ 4 に上げる。
+CONFIG_LV_DRAW_THREAD_PRIO=4
 
 # 角曲率計測オーバーレイ (ui/Kconfig): 四隅に半径8px刻みの同心弧。
 # 実機写真から角R≈100px・safe-area 32–36px を確定済みのため既定off。

@@ -7,6 +7,8 @@
 #include "ui/ui.hpp"
 #include "watch/features/counter.hpp"
 
+LV_FONT_DECLARE(font_num_72);
+
 namespace {
 
 lv_obj_t* s_num = nullptr;
@@ -28,7 +30,8 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
   s_num = lv_label_create(card);
-  lv_obj_set_style_text_font(s_num, t.font_digits_sm, 0);
+  // 等幅数字 (JetBrains Mono) で桁増減でもレイアウトが揺れない。
+  lv_obj_set_style_text_font(s_num, &font_num_72, 0);
   lv_obj_set_style_text_color(s_num, t.accent, 0);
 
   ui::c::button_primary(

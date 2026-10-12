@@ -175,8 +175,16 @@ void imu_task(void*) {
   for (;;) {
     if (screen_on()) {
       apply_poll_mode();
-      int16_t x, y, z;
-      if (read_sample(&x, &y, &z)) push_sample(x, y, z);
+      // 画面ON中の ImuSample は HW 歩数計が生きている間は不要:
+      // 消費するのは StepsHwSync 経路の代替ソフト検出と RaiseDetector
+      // だが、前者は hw_ped 時に止まり、後者の RaiseDetected → Wake
+      // 変換は画面OFF時しか通らない (raise_cb)。無駄な 20Hz の queue
+      // 占有は app タスクが詰まった時に実入力の drop を招くので止める。
+      // SW フォールバック時 (s_hw_ped=false) は歩数計数に必要なので継続。
+      if (!s_hw_ped) {
+        int16_t x, y, z;
+        if (read_sample(&x, &y, &z)) push_sample(x, y, z);
+      }
       maybe_sync_hw();
       ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kPollMs));
     } else {

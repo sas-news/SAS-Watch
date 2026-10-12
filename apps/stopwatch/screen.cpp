@@ -1,6 +1,5 @@
 // stopwatch.cpp — ストップウォッチ: 開始/停止、ラップ(最大20)、リセット。
 #include "components.hpp"
-#include "faces/faces.hpp"
 #include "theme.hpp"
 
 #include <cstdio>
@@ -8,6 +7,9 @@
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/stopwatch.hpp"
+
+LV_FONT_DECLARE(font_num_72);
+LV_FONT_DECLARE(font_num_40);
 
 namespace {
 
@@ -34,8 +36,8 @@ void fmt(char* buf, size_t cap, int64_t ms) {
   std::snprintf(buf, cap, "%02d:%02d.%02d", total_cs / 6000,
                 (total_cs / 100) % 60, total_cs % 100);
 }
-// ※ 表示フォントは時計フォントなので "." は gen_fonts.py の
-//   FACE_FONT_SYMBOLS に含めてある。
+// ※ 表示は等幅数字フォント font_num_* (JetBrains Mono)。
+//   "." は NUM_SYMBOLS に含めてある (gen_fonts.py --num)。
 
 void tick_cb(lv_timer_t*) {
   char buf[16];
@@ -54,7 +56,11 @@ void rebuild_laps(lv_obj_t* col) {
   for (size_t i = 0; i < st.lap_count; ++i) {
     fmt(buf, sizeof(buf), st.laps[i]);
     std::snprintf(name, sizeof(name), "ラップ %u", (unsigned)(i + 1));
-    ui::c::row(s.laps_col, name, nullptr, buf, false, nullptr, nullptr);
+    lv_obj_t* r = ui::c::row_box(s.laps_col, nullptr, nullptr);
+    ui::c::row_text(r, name, nullptr, 180);
+    // ラップ時刻も等幅数字 (副表示は 40px)。
+    lv_obj_t* v = ui::c::row_value(r, buf);
+    lv_obj_set_style_text_font(v, &font_num_40, 0);
   }
 }
 
@@ -87,11 +93,13 @@ lv_obj_t* build(lv_obj_t* scr) {
       scr, [](lv_event_t* e) { kill_tick(lv_event_get_target_obj(e)); },
       LV_EVENT_DELETE, nullptr);
 
-  // 大きな数字は時計フォント (clock_font 設定)。
+  // 主表示は等幅数字 72px (JetBrains Mono)。「00:00.00」は
+  // 8字 × ~43.2px ≈ 346px でコンテンツ幅 (410-32*2) ぎりぎり収まる。
+  // もし溢れても途中改行で切れないよう CLIP にしておく。
   s.disp = lv_label_create(col);
   lv_obj_add_flag(s.disp, LV_OBJ_FLAG_EVENT_BUBBLE);
-  // 時計フォント (clock_font)。「00:00.78」は 34px 級が横幅に収まる。
-  lv_obj_set_style_text_font(s.disp, ui::face::digits(34), 0);
+  lv_label_set_long_mode(s.disp, LV_LABEL_LONG_CLIP);
+  lv_obj_set_style_text_font(s.disp, &font_num_72, 0);
   lv_obj_set_style_text_color(s.disp, t.text, 0);
   lv_obj_set_style_pad_top(s.disp, 8, 0);
 

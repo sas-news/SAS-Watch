@@ -380,6 +380,7 @@ void on_bus_evt(const watch::Event& e, void*) {
       break;
   }
   if (ok && w.ok()) {
+    ESP_LOGI(TAG, "evt notify type=%d", static_cast<int>(e.type));
     ble_link_send_event(buf, w.size());
   }
 }

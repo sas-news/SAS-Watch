@@ -30,6 +30,12 @@ namespace buttons {
     // cb はボタンライブラリのタスクコンテキストから呼ばれる。LVGL を触るなら
     // bsp_display_lock() が必要。NULL で解除。
     void set_callback(ButtonCallback cb);
+    // その物理ボタンで 2回押し (DoubleClick) が有効かを返す関数を登録する。
+    // nullptr 解除時は全ボタンで有効 (=従来どおり SINGLE_CLICK を待つ)。
+    // fn(b)==false のボタンは PRESS_UP で即座に ShortPress を発火するので、
+    // ダブルクリック判定待ちの 300-500ms 遅延が無くなる。
+    // fn はボタンタスクから呼ばれるので軽い読み出しのみにすること。
+    void set_double_click_predicate(bool (*fn)(Button));
 }
 
 namespace pmic {
