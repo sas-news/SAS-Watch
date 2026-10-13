@@ -5,6 +5,7 @@
 // フォントは tools/gen_fonts.py で生成したサブセット (fonts/*.c)。
 LV_FONT_DECLARE(font_jp_20);
 LV_FONT_DECLARE(font_jp_26);
+LV_FONT_DECLARE(font_jp_32);
 LV_FONT_DECLARE(font_digits_96);
 LV_FONT_DECLARE(font_digits_56);
 
@@ -46,7 +47,8 @@ const Theme kStandard = {
     .primary2 = lv_color_hex(0xFFB27A),
     .edge = lv_color_hex(0x4A4F5C),
     .font_body = &font_jp_20,
-    .font_title = &font_jp_26,
+    .font_row = &font_jp_26,
+    .font_title = &font_jp_32,
     .font_digits = &font_digits_96,
     .font_digits_sm = &font_digits_56,
     .space = 8,
@@ -84,7 +86,8 @@ const Theme kLight = {
     .primary2 = lv_color_hex(0x1E86E0),
     .edge = lv_color_hex(0x98A0B0),
     .font_body = &font_jp_20,
-    .font_title = &font_jp_26,
+    .font_row = &font_jp_26,
+    .font_title = &font_jp_32,
     .font_digits = &font_digits_96,
     .font_digits_sm = &font_digits_56,
     .space = 8,

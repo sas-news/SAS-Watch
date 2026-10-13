@@ -33,8 +33,9 @@ struct Theme {
   lv_color_t primary2;    // primary のグラデーション終端 (スライダー塗り)
   lv_color_t edge;        // 行末 chevron・スイッチ OFF トラックの中間色
 
-  const lv_font_t* font_body;     // 本文 (日本語 20px)
-  const lv_font_t* font_title;    // ヘッダ/大きめ本文 (日本語 26px)
+  const lv_font_t* font_body;     // 本文/副テキスト (日本語 20px)
+  const lv_font_t* font_row;      // 行の主テキスト (日本語 26px)
+  const lv_font_t* font_title;    // ヘッダタイトル (日本語 32px)
   const lv_font_t* font_digits;   // 時刻など特大数字 96px
   const lv_font_t* font_digits_sm;// タイマー等の大きい数字 56px
 

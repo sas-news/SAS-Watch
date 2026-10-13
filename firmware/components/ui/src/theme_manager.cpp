@@ -17,6 +17,7 @@
 
 LV_FONT_DECLARE(font_jp_20);
 LV_FONT_DECLARE(font_jp_26);
+LV_FONT_DECLARE(font_jp_32);
 LV_FONT_DECLARE(font_digits_96);
 LV_FONT_DECLARE(font_digits_56);
 
@@ -41,6 +42,7 @@ const lv_font_t* font_for(uint8_t px, const lv_font_t* fallback) {
   switch (px) {
     case 20: return &font_jp_20;
     case 26: return &font_jp_26;
+    case 32: return &font_jp_32;
     case 56: return &font_digits_56;
     case 96: return &font_digits_96;
     default: return fallback;
@@ -124,7 +126,10 @@ bool load_file_theme(const char* id, Theme* out) {
   if (m.metric_set & 4) t.space = m.space;
   if (m.metric_set & 8) t.anim_ms = LV_MIN(m.anim_ms, 150);
   if (m.font_set & 1) t.font_body = font_for(m.font_px[0], t.font_body);
-  if (m.font_set & 2) t.font_title = font_for(m.font_px[1], t.font_title);
+  if (m.font_set & 2) {
+    t.font_title = font_for(m.font_px[1], t.font_title);
+    t.font_row = t.font_title;  // 行の主テキストはテーマのタイトル系に合わせる
+  }
   if (m.font_set & 4) t.font_digits = font_for(m.font_px[2], t.font_digits);
   if (m.font_set & 8) t.font_digits_sm =
       font_for(m.font_px[3], t.font_digits_sm);

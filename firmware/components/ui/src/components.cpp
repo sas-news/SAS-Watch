@@ -77,6 +77,9 @@ lv_obj_t* mk_label(lv_obj_t* parent, const char* text,
   lv_label_set_text(l, text);
   lv_obj_set_style_text_font(l, font, 0);
   lv_obj_set_style_text_color(l, col, 0);
+  // 本文の行間はフォント高の 1.25 倍 (T4)。
+  lv_obj_set_style_text_line_space(
+      l, lv_font_get_line_height(font) / 4, 0);
   // スキンの text/text_pressed で塗り替える対象としてマーク。
   lv_obj_set_user_data(l, kLabelTag);
   return l;
@@ -415,7 +418,9 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   lv_obj_set_size(h, kW, kHeaderH);
   lv_obj_set_pos(h, 0, 0);
   lv_obj_set_style_pad_left(h, kPad, 0);
-  lv_obj_set_style_pad_right(h, kPad, 0);
+  // 右は少し広めに: タイトル (flex_grow=1) が 368px 内に収まり、
+  // 角の安全域 (x>310 && y<100) から外れる。
+  lv_obj_set_style_pad_right(h, 42, 0);
   // コンテンツ領域の中央がピル中心 ~47px になる pad。ピルの描画角が
   // パネルの丸角 (R≈100) の安全域に収まるよう上から少し下げた。
   lv_obj_set_style_pad_top(h, 26, 0);
@@ -454,7 +459,12 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   }
 
   lv_obj_t* tl = mk_label(h, title, t.font_title, t.text);
-  (void)tl;
+  // タイトルが長いときは末尾省略。DOTS は高さが可変だと折り返して
+  // しまうので 1 行高に固定する。右端は pad_right=42 で角帯を避ける。
+  lv_obj_set_flex_grow(tl, 1);
+  lv_label_set_long_mode(tl, LV_LABEL_LONG_DOT);
+  lv_obj_set_height(tl, lv_font_get_line_height(t.font_title) + 2);
+  lv_obj_set_style_margin_top(tl, 7, 0);
   lv_obj_set_user_data(h, kHeaderTag);
   return h;
 }
@@ -648,7 +658,7 @@ lv_obj_t* row_text(lv_obj_t* row, const char* text, const char* sub,
 
   // PCT(100) はセル自体が SIZE_CONTENT のので測定時に潰れて縦に巻く。
   // 行内の残り幅を呼び側から計算して固定幅 + DOT にする。
-  lv_obj_t* l = mk_label(cell, text, t.font_body, t.text);
+  lv_obj_t* l = mk_label(cell, text, t.font_row, t.text);
   lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
   lv_obj_set_width(l, max_w);
   if (sub) {

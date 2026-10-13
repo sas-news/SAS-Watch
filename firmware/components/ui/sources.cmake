@@ -23,6 +23,7 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/screens/powermenu.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_20.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_26.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_jp_32.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_digits_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_digits_56.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_num_40.c

@@ -621,7 +621,8 @@ void show_passkey(uint32_t passkey) {
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 48);
 
   lv_obj_t* key = lv_label_create(s_key_modal);
-  lv_obj_set_style_text_font(key, t.font_digits, 0);
+  // 96px だと6桁がコンテンツ幅をはみ出すので 72px の等幅数字にする。
+  lv_obj_set_style_text_font(key, &font_num_72, 0);
   lv_obj_set_style_text_color(key, t.accent, 0);
   char kb[8];
   std::snprintf(kb, sizeof(kb), "%06lu",

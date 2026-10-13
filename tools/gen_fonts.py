@@ -153,9 +153,13 @@ def monospace_digits(path: pathlib.Path) -> None:
     path.write_text("".join(out), encoding="utf-8")
 
 
-def collect_ui_chars() -> str:
-    """UI ソースの文字列リテラルに含まれる非ASCII文字を全部拾う。"""
-    chars = set(EXTRA_KANJI) | set(JOYO_KANJI)
+def collect_ui_chars(from_sources_only: bool = False) -> str:
+    """UI ソースの文字列リテラルに含まれる非ASCII文字を全部拾う。
+
+    from_sources_only=False: 全 JOYO 漢字を含む完全セット (本文用)。
+    True: ソースリテラルに出る文字だけ (見出しフォントの絞り込み用)。
+    """
+    chars = set(EXTRA_KANJI) if from_sources_only else (set(EXTRA_KANJI) | set(JOYO_KANJI))
     for path in sorted(UI_SRC.rglob("*.cpp")) + sorted(UI_SRC.rglob("*.hpp")):
         text = path.read_text(encoding="utf-8")
         for m in STRING_RE.finditer(text):
@@ -174,7 +178,10 @@ def run(args: list[str]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--font", help="NotoSansJP.ttf のパス (省略時は日本語系を生成しない)")
+    ap.add_argument("--font", help="日本語本文 TTF のパス (省略時は日本語系を生成しない)")
+    ap.add_argument("--font-bold", help="見出し用 Bold TTF (font_jp_32 を生成)")
+    ap.add_argument("--subset-from-sources", action="store_true",
+                    help="UI ソースの文字列リテラルだけにグリフを絞る (font_jp_32 用)")
     ap.add_argument("--faces", action="store_true",
                     help="文字盤フォントを tools/fonts/face/ から生成する")
     ap.add_argument("--num", action="store_true",
@@ -212,6 +219,26 @@ def main() -> int:
                 "-o", str(out / f"font_jp_{size}.c"),
             ])
 
+    if args.font_bold:
+        # 見出し 32px: グリフは ASCII + かな + ソースの漢字のみ (動的文字列には
+        # 使わないので常用漢字は詰めない)。
+        sub = collect_ui_chars(from_sources_only=True) if args.subset_from_sources \
+            else collect_ui_chars()
+        print(f"font_jp_32 chars: {len(sub)} codepoints")
+        run([
+            "lv_font_conv",
+            "--font", args.font_bold,
+            "--size", "32",
+            "--bpp", args.bpp,
+            "--format", "lvgl",
+            "--lv-include", "lvgl.h",
+            "-r", BASE_RANGES,
+            "--symbols", sub,
+            "--lv-font-name", "font_jp_32",
+            "-o", str(out / "font_jp_32.c"),
+        ])
+
+    if args.font:
         # 数字フォント
         for size in (56, 96):
             run([
