@@ -124,15 +124,15 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
     {.bitmap_index = 0, .adv_w = 65, .box_w = 4, .box_h = 3, .ofs_x = 0, .ofs_y = 0},
     {.bitmap_index = 6, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 70, .adv_w = 240, .box_w = 7, .box_h = 14, .ofs_x = 63, .ofs_y = 0},
+    {.bitmap_index = 70, .adv_w = 240, .box_w = 7, .box_h = 14, .ofs_x = 4, .ofs_y = 0},
     {.bitmap_index = 91, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 144, .adv_w = 240, .box_w = 14, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 207, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 15, .ofs_y = 0},
+    {.bitmap_index = 144, .adv_w = 240, .box_w = 14, .box_h = 14, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 207, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
     {.bitmap_index = 264, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 314, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 3, .ofs_y = 0},
-    {.bitmap_index = 365, .adv_w = 240, .box_w = 11, .box_h = 14, .ofs_x = 25, .ofs_y = 0},
+    {.bitmap_index = 314, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 365, .adv_w = 240, .box_w = 11, .box_h = 14, .ofs_x = 2, .ofs_y = 0},
     {.bitmap_index = 384, .adv_w = 240, .box_w = 13, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 436, .adv_w = 240, .box_w = 14, .box_h = 14, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 436, .adv_w = 240, .box_w = 14, .box_h = 14, .ofs_x = 0, .ofs_y = 0},
     {.bitmap_index = 492, .adv_w = 68, .box_w = 4, .box_h = 11, .ofs_x = 0, .ofs_y = 0}
 };
 

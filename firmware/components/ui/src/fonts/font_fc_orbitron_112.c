@@ -615,15 +615,15 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
     {.bitmap_index = 0, .adv_w = 407, .box_w = 15, .box_h = 15, .ofs_x = 6, .ofs_y = 0},
     {.bitmap_index = 18, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
-    {.bitmap_index = 625, .adv_w = 1495, .box_w = 41, .box_h = 81, .ofs_x = 397, .ofs_y = 0},
-    {.bitmap_index = 884, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 10, .ofs_y = 0},
-    {.bitmap_index = 1330, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 12, .ofs_y = 0},
-    {.bitmap_index = 1831, .adv_w = 1495, .box_w = 78, .box_h = 81, .ofs_x = 93, .ofs_y = 0},
-    {.bitmap_index = 2285, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 10, .ofs_y = 0},
-    {.bitmap_index = 2701, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 19, .ofs_y = 0},
-    {.bitmap_index = 3148, .adv_w = 1495, .box_w = 68, .box_h = 81, .ofs_x = 156, .ofs_y = 0},
+    {.bitmap_index = 625, .adv_w = 1495, .box_w = 41, .box_h = 81, .ofs_x = 26, .ofs_y = 0},
+    {.bitmap_index = 884, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 1330, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 1831, .adv_w = 1495, .box_w = 78, .box_h = 81, .ofs_x = 8, .ofs_y = 0},
+    {.bitmap_index = 2285, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 2701, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
+    {.bitmap_index = 3148, .adv_w = 1495, .box_w = 68, .box_h = 81, .ofs_x = 13, .ofs_y = 0},
     {.bitmap_index = 3412, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
-    {.bitmap_index = 3907, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 10, .ofs_y = 0},
+    {.bitmap_index = 3907, .adv_w = 1495, .box_w = 81, .box_h = 81, .ofs_x = 6, .ofs_y = 0},
     {.bitmap_index = 4384, .adv_w = 425, .box_w = 15, .box_h = 65, .ofs_x = 6, .ofs_y = 0}
 };
 
