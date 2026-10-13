@@ -740,3 +740,16 @@ extern "C" esp_err_t ble_link_bulk_send(uint8_t frame_type, uint16_t msg_id,
       s_mtu, notify_emit, reinterpret_cast<void*>(s_bulk_val_handle));
   return ok ? ESP_OK : ESP_FAIL;
 }
+
+// 接続情報 (RSSI / 接続間隔)。NimBLE タスク外からも読むが、
+// desc/rssi は読み取り専用のスナップショットなので許容。
+extern "C" bool ble_link_conn_info(int8_t* out_rssi, uint16_t* out_itvl_ms) {
+  if (s_conn == BLE_HS_CONN_HANDLE_NONE) return false;
+  ble_gap_conn_desc d;
+  if (ble_gap_conn_find(s_conn, &d) != 0) return false;
+  int8_t rssi;
+  if (ble_gap_conn_rssi(s_conn, &rssi) != 0) return false;
+  if (out_rssi) *out_rssi = rssi;
+  if (out_itvl_ms) *out_itvl_ms = static_cast<uint16_t>(d.conn_itvl * 5 / 4);
+  return true;
+}

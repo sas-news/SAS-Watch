@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "ota/ota.hpp"
 #include "theme_store/theme_store.hpp"
 #include "ui/media_art.hpp"
@@ -407,7 +408,7 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return static_cast<int64_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   };
   // debug.info (T13): 実機診断。取れない項目は省略可。
-  svc.debug_info = [](cbor::Writer& w, void*) -> bool {
+  svc.debug_info = [](watch::cbor::Writer& w, void*) -> bool {
     int n = 0;
     // 先に書き込める項目数を数える (RSSI/間隔は接続中だけ)。
     int8_t rssi = 0;
