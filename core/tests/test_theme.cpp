@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <fstream>
 #include <vector>
 
 #include "watch/event.hpp"
@@ -780,4 +781,50 @@ TEST(Theme, ManifestV4Errors) {
   w2.map(3).text("id").text("e2").text("api").uint_v(1).text("face_layout").raw(fl, flw.size());
   EXPECT_EQ(theme_manifest_parse(buf, w2.size(), &out),
             ThemeManifestError::kBadValue);
+}
+
+// T15: tools/theme-studio (index.html) が書き出した zip を
+// core の zip / manifest パーサで読めること。
+TEST(Theme, StudioSamplePackage) {
+  const std::string path =
+      std::string(WATCH_TEST_DATA_DIR) + "/theme_studio_sample.zip";
+  std::ifstream f(path, std::ios::binary);
+  ASSERT_TRUE(f) << "cannot open " << path;
+  std::vector<uint8_t> zip((std::istreambuf_iterator<char>(f)),
+                           std::istreambuf_iterator<char>());
+
+  ThemePackageEntry list[16];
+  const int cnt = theme_package_list(zip.data(), zip.size(), list, 16);
+  ASSERT_EQ(cnt, 4);  // manifest + 3 png
+
+  const ThemePackageEntry* e =
+      theme_package_find(list, cnt, "manifest.cbor");
+  ASSERT_NE(e, nullptr);
+  const uint8_t* d = theme_package_data(zip.data(), zip.size(), e);
+  ASSERT_NE(d, nullptr);
+  EXPECT_EQ(theme_crc32(d, e->size), e->crc32);
+
+  ThemeManifest m;
+  ASSERT_EQ(theme_manifest_parse(d, e->size, &m), ThemeManifestError::kOk);
+  EXPECT_STREQ(m.id, "studio-test");
+  // tokens: 色 + 数値が両方読めている
+  EXPECT_TRUE(m.color_set & (1u << 3));   // primary
+  EXPECT_EQ(m.color[3], 0x11AA22u);
+  EXPECT_TRUE(m.color_set & (1u << 7));   // accent
+  EXPECT_EQ(m.color[7], 0x334455u);
+  // images / screens / icons
+  EXPECT_TRUE(m.image_set & 1u);          // home_bg
+  EXPECT_STREQ(m.image[0], "home_bg_sample.png");
+  const int ti = theme_screen_index("timer");
+  ASSERT_GE(ti, 0);
+  EXPECT_TRUE(m.screens_set & (1u << ti));
+  EXPECT_STREQ(m.screens[ti].bg, "timer_bg_sample.png");
+  bool found_icon = false;
+  for (int i = 0; i < m.icon_count; ++i) {
+    if (std::strcmp(m.icons[i].app, "timer") == 0) {
+      EXPECT_STREQ(m.icons[i].file, "ic_timer_sample.png");
+      found_icon = true;
+    }
+  }
+  EXPECT_TRUE(found_icon);
 }

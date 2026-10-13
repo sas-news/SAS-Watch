@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>SAS Watch テーマスタジオ</title>
+<style>
+  :root { --bg:#14161d; --panel:#1c1f28; --fg:#e8eaf0; --dim:#8a8f9c; --acc:#ff8a3d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui,sans-serif; display:flex; min-height:100vh; }
+  #left { width:400px; padding:16px; overflow-y:auto; border-right:1px solid #000; }
+  #right { flex:1; padding:16px; display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  h2 { font-size:14px; margin:16px 0 8px; color:var(--acc); }
+  .row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+  .row label { flex:1; color:var(--dim); }
+  input[type=color] { width:48px; height:24px; border:none; background:none; padding:0; }
+  input[type=number] { width:64px; }
+  input[type=file] { width:190px; font-size:11px; color:var(--dim); }
+  input[type=text] { width:120px; background:#0d0f14; color:var(--fg); border:1px solid #333; }
+  input[type=number] { background:#0d0f14; color:var(--fg); border:1px solid #333; }
+  button { background:var(--acc); color:#000; border:none; border-radius:8px; padding:8px 16px; font-weight:bold; cursor:pointer; margin:4px 4px 4px 0; }
+  button.sec { background:#2a2e3a; color:var(--fg); }
+  /* 410x502・角 R100 の時計マスク */
+  .watch { width:410px; height:502px; border-radius:100px; overflow:hidden; position:relative; flex:none; box-shadow:0 0 0 2px #333; }
+  .watch > .wbg { position:absolute; inset:0; }
+  .wtitle { font-size:11px; color:var(--dim); margin:0 0 4px; }
+</style>
+</head>
+<body>
+<div id="left">
+  <h1>SAS Watch テーマスタジオ</h1>
+  <div class="row"><label>テーマ id</label><input id="tid" type="text" value="studio"></div>
+  <div class="row"><label>テーマ名</label><input id="tname" type="text" value="スタジオテーマ"></div>
+  <div id="colors"></div>
+  <div id="metrics"></div>
+  <h2>画像スロット (PNG)</h2>
+  <div id="images"></div>
+  <h2>画面背景 (screens.*.bg)</h2>
+  <div id="screens"></div>
+  <h2>アプリアイコン (icons)</h2>
+  <div id="icons"></div>
+  <h2>入出力</h2>
+  <button id="export">テーマ .zip を書き出す</button>
+  <button id="import" class="sec">zip を読み込む</button>
+  <input id="zipfile" type="file" accept=".zip" style="display:none">
+  <div id="status" class="row"></div>
+</div>
+<div id="right"></div>
+
+<script>
+"use strict";
+// ==STUDIO-PURE-BEGIN==
+// 純粋ロジック (DOM 非依存)。node でも実行できるよう globalThis.Studio に出す。
+var Studio = {};
+
+Studio.COLOR_KEYS = ["bg","surface","surface2","primary","on_primary","text",
+  "text_dim","accent","danger","ok","accent2","accent3","accent4","accent5",
+  "bubble_bg","bubble_text","line","primary2","edge"];
+Studio.METRIC_KEYS = ["radius_sm","radius_lg","space","anim_ms"];
+Studio.FONT_KEYS = ["font_body","font_title","font_digits","font_digits_sm"];
+Studio.IMAGE_KEYS = ["home_bg","stand","timer_done","face_chara"];
+Studio.SCREEN_KEYS = ["home","timer","settings","more","quick","alert"];
+Studio.ICON_APPS = ["timer","stopwatch","counter","memo","alarm",
+  "notifications","media","steps","agent","settings"];
+
+Studio.defaults = function () {
+  return {
+    id: "studio", name: "スタジオテーマ",
+    tokens: {
+      bg:"0x000000", surface:"0x14161D", surface2:"0x1F222C",
+      line:"0x2A2E3A", primary:"0xFF8A3D", primary2:"0xFFB27A",
+      on_primary:"0x1A0D00", text:"0xF4F4F6", text_dim:"0x8A8F9C",
+      accent:"0xFF8A3D", danger:"0xFF5C6C", ok:"0x3DDC97",
+      accent2:"0xE8D7B0", accent3:"0x00E0C6", accent4:"0x7A5CFF",
+      accent5:"0xFF5C8A", bubble_bg:"0xFFFFFF", bubble_text:"0x2B1D45",
+      edge:"0x4A4F5C",
+      radius_sm:10, radius_lg:22, space:8, anim_ms:0,
+      font_body:20, font_title:26, font_digits:96, font_digits_sm:56
+    },
+    images: {},   // slot -> {name, data(Uint8Array)}
+    screens: {},  // screen -> {name, data}
+    icons: {}     // app -> {name, data}
+  };
+};
+
+// ---- CBOR エンコーダ (map/text/int/array のみ) ----
+function cHead(major, v) {
+  const b = [];
+  if (v < 24) { b.push((major<<5)|v); }
+  else if (v < 256) { b.push((major<<5)|24, v); }
+  else if (v < 65536) { b.push((major<<5)|25, v>>8, v&255); }
+  else { b.push((major<<5)|26,(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255); }
+  return b;
+}
+Studio.cUint = v => cHead(0, v);
+Studio.cInt = v => v >= 0 ? cHead(0, v) : cHead(1, -1 - v);
+Studio.cText = s => {
+  const bytes = Array.from(new TextEncoder().encode(s));
+  return cHead(3, bytes.length).concat(bytes);
+};
+Studio.cMap = pairs => {
+  let out = cHead(5, pairs.length);
+  for (const [k, v] of pairs) out = out.concat(Studio.cText(k), v);
+  return out;
+};
+Studio.cArr = items => {
+  let out = cHead(4, items.length);
+  for (const it of items) out = out.concat(it);
+  return out;
+};
+
+// manifest.cbor を組み立てる (state -> bytes)。
+Studio.encodeManifest = function (st) {
+  const t = Studio.cText, u = Studio.cUint;
+  const tokPairs = [];
+  for (const k of Studio.COLOR_KEYS) {
+    if (st.tokens[k] !== undefined) tokPairs.push([k, t(st.tokens[k])]);
+  }
+  for (const k of Studio.METRIC_KEYS.concat(Studio.FONT_KEYS)) {
+    if (st.tokens[k] !== undefined) tokPairs.push([k, u(st.tokens[k])]);
+  }
+  const top = [
+    ["id", t(st.id)], ["api", u(1)],
+    ["name", t(st.name)], ["version", u(1)],
+    ["tokens", Studio.cMap(tokPairs)],
+  ];
+  const img = Object.keys(st.images);
+  if (img.length) {
+    top.push(["images", Studio.cMap(img.map(k => [k, t(st.images[k].name)]))]);
+  }
+  const scr = Object.keys(st.screens);
+  if (scr.length) {
+    top.push(["screens", Studio.cMap(
+      scr.map(s2 => [s2, Studio.cMap([["bg", t(st.screens[s2].name)]])]))]);
+  }
+  const ico = Object.keys(st.icons);
+  if (ico.length) {
+    top.push(["icons", Studio.cMap(ico.map(k => [k, t(st.icons[k].name)]))]);
+  }
+  return new Uint8Array(Studio.cMap(top));
+};
+
+// ---- CRC32 / STORED zip ----
+var CRC_T = null;
+Studio.crc32 = function (bytes) {
+  if (!CRC_T) {
+    CRC_T = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      CRC_T[i] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = CRC_T[(crc ^ bytes[i]) & 255] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+};
+
+// entries: [{name, data:Uint8Array}] -> STORED zip bytes。
+Studio.buildZip = function (entries) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let off = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const crc = Studio.crc32(e.data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);   // version
+    local.setUint16(6, 0x0800, true); // UTF-8 flag
+    local.setUint16(14, crc, true);
+    local.setUint32(18, e.data.length, true);
+    local.setUint32(22, e.data.length, true);
+    local.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(local.buffer), name, e.data);
+    central.push({ name, crc, size: e.data.length, off });
+    off += 30 + name.length + e.data.length;
+  }
+  const cdStart = off;
+  for (const c of central) {
+    const ce = new DataView(new ArrayBuffer(46));
+    ce.setUint32(0, 0x02014b50, true);
+    ce.setUint16(6, 20, true);    // needed
+    ce.setUint16(8, 0x0800, true); // UTF-8 flag (10=method は STORED=0 のまま)
+    ce.setUint32(16, c.crc, true);
+    ce.setUint32(20, c.size, true);
+    ce.setUint32(24, c.size, true);
+    ce.setUint16(28, c.name.length, true);
+    ce.setUint32(42, c.off, true);
+    parts.push(new Uint8Array(ce.buffer), c.name);
+    off += 46 + c.name.length;
+  }
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, central.length, true);
+  eocd.setUint16(10, central.length, true);
+  eocd.setUint32(12, off - cdStart, true);
+  eocd.setUint32(16, cdStart, true);
+  parts.push(new Uint8Array(eocd.buffer));
+  let total = 0;
+  for (const p of parts) total += p.length;
+  const zip = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) { zip.set(p, at); at += p.length; }
+  return zip;
+};
+
+// STORED zip を読む (deflate は未対応 → null)。
+Studio.parseZip = function (bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.byteLength < 22) return null;
+  // EOCD を末尾から探す。
+  let eocd = -1;
+  for (let i = dv.byteLength - 22; i >= 0 && i >= dv.byteLength - 22 - 65536; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return null;
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const files = [];
+  const dec = new TextDecoder();
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) return null;
+    const method = dv.getUint16(p + 10, true);
+    const size = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true);
+    const elen = dv.getUint16(p + 30, true);
+    const clen = dv.getUint16(p + 32, true);
+    const lho = dv.getUint32(p + 42, true);
+    const name = dec.decode(bytes.subarray(p + 46, p + 46 + nlen));
+    if (method !== 0) return null;  // STORED のみ
+    const lnlen = dv.getUint16(lho + 26, true);
+    const lelen = dv.getUint16(lho + 28, true);
+    const data = bytes.slice(lho + 30 + lnlen + lelen,
+                             lho + 30 + lnlen + lelen + size);
+    files.push({ name, data });
+    p += 46 + nlen + elen + clen;
+  }
+  return files;
+};
+
+// parseZip の結果を state に戻す (manifest.cbor の簡易デコード:
+// 色/数値テキストだけ拾う最小限のパーサ)。
+Studio.decodeManifest = function (bytes) {
+  const st = Studio.defaults();
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let pos = 0;
+  function head() {
+    const b = dv.getUint8(pos++); const maj = b >> 5; const info = b & 31;
+    let v = info;
+    if (info === 24) v = dv.getUint8(pos++);
+    else if (info === 25) { v = dv.getUint16(pos); pos += 2; }
+    else if (info === 26) { v = dv.getUint32(pos); pos += 4; }
+    else if (info === 20) v = -1; else if (info === 21) v = -2;
+    else if (info >= 32) { // negative int は major 1
+      v = info;
+    }
+    return [maj, v];
+  }
+  function val() {
+    const [maj, v] = head();
+    if (maj === 0) return v;
+    if (maj === 1) return -1 - v;
+    if (maj === 3) { const s = new TextDecoder().decode(
+        bytes.subarray(pos, pos + v)); pos += v; return s; }
+    if (maj === 5) { const m = {}; for (let i = 0; i < v; i++) {
+        const k = val(); m[k] = val(); } return m; }
+    if (maj === 4) { const a = []; for (let i = 0; i < v; i++) a.push(val()); return a; }
+    if (maj === 7) { if (v === 20) return false; if (v === 21) return true; return null; }
+    return null;
+  }
+  const root = val();
+  if (!root || typeof root !== "object") return st;
+  if (root.id) st.id = root.id;
+  if (root.name) st.name = root.name;
+  if (root.tokens) for (const k in root.tokens) st.tokens[k] = root.tokens[k];
+  // images/screens/icons は名前だけ戻す (データは zip エントリから拾う)。
+  if (root.images) for (const k in root.images) st.images[k] = { name: root.images[k], data: null };
+  if (root.screens) for (const k in root.screens) {
+    if (root.screens[k] && root.screens[k].bg) st.screens[k] = { name: root.screens[k].bg, data: null };
+  }
+  if (root.icons) for (const k in root.icons) st.icons[k] = { name: root.icons[k], data: null };
+  return st;
+};
+
+if (typeof globalThis !== "undefined") globalThis.Studio = Studio;
+// ==STUDIO-PURE-END==
+
+// ---- ここから DOM (ブラウザのみ) ----
+var state = Studio.defaults();
+
+function hexToC(hex) {  // "0xRRGGBB" -> "#rrggbb"
+  return "#" + hex.slice(2);
+}
+function cToHex(css) {  // "#rrggbb" -> "0xRRGGBB"
+  return "0x" + css.slice(1).toUpperCase();
+}
+
+function rebuild() {
+  // 色
+  const c = document.getElementById("colors");
+  c.innerHTML = "<h2>tokens — 色</h2>";
+  for (const k of Studio.COLOR_KEYS) {
+    const d = document.createElement("div");
+    d.className = "row";
+    d.innerHTML = "<label>" + k + "</label>";
+    const inp = document.createElement("input");
+    inp.type = "color"; inp.value = hexToC(state.tokens[k] || "0x000000");
+    inp.oninput = () => { state.tokens[k] = cToHex(inp.value); preview(); };
+    d.appendChild(inp); c.appendChild(d);
+  }
+  // 数値
+  const m = document.getElementById("metrics");
+  m.innerHTML = "<h2>tokens — 数値</h2>";
+  for (const k of Studio.METRIC_KEYS.concat(Studio.FONT_KEYS)) {
+    const d = document.createElement("div");
+    d.className = "row";
+    d.innerHTML = "<label>" + k + "</label>";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.value = state.tokens[k] || 0; inp.min = 0;
+    inp.oninput = () => { state.tokens[k] = parseInt(inp.value, 10) || 0; preview(); };
+    d.appendChild(inp); m.appendChild(d);
+  }
+  // 画像スロット
+  fileGroup("images", Studio.IMAGE_KEYS, state.images);
+  fileGroup("screens", Studio.SCREEN_KEYS, state.screens);
+  fileGroup("icons", Studio.ICON_APPS, state.icons);
+  preview();
+}
+
+function fileGroup(id, keys, store) {
+  const g = document.getElementById(id);
+  g.innerHTML = "";
+  for (const k of keys) {
+    const d = document.createElement("div");
+    d.className = "row";
+    d.innerHTML = "<label>" + k + "</label>";
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".png,.bin";
+    const hint = document.createElement("span");
+    hint.style.cssText = "font-size:10px;color:var(--dim);max-width:90px;overflow:hidden";
+    if (store[k]) hint.textContent = store[k].name;
+    inp.onchange = () => {
+      const f = inp.files[0];
+      if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        store[k] = { name: k + "_" + f.name.replace(/[^a-z0-9._-]/gi, "_"),
+                     data: new Uint8Array(rd.result) };
+        hint.textContent = store[k].name;
+      };
+      rd.readAsArrayBuffer(f);
+    };
+    d.appendChild(inp); d.appendChild(hint); g.appendChild(d);
+  }
+}
+
+function cssTok(name) { return hexToC(state.tokens[name] || "0x000000"); }
+
+function preview() {
+  const r = document.getElementById("right");
+  const t = state.tokens;
+  const rl = (t.radius_lg || 22) + "px";
+  const rs = (t.radius_sm || 10) + "px";
+  const mk = (title, html) =>
+    "<div><p class=\"wtitle\">" + title + "</p>" +
+    "<div class=\"watch\" style=\"background:" + cssTok("bg") +
+    ";font-family:sans-serif\">" + html + "</div></div>";
+  const bar = "position:absolute;top:0;left:0;right:0;padding:26px 32px 8px;" +
+    "color:" + cssTok("text") + ";font-size:20px";
+  const card = "background:" + cssTok("surface") + ";border-radius:" + rl +
+    ";margin:8px 32px;padding:12px;color:" + cssTok("text") + ";font-size:15px";
+  const btnP = "background:" + cssTok("primary") + ";color:" + cssTok("on_primary") +
+    ";border-radius:999px;margin:8px 32px;padding:16px;text-align:center;font-weight:bold";
+  const btnN = "background:" + cssTok("surface2") + ";color:" + cssTok("text") +
+    ";border-radius:999px;margin:8px 32px;padding:16px;text-align:center";
+  const btnD = "color:" + cssTok("danger") + ";border:1px solid " + cssTok("danger") +
+    ";border-radius:999px;margin:8px 32px;padding:16px;text-align:center";
+  const row = "display:flex;justify-content:space-between;padding:14px 0;" +
+    "border-bottom:1px solid " + cssTok("line") + ";color:" + cssTok("text");
+
+  let html = "";
+  // Home: 大きい時刻 + 日付 + バッテリ
+  html += mk("Home", "<div style='" + bar + "'></div>" +
+    "<div style='position:absolute;top:96px;left:0;right:0;text-align:center;" +
+    "font-size:96px;color:" + cssTok("text") + "'>19:07</div>" +
+    "<div style='position:absolute;top:210px;left:32px;color:" + cssTok("text_dim") +
+    ";font-size:20px'>12月25日 水曜</div>" +
+    "<div style='position:absolute;top:244px;left:32px;color:" + cssTok("accent") +
+    ";font-size:20px'>8,234 歩</div>" +
+    "<div style='position:absolute;top:96px;right:36px;color:" + cssTok("text_dim") +
+    ";font-size:20px'>87%</div>");
+  // リスト画面
+  html += mk("リスト (設定)", "<div style='" + bar + ";font-weight:bold'>設定</div>" +
+    "<div style='position:absolute;top:76px;left:0;right:0'>" +
+    "<div style='" + card + "'><div style='" + row + "'>明るさ<span style='color:" +
+    cssTok("text_dim") + "'>50</span></div><div style='" + row + "'>腕上げ点灯" +
+    "<span style='color:" + cssTok("primary") + "'>●</span></div><div style='" + row +
+    ";border-bottom:none'>画面OFF<span style='color:" + cssTok("text_dim") +
+    "'>12秒</span></div></div></div>");
+  // ボタン群
+  html += mk("ボタン", "<div style='" + bar + ";font-weight:bold'>部品</div>" +
+    "<div style='position:absolute;top:76px;left:0;right:0'>" +
+    "<div style='" + btnP + "'>開始</div><div style='" + btnN + "'>リセット</div>" +
+    "<div style='" + btnD + "'>削除</div></div>");
+  // 文字盤 (bold 風)
+  html += mk("文字盤", "<div style='position:absolute;top:56px;left:32px;color:" +
+    cssTok("text_dim") + ";font-size:20px'>水 25</div>" +
+    "<div style='position:absolute;top:90px;left:32px;font-size:96px;color:" +
+    cssTok("text") + "'>19:07</div>" +
+    "<div style='position:absolute;top:200px;left:32px;color:" + cssTok("accent") +
+    ";font-size:20px'>♥ 72</div>" +
+    "<div style='position:absolute;bottom:40px;left:32px;right:32px;height:8px;" +
+    "background:" + cssTok("line") + ";border-radius:4px'>" +
+    "<div style='width:64%;height:100%;background:" + cssTok("primary") +
+    ";border-radius:4px'></div></div>");
+  r.innerHTML = html;
+}
+
+document.getElementById("tid").oninput = e => { state.id = e.target.value; };
+document.getElementById("tname").oninput = e => { state.name = e.target.value; };
+
+document.getElementById("export").onclick = () => {
+  const files = [{ name: "manifest.cbor", data: Studio.encodeManifest(state) }];
+  const push = (store) => {
+    for (const k in store) {
+      if (store[k] && store[k].data) files.push({ name: store[k].name, data: store[k].data });
+    }
+  };
+  push(state.images); push(state.screens); push(state.icons);
+  const zip = Studio.buildZip(files);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
+  a.download = state.id + ".zip";
+  a.click();
+  document.getElementById("status").textContent =
+    "書き出し: " + zip.length + " B / " + files.length + " ファイル";
+};
+
+document.getElementById("import").onclick = () =>
+  document.getElementById("zipfile").click();
+document.getElementById("zipfile").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const zip = new Uint8Array(rd.result);
+    const files = Studio.parseZip(zip);
+    if (!files) {
+      document.getElementById("status").textContent = "zip を読めません (STORED のみ)";
+      return;
+    }
+    let mani = null;
+    for (const file of files) {
+      if (file.name === "manifest.cbor") mani = file;
+      // データを state 側に差し戻すため名前で突き合わせる (後で)。
+    }
+    if (mani) {
+      state = Studio.decodeManifest(mani.data);
+      document.getElementById("tid").value = state.id;
+      document.getElementById("tname").value = state.name;
+      // 画像データをエントリから回収。
+      for (const file of files) {
+        for (const k in state.images)
+          if (state.images[k].name === file.name) state.images[k].data = file.data;
+        for (const k in state.screens)
+          if (state.screens[k].name === file.name) state.screens[k].data = file.data;
+        for (const k in state.icons)
+          if (state.icons[k].name === file.name) state.icons[k].data = file.data;
+      }
+      rebuild();
+      document.getElementById("status").textContent =
+        "読み込み: " + files.length + " ファイル";
+    }
+  };
+  rd.readAsArrayBuffer(f);
+};
+
+rebuild();
+</script>
+</body>
+</html>

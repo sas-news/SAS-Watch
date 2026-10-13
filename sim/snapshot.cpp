@@ -976,6 +976,26 @@ int main(int argc, char** argv) {
                 static_cast<unsigned>(ui::theme_skin_bytes()));
   }
 
+  // ---- 任意テーマ (tools/theme-studio の書き出し等) ----
+  // --theme <id> で上記の専用セクションに無い id を指定すると
+  // ここで汎用巡回 (home/settings/parts) を撮る。
+  if (only_theme && std::strcmp(only_theme, "standard") != 0 &&
+      std::strcmp(only_theme, "light") != 0 &&
+      std::strcmp(only_theme, "mame") != 0 &&
+      std::strcmp(only_theme, "cosmos") != 0 &&
+      std::strcmp(only_theme, "cyber") != 0 &&
+      std::strcmp(only_theme, "cute") != 0) {
+    back_home();
+    ui::emit_text(watch::ActionType::SetFace, "bold");
+    ui::emit_text(watch::ActionType::SetTheme, only_theme);
+    pump(800);
+    ok &= save(out, "90_theme_custom_home");
+    nav_to(watch::Route::Settings);
+    ok &= save(out, "91_theme_custom_settings");
+    back_home();
+    parts_gallery(out, only_theme, 95, &ok);
+  }
+
   // 戻して終了。
   ui::emit_text(watch::ActionType::SetFace, "bold");
   ui::emit_text(watch::ActionType::SetTheme, "standard");

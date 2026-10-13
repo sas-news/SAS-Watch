@@ -30,7 +30,8 @@ add_executable(watch_core_tests
 target_include_directories(watch_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # docs/protocol-vectors/*.json の場所 (core/tests から repo ルートへ)。
 target_compile_definitions(watch_core_tests PRIVATE
-    WATCH_VECTORS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../docs/protocol-vectors")
+    WATCH_VECTORS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../docs/protocol-vectors"
+    WATCH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 target_link_libraries(watch_core_tests PRIVATE watch_core GTest::gtest_main)
 
 include(GoogleTest)
