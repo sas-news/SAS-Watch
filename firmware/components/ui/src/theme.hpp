@@ -118,4 +118,13 @@ bool theme_apply(const char* id);
 // [内部] 現行テーマを差し替える。theme_manager.cpp 専用。
 void theme_replace_active(const Theme& t);
 
+// Theme の色フィールドを manifest color[] の添字順に指す表。
+// (theme_manager のトークン適用と v4 画面別上書きで共通)。
+lv_color_t* theme_color_at(Theme* t, int i);
+
+// v4: 画面 index の tokens 上書きを適用した Theme にする。
+// swap_screen が画面を組む前に呼ぶ。screen_index<0 ならベースに戻す。
+// 画面未指定 (bit 無し) なら "*" の tokens だけ適用。
+void theme_apply_screen_tokens(int screen_index);
+
 }  // namespace ui

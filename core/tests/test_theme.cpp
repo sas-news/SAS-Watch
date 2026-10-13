@@ -677,3 +677,107 @@ TEST(Theme, SetThemeActionRejectsBadId) {
   EXPECT_STREQ(f.settings.theme, "standard");
   EXPECT_EQ(f.theme_changed, 0);
 }
+
+TEST(Theme, ManifestV4TokensDecoPalette) {
+  // screens.timer.tokens + deco、palette + face_layout "@name"。
+  uint8_t tk[128];
+  cbor::Writer tkw(tk, sizeof(tk));
+  tkw.map(2).text("primary").text("0xFF3355").text("text").text("0xFFFFFF");
+
+  uint8_t d0[96], d1[96];
+  cbor::Writer d0w(d0, sizeof(d0));
+  d0w.map(3).text("img").text("star.png").text("x").int_v(300).text("y").int_v(40);
+  cbor::Writer d1w(d1, sizeof(d1));
+  d1w.map(4)
+      .text("img").text("rib.png").text("x").int_v(-10).text("y").int_v(-10)
+      .text("z").text("front");
+
+  uint8_t tm[256];
+  cbor::Writer tmw(tm, sizeof(tm));
+  tmw.map(3)
+      .text("bg").text("tb.png")
+      .text("tokens").raw(tk, tkw.size())
+      .text("deco").array(2).raw(d0, d0w.size()).raw(d1, d1w.size());
+
+  uint8_t scr[256];
+  cbor::Writer scw(scr, sizeof(scr));
+  scw.map(1).text("timer").raw(tm, tmw.size());
+
+  uint8_t pal[128];
+  cbor::Writer pw(pal, sizeof(pal));
+  pw.map(2).text("pink").text("0xFF77AA").text("mint").text("0x77FFCC");
+
+  uint8_t fl[128];
+  cbor::Writer flw(fl, sizeof(fl));
+  {
+    uint8_t e[64];
+    cbor::Writer ew(e, sizeof(e));
+    ew.map(2).text("x").int_v(10).text("color").text("@pink");
+    flw.map(1).text("time").raw(e, ew.size());
+  }
+
+  uint8_t buf[1024];
+  cbor::Writer w(buf, sizeof(buf));
+  w.map(5)
+      .text("id").text("v4")
+      .text("api").uint_v(1)
+      .text("screens").raw(scr, scw.size())
+      .text("palette").raw(pal, pw.size())
+      .text("face_layout").raw(fl, flw.size());
+  ASSERT_TRUE(w.ok());
+
+  ThemeManifest out;
+  ASSERT_EQ(theme_manifest_parse(buf, w.size(), &out),
+            ThemeManifestError::kOk);
+
+  const int ti = theme_screen_index("timer");
+  ASSERT_GE(ti, 0);
+  const ThemeScreenSkin& sk = out.screens[ti];
+  EXPECT_TRUE(sk.token_set & (1u << 3));   // primary
+  EXPECT_EQ(sk.token_color[3], 0xFF3355u);
+  EXPECT_TRUE(sk.token_set & (1u << 5));   // text
+  EXPECT_EQ(sk.deco_count, 2);
+  EXPECT_STREQ(sk.deco[0].img, "star.png");
+  EXPECT_EQ(sk.deco[0].x, 300);
+  EXPECT_EQ(sk.deco[1].x, -10);
+  EXPECT_EQ(sk.deco[1].front, 1);
+
+  // palette + "@pink" 解決
+  EXPECT_EQ(out.palette_count, 2);
+  const int time_i = 0;  // "time" は kThemeFaceElemNames[0]
+  EXPECT_TRUE(out.face_elem[time_i].set & (1u << 5));
+  EXPECT_EQ(out.face_elem[time_i].color, 0xFF77AAu);
+}
+
+TEST(Theme, ManifestV4Errors) {
+  // deco の img 欠落 → kBadImageName
+  uint8_t d[64];
+  cbor::Writer dw(d, sizeof(d));
+  dw.map(1).text("x").int_v(10);
+  uint8_t tm[128];
+  cbor::Writer tmw(tm, sizeof(tm));
+  tmw.map(1).text("deco").array(1).raw(d, dw.size());
+  uint8_t scr[128];
+  cbor::Writer scw(scr, sizeof(scr));
+  scw.map(1).text("timer").raw(tm, tmw.size());
+  uint8_t buf[256];
+  cbor::Writer w(buf, sizeof(buf));
+  w.map(3).text("id").text("e").text("api").uint_v(1).text("screens").raw(scr, scw.size());
+  ThemeManifest out;
+  EXPECT_EQ(theme_manifest_parse(buf, w.size(), &out),
+            ThemeManifestError::kBadImageName);
+
+  // 未登録の "@name" → kBadValue
+  uint8_t fl[128];
+  cbor::Writer flw(fl, sizeof(fl));
+  {
+    uint8_t e[64];
+    cbor::Writer ew(e, sizeof(e));
+    ew.map(1).text("color").text("@nosuch");
+    flw.map(1).text("time").raw(e, ew.size());
+  }
+  cbor::Writer w2(buf, sizeof(buf));
+  w2.map(3).text("id").text("e2").text("api").uint_v(1).text("face_layout").raw(fl, flw.size());
+  EXPECT_EQ(theme_manifest_parse(buf, w2.size(), &out),
+            ThemeManifestError::kBadValue);
+}

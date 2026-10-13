@@ -104,6 +104,8 @@ const Theme kLight = {
 };
 
 // 現在有効なテーマ。theme_apply() が書き換える (LVGL コンテキスト内のみ)。
+// s_base = テーマ本体、s_active = 画面別 tokens 上書きの適用済み。
+Theme s_base = kStandard;
 Theme s_active = kStandard;
 char s_id[32] = "standard";
 char s_name[48] = "標準";
@@ -131,6 +133,56 @@ const Theme* builtin_theme(const char* id) {
 }
 
 // theme_manager.cpp から現行テーマを差し替える (LVGL コンテキスト内のみ)。
-void theme_replace_active(const Theme& t) { s_active = t; }
+void theme_replace_active(const Theme& t) {
+  s_base = t;
+  s_active = t;
+}
+
+// Theme 内の色フィールドを順序通りに指す表 (manifest color[] と同順)。
+lv_color_t* theme_color_at(Theme* t, int i) {
+  switch (i) {
+    case 0: return &t->bg;
+    case 1: return &t->surface;
+    case 2: return &t->surface2;
+    case 3: return &t->primary;
+    case 4: return &t->on_primary;
+    case 5: return &t->text;
+    case 6: return &t->text_dim;
+    case 7: return &t->accent;
+    case 8: return &t->danger;
+    case 9: return &t->ok;
+    case 10: return &t->accent2;
+    case 11: return &t->accent3;
+    case 12: return &t->accent4;
+    case 13: return &t->accent5;
+    case 14: return &t->bubble_bg;
+    case 15: return &t->bubble_text;
+    case 16: return &t->line;
+    case 17: return &t->primary2;
+    case 18: return &t->edge;
+    default: return nullptr;
+  }
+}
+
+// v4: 画面別 tokens 上書き。"*" の tokens → 画面個別の tokens の順に適用。
+void theme_apply_screen_tokens(int screen_index) {
+  s_active = s_base;  // 前画面の上書きを戻す
+  auto apply = [](const watch::ThemeScreenSkin& sk, uint32_t set) {
+    for (int i = 0; i < 19 && set; ++i, set >>= 1) {
+      if (set & 1u) {
+        lv_color_t* p = theme_color_at(&s_active, i);
+        if (p) *p = lv_color_hex(sk.token_color[i]);
+      }
+    }
+  };
+  if (s_base.screens_set & (1u << watch::kThemeScreenWildcard)) {
+    apply(s_base.wildcard_skin, s_base.wildcard_skin.token_set);
+  }
+  if (screen_index >= 0 && screen_index < watch::kThemeScreenCount &&
+      (s_base.screens_set & (1u << screen_index))) {
+    apply(s_base.screens[screen_index],
+          s_base.screens[screen_index].token_set);
+  }
+}
 
 }  // namespace ui

@@ -803,9 +803,32 @@ def gen_icon(app_id):
     return cv.downsampled()
 
 
+def gen_cosmos_deco_planet():
+    """timer 画面 deco: 小惑星 (64x64)。"""
+    s = 4
+    cv = Canvas(64 * s, 64 * s, ss=s)
+    cv_gradient(cv, (0, 0, 0, 0), (0, 0, 0, 0))
+    draw_planet(cv, 32 * s, 30 * s, 20 * s, PLANET, PLANET_HI, ring=True)
+    return cv.downsampled()
+
+
+def gen_cosmos_deco_comet():
+    """timer 画面 deco: 流れ星 (96x48, front 用)。"""
+    s = 4
+    cv = Canvas(96 * s, 48 * s, ss=s)
+    cv_gradient(cv, (0, 0, 0, 0), (0, 0, 0, 0))
+    # 尾 (左から右下へ)
+    cv_line(cv, 6 * s, 8 * s, 66 * s, 34 * s, 5 * s, (120, 200, 255, 90))
+    cv_line(cv, 6 * s, 8 * s, 60 * s, 30 * s, 2 * s, (190, 235, 255, 140))
+    # 核
+    cv.circle(66 * s, 34 * s, 7 * s, (230, 245, 255, 230))
+    cv_sparkle(cv, 66 * s, 34 * s, 11 * s, (255, 255, 255, 220))
+    return cv.downsampled()
+
+
 def build_cosmos():
     """cosmos テーマ: v2 の全キー (screens/style/icons/fonts/mascot/
-    face_layout) を行使する。"""
+    face_layout) + v4 (screens.tokens/deco、palette) を行使する。"""
     files = {
         # 画面背景 (PNG: ロード時に RGB565A8 デコード)
         "bg": (410, 502, gen_cosmos_bg()),
@@ -814,6 +837,9 @@ def build_cosmos():
         # 文字盤/アラート画像
         "face_chara": (240, 410, gen_cosmos_face_chara()),
         "timer_done": (200, 140, gen_cosmos_timer_done()),
+        # v4 deco (timer 画面の装飾)
+        "deco_planet": (64, 64, gen_cosmos_deco_planet()),
+        "deco_comet": (96, 48, gen_cosmos_deco_comet()),
         # マスコット表情
         "m_n": (96, 96, gen_cosmos_mascot("normal")),
         "m_s": (96, 96, gen_cosmos_mascot("smile")),
@@ -853,16 +879,33 @@ def build_cosmos():
         return cbor_map([(k, t(v) if isinstance(v, str) else u(v))
                          for k, v in pairs])
 
+    # 負数座標対応の int エンコード (cbor_head(1, -1-v))。
+    def ci(v):
+        return cbor_head(0, v) if v >= 0 else cbor_head(1, -1 - v)
+
     style = cbor_map([
         ("card_radius", u(12)), ("card_opa", u(150)),
         ("border_w", u(1)), ("border", t("0x3A5F8A")),
         ("glow_color", t("0x2A6FC0")), ("glow_w", u(14)),
         ("btn_radius", u(8)), ("header", t("flat")),
     ])
+    # v4 サンプル: timer 画面だけ primary を暖色に + deco 2枚。
+    timer_tokens = cbor_map([
+        ("primary", t("0xFFB45C")), ("primary2", t("0xFFD9A0")),
+        ("accent", t("0xFFB45C")),
+    ])
+    deco = cbor_head(4, 2) + b"".join([
+        cbor_map([("img", t("deco_planet.png")), ("x", ci(330)),
+                  ("y", ci(40)), ("z", t("back"))]),
+        cbor_map([("img", t("deco_comet.png")), ("x", ci(-8)),
+                  ("y", ci(430)), ("z", t("front"))]),
+    ])
     screens = cbor_map([
         ("*", cbor_map([("bg", t("bg.png")), ("scrim", u(110))])),
         ("timer", cbor_map([("bg", t("timer_bg.png")),
-                            ("scrim", u(60))])),
+                            ("scrim", u(60)),
+                            ("tokens", timer_tokens),
+                            ("deco", deco)])),
         ("alert", cbor_map([("bg", t("alert_bg.png")),
                             ("scrim", u(70))])),
         ("settings", cbor_map([("scrim", u(150))])),
@@ -875,9 +918,6 @@ def build_cosmos():
     fonts = cbor_map([
         ("digits", t("digits.bin")), ("digits_sm", t("digits_sm.bin")),
     ])
-    # 負数座標対応の int エンコード (cbor_head(1, -1-v))。
-    def ci(v):
-        return cbor_head(0, v) if v >= 0 else cbor_head(1, -1 - v)
     mascot = cbor_map([
         ("x", ci(300)), ("y", ci(380)),
         ("expr", cbor_map([("normal", t("m_n.png")),
@@ -892,20 +932,24 @@ def build_cosmos():
         # 退避パディングの効かない画面なので外す。
     ])
     face_layout = cbor_map([
-        ("time", cbor_map([("x", ci(30)), ("y", ci(96)),
+        ("time", cbor_map([("x", ci(36)), ("y", ci(96)),
                            ("font", u(96)), ("color", t("0x9AE8FF"))])),
         ("date", cbor_map([("x", ci(32)), ("y", ci(200)),
-                           ("font", u(20)), ("color", t("0x7E95B8"))])),
+                           ("font", u(20)), ("color", t("@dim"))])),
         ("steps", cbor_map([("x", ci(32)), ("y", ci(228)),
-                            ("font", u(20)), ("color", t("0x7E95B8"))])),
-        ("battery", cbor_map([("x", ci(-30)), ("y", ci(96)),
-                              ("font", u(20)), ("color", t("0x7E95B8"))])),
-        ("notify", cbor_map([("x", ci(-30)), ("y", ci(124)),
-                             ("font", u(20)), ("color", t("0xFFB45C"))])),
-        ("bubble", cbor_map([("x", ci(30)), ("y", ci(32)),
+                            ("font", u(20)), ("color", t("@dim"))])),
+        ("battery", cbor_map([("x", ci(-38)), ("y", ci(96)),
+                              ("font", u(20)), ("color", t("@dim"))])),
+        ("notify", cbor_map([("x", ci(-38)), ("y", ci(124)),
+                             ("font", u(20)), ("color", t("@warm"))])),
+        ("bubble", cbor_map([("x", ci(36)), ("y", ci(32)),
                              ("font", u(20)), ("color", t("0xCFEAFF"))])),
         ("chara", cbor_map([("x", ci(176)), ("y", ci(120)),
                             ("img", t("face_chara.png"))])),
+    ])
+    # v4: 名前付き色 (face_layout の "@name" 参照)。
+    palette = cbor_map([
+        ("dim", t("0x7E95B8")), ("warm", t("0xFFB45C")),
     ])
     images = cbor_map([
         ("timer_done", t("timer_done.png")),
@@ -931,6 +975,7 @@ def build_cosmos():
         ("icons", icons),
         ("fonts", fonts),
         ("mascot", mascot),
+        ("palette", palette),
         ("face_layout", face_layout),
     ])
 

@@ -133,7 +133,9 @@ struct Ctx {
   ThemeManifest* out;
   ThemeManifestError err = ThemeManifestError::kOk;
   int scratch_i = 0;                 // 入れ子 map で使う index 受け渡し
+  int scratch_j = 0;                 // deco の添字
   ThemeScreenSkin scratch_skin{};    // "*" 用の一時値
+  ThemeScreenSkin* scratch_skin_ptr = nullptr;  // tokens/deco 書き込み先
 };
 
 bool tokens_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
@@ -258,6 +260,8 @@ bool take_uint(Ctx* c, const cbor::Value& v, uint64_t max, uint64_t* out) {
 
 // screens.<screen> = {"bg": "file", "scrim": 0-255}
 bool screens_map_cb(const cbor::Value& k, const cbor::Value& v, void* c_);
+bool screen_tokens_cb(const cbor::Value& k, const cbor::Value& v, void* c_);
+bool screen_deco_cb(const cbor::Value& v, void* c_);
 
 bool screen_skin_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   Ctx* c = static_cast<Ctx*>(c_);
@@ -282,6 +286,99 @@ bool screen_skin_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
     s->scrim = static_cast<uint8_t>(u);
     return true;
   }
+  // ---- v4 ----
+  if (key_eq(k, "tokens")) {
+    if (cbor::type(v) != cbor::Type::Map) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    c->scratch_skin_ptr = s;
+    return cbor::map_foreach(v, screen_tokens_cb, c);
+  }
+  if (key_eq(k, "deco")) {
+    if (cbor::type(v) != cbor::Type::Array) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    c->scratch_skin_ptr = s;
+    c->scratch_j = 0;
+    // 要素ごとに screen_deco_cb (超過分は cb 内で無視)。
+    for (size_t i = 0;; ++i) {
+      cbor::Value elem;
+      if (!cbor::array_at(v, i, &elem)) break;
+      if (!screen_deco_cb(elem, c)) return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+// screens.<name>.tokens = {<色名>: "0xRRGGBB"} — kColorKeys と同じキー。
+bool screen_tokens_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  ThemeScreenSkin* s = c->scratch_skin_ptr;
+  for (int i = 0; i < 19; ++i) {
+    if (key_eq(k, kColorKeys[i].key)) {
+      if (!parse_color(v, &s->token_color[i])) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      s->token_set |= static_cast<uint32_t>(1u << i);
+      return true;
+    }
+  }
+  return true;  // 未知キーは無視
+}
+
+// screens.<name>.deco = [{img,x,y,z}] (最大 kThemeDecoMax、超過は無視)。
+bool screen_deco_cb(const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  ThemeScreenSkin* s = c->scratch_skin_ptr;
+  if (c->scratch_j >= kThemeDecoMax) return true;  // 超過分は無視
+  if (cbor::type(v) != cbor::Type::Map) {
+    c->err = ThemeManifestError::kBadValue;
+    return false;
+  }
+  ThemeDeco d{};
+  cbor::Value f;
+  if (cbor::map_find(v, "img", &f)) {
+    const char* p = nullptr;
+    size_t n = 0;
+    if (!cbor::as_text(f, &p, &n) || !file_name_ok(p, n)) {
+      c->err = ThemeManifestError::kBadImageName;
+      return false;
+    }
+    std::memcpy(d.img, p, n);
+    d.img[n] = '\0';
+  }
+  if (d.img[0] == '\0') {
+    c->err = ThemeManifestError::kBadImageName;
+    return false;
+  }
+  auto take_i = [&](const char* key, int16_t* out) -> bool {
+    cbor::Value u;
+    if (!cbor::map_find(v, key, &u)) return true;
+    int64_t x = 0;
+    if (!cbor::as_int(u, &x) || x < -2048 || x > 2048) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    *out = static_cast<int16_t>(x);
+    return true;
+  };
+  if (!take_i("x", &d.x) || !take_i("y", &d.y)) return false;
+  if (cbor::map_find(v, "z", &f)) {
+    const char* p = nullptr;
+    size_t n = 0;
+    if (!cbor::as_text(f, &p, &n)) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    d.front = (n == 5 && std::memcmp(p, "front", 5) == 0) ? 1 : 0;
+  }
+  s->deco[c->scratch_j] = d;
+  s->deco_count = static_cast<uint8_t>(c->scratch_j + 1);
+  ++c->scratch_j;
   return true;
 }
 
@@ -296,6 +393,7 @@ bool screens_map_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   }
   c->scratch_i = idx;
   c->scratch_skin = ThemeScreenSkin{};
+  c->scratch_skin_ptr = nullptr;
   if (!cbor::map_foreach(v, screen_skin_cb, c)) return false;
   // 非 "*" は screen_skin_cb が o->screens[idx] に直接書いている。
   if (idx == kThemeScreenWildcard) o->wildcard_skin = c->scratch_skin;
@@ -490,6 +588,29 @@ bool mascot_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   return true;
 }
 
+// "palette" = {<name>: "0xRRGGBB"} (face_layout の "@name" 参照用)。
+bool palette_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  ThemeManifest* o = c->out;
+  if (o->palette_count >= kThemePaletteMax) return true;  // 超過は無視
+  const char* p = nullptr;
+  size_t n = 0;
+  if (!cbor::as_text(k, &p, &n) || n == 0 || n >= 16) {
+    c->err = ThemeManifestError::kBadValue;
+    return false;
+  }
+  uint32_t col = 0;
+  if (!parse_color(v, &col)) {
+    c->err = ThemeManifestError::kBadValue;
+    return false;
+  }
+  ThemePaletteEntry& e = o->palette[o->palette_count++];
+  std::memcpy(e.name, p, n);
+  e.name[n] = '\0';
+  e.color = col;
+  return true;
+}
+
 // face_layout.<elem> = {x,y,w,h,font,color,img}
 bool face_elem_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   Ctx* c = static_cast<Ctx*>(c_);
@@ -518,7 +639,15 @@ bool face_elem_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
     return true;
   }
   if (key_eq(k, "color")) {
-    if (!parse_color(v, &e.color)) {
+    // "@name" は palette 参照。他は "0xRRGGBB"。
+    const char* p = nullptr;
+    size_t n = 0;
+    if (cbor::as_text(v, &p, &n) && n > 1 && p[0] == '@') {
+      if (!theme_palette_color(*c->out, p + 1, n - 1, &e.color)) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+    } else if (!parse_color(v, &e.color)) {
       c->err = ThemeManifestError::kBadValue;
       return false;
     }
@@ -774,6 +903,11 @@ ThemeManifestError theme_manifest_parse(const uint8_t* buf, size_t n,
     if (!cbor::map_foreach(v, mascot_cb, &c)) return c.err;
   }
 
+  if (cbor::map_find(root, "palette", &v)) {
+    if (cbor::type(v) != cbor::Type::Map) return ThemeManifestError::kBadValue;
+    if (!cbor::map_foreach(v, palette_cb, &c)) return c.err;
+  }
+
   if (cbor::map_find(root, "face_layout", &v)) {
     if (cbor::type(v) != cbor::Type::Map) return ThemeManifestError::kBadValue;
     if (!cbor::map_foreach(v, face_layout_cb, &c)) return c.err;
@@ -786,6 +920,19 @@ ThemeManifestError theme_manifest_parse(const uint8_t* buf, size_t n,
 
   *out = o;
   return ThemeManifestError::kOk;
+}
+
+bool theme_palette_color(const ThemeManifest& m, const char* name,
+                         size_t name_len, uint32_t* out) {
+  if (!name || !out) return false;
+  for (int i = 0; i < m.palette_count; ++i) {
+    if (std::strlen(m.palette[i].name) == name_len &&
+        std::memcmp(m.palette[i].name, name, name_len) == 0) {
+      *out = m.palette[i].color;
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace watch

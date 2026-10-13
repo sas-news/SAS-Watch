@@ -422,3 +422,42 @@ offset  size  内容
 | mascot lines | 8件 x 48B | ThemeMascot 固定長 |
 | icons | 12件 | ThemeIcon 固定長 |
 | skin パーツ | 18種 x 状態4枚 | ThemeSkinPart 固定長。実測 ~0.65 MiB/テーマ |
+
+## v4 キー詳細 (画面単位の色上書き・装飾画像・名前付き色)
+
+### `screens.<画面>.tokens` — 画面単位の色上書き
+
+```jsonc
+"screens": {
+  "timer": {
+    "tokens": { "primary": "0xFFB45C", "text": "0xFFFFFF" }
+  }
+}
+```
+`tokens` のキーと形式はトップレベルの `tokens` と同じ。
+画面を組み立てる直前にその画面分だけ適用される
+(ベース → "*" の tokens → 画面の tokens の順)。画面を出ると元に戻る。
+
+### `screens.<画面>.deco` — 装飾画像 (最大 4 枚)
+
+```jsonc
+"deco": [
+  {"img": "star.png",   "x": 330, "y": 40,  "z": "back"},
+  {"img": "comet.png",  "x": -8,  "y": 430, "z": "front"}
+]
+```
+- `x`/`y` が負値なら右端・下端基準 (x=-8 → 右端から 8px)。
+- `z`: `back` = 背景/scrim の上・内容の下。`front` = 全内容の上 (タップは透過)。
+- 画像は画面背景と同じ 640KiB ブロックにデコードされる (予算共有)。
+
+### `palette` — 名前付き色
+
+```jsonc
+"palette": { "pink": "0xFF77AA", "mint": "0x77FFCC" }
+```
+最大 8 個。`face_layout` の `color` に `"@pink"` と書くと参照できる。
+
+## 画面名一覧 (screens / mascot.screens / deco で共通)
+
+`home timer stopwatch counter steps memo alarm notify media agent
+settings applist more quick alert *` の 16+1。

@@ -227,30 +227,55 @@ void scr_skin_free(lv_event_t* e) {
   port::theme_screen_free(static_cast<uint8_t*>(lv_event_get_user_data(e)));
 }
 
-// スキン (画面別 > "*") の bg+scrim を scr の最背面に敷く。
-// bg 画像は screen ブロック (640KiB×2) にデコード; LV_EVENT_DELETE で返す。
+// ---- スキン画像ブロックの小アロケータ (T8: bg + deco で共有) ----
+// 先頭 512B を dsc 領域 (最大8枚)、画像データは +512 から連続配置。
+struct SkinAlloc {
+  uint8_t* blk = nullptr;
+  size_t dsc_off = 0;
+  size_t data_off = 0;
+};
+SkinAlloc s_skin;
+constexpr size_t kSkinDscArea = 512;
+
+lv_obj_t* skin_img(lv_obj_t* scr, const char* name, int x, int y, bool front) {
+  if (!s_skin.blk ||
+      s_skin.dsc_off + sizeof(lv_image_dsc_t) > kSkinDscArea) {
+    return nullptr;
+  }
+  lv_image_dsc_t* dsc = reinterpret_cast<lv_image_dsc_t*>(
+      s_skin.blk + s_skin.dsc_off);
+  const uint32_t cap = ui::port::kThemeScreenBlockSize -
+                       kSkinDscArea - static_cast<uint32_t>(s_skin.data_off);
+  const uint32_t wrote = theme_res::img_decode(
+      ui::theme_id(), name, s_skin.blk + kSkinDscArea + s_skin.data_off,
+      cap, 410, 502, dsc);
+  if (!wrote) return nullptr;
+  s_skin.dsc_off += sizeof(lv_image_dsc_t);
+  s_skin.data_off += wrote;
+  lv_obj_t* im = lv_image_create(scr);
+  lv_image_set_src(im, dsc);
+  // 負値 = 右端/下端基準 (画像サイズを引く)。
+  const int px = x < 0 ? 410 + x - static_cast<int>(dsc->header.w) : x;
+  const int py = y < 0 ? 502 + y - static_cast<int>(dsc->header.h) : y;
+  lv_obj_set_pos(im, px, py);
+  lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);  // タップは透過
+  (void)front;
+  return im;
+}
+
+// スキン (画面別 > "*") の bg+scrim+deco(back) を scr に敷く。
+// 画像は screen ブロック (640KiB×2) にデコード; scr の DELETE で返す。
 void skin_base(lv_obj_t* scr, int8_t sidx) {
   const watch::ThemeScreenSkin* sk =
       sidx >= 0 ? ui::theme_screen_skin(sidx) : nullptr;
+  s_skin = SkinAlloc{};
   if (!sk) return;
+  const bool need_blk = sk->bg[0] || sk->deco_count > 0;
+  if (need_blk) s_skin.blk = port::theme_screen_block();
   int z = 0;
-  if (sk->bg[0]) {
-    uint8_t* blk = port::theme_screen_block();
-    if (blk) {
-      // ブロック先頭 64B に dsc を置く (画像データは +64 から)。
-      lv_image_dsc_t* dsc = reinterpret_cast<lv_image_dsc_t*>(blk);
-      if (theme_res::img_decode(ui::theme_id(), sk->bg, blk + 64,
-                                ui::port::kThemeScreenBlockSize - 64,
-                                410, 502, dsc)) {
-        lv_obj_t* im = lv_image_create(scr);
-        lv_image_set_src(im, dsc);
-        lv_obj_set_pos(im, 0, 0);
-        lv_obj_move_to_index(im, z++);
-        lv_obj_add_event_cb(im, scr_skin_free, LV_EVENT_DELETE, blk);
-      } else {
-        port::theme_screen_free(blk);
-      }
-    }
+  if (sk->bg[0] && s_skin.blk) {
+    lv_obj_t* im = skin_img(scr, sk->bg, 0, 0, false);
+    if (im) lv_obj_move_to_index(im, z++);
   }
   if (sk->scrim) {
     // 黒の薄膜で背景だけを暗くする (この後の画面部品は上に載る)。
@@ -263,6 +288,32 @@ void skin_base(lv_obj_t* scr, int8_t sidx) {
     lv_obj_remove_flag(sc, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(sc, LV_OBJ_FLAG_EVENT_BUBBLE);  // ジェスチャーは素通り
     lv_obj_move_to_index(sc, z++);
+  }
+  // deco z=back → 内容の背面 (scrim の上)。
+  for (int i = 0; i < sk->deco_count; ++i) {
+    const auto& d = sk->deco[i];
+    if (d.front) continue;
+    lv_obj_t* im = skin_img(scr, d.img, d.x, d.y, false);
+    if (im) lv_obj_move_to_index(im, z++);
+  }
+  // ブロックが空っぽなら返す (全部 decode 失敗)。
+  if (s_skin.blk && s_skin.data_off == 0) {
+    port::theme_screen_free(s_skin.blk);
+    s_skin.blk = nullptr;
+  } else if (s_skin.blk) {
+    lv_obj_add_event_cb(scr, scr_skin_free, LV_EVENT_DELETE, s_skin.blk);
+  }
+}
+
+// deco z=front → 画面の全内容より上 (生成順 = 最後)。タップは透過。
+void skin_front(lv_obj_t* scr, int8_t sidx) {
+  const watch::ThemeScreenSkin* sk =
+      sidx >= 0 ? ui::theme_screen_skin(sidx) : nullptr;
+  if (!sk) return;
+  for (int i = 0; i < sk->deco_count; ++i) {
+    const auto& d = sk->deco[i];
+    if (!d.front) continue;
+    skin_img(scr, d.img, d.x, d.y, true);
   }
 }
 
@@ -312,11 +363,13 @@ void swap_screen(watch::Route r, bool rebuild = false) {
   lv_obj_set_style_bg_color(scr, t.bg, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
   const int8_t sidx = kRouteScreen[static_cast<int>(r)];
-  skin_base(scr, sidx);  // 画面スキン (bg+scrim) は最背面
+  ui::theme_apply_screen_tokens(sidx);  // v4: 画面単位の色上書き
+  skin_base(scr, sidx);  // 画面スキン (bg+scrim+deco back) は最背面
   if (r == watch::Route::Home) s_home = scr;
   attach_input(scr);
   ops->create(scr);
   c::mascot(scr, sidx);  // 画面隅マスコット (有効画面のみ)
+  skin_front(scr, sidx);  // deco z=front は全内容の上
   // 旧画面が無い状態 (テーマ切替の同期破棄直後) はアニメ無しで即ロード。
   if (prev) {
     lv_screen_load_anim(scr, anim, t.anim_ms, 0, false);

@@ -49,31 +49,7 @@ const lv_font_t* font_for(uint8_t px, const lv_font_t* fallback) {
   }
 }
 
-// Theme 内の色フィールドを順序通りに指す表 (manifest color[] と同順)。
-lv_color_t* color_at(Theme* t, int i) {
-  switch (i) {
-    case 0: return &t->bg;
-    case 1: return &t->surface;
-    case 2: return &t->surface2;
-    case 3: return &t->primary;
-    case 4: return &t->on_primary;
-    case 5: return &t->text;
-    case 6: return &t->text_dim;
-    case 7: return &t->accent;
-    case 8: return &t->danger;
-    case 9: return &t->ok;
-    case 10: return &t->accent2;
-    case 11: return &t->accent3;
-    case 12: return &t->accent4;
-    case 13: return &t->accent5;
-    case 14: return &t->bubble_bg;
-    case 15: return &t->bubble_text;
-    case 16: return &t->line;
-    case 17: return &t->primary2;
-    case 18: return &t->edge;
-    default: return nullptr;
-  }
-}
+// Theme 内の色フィールド表は theme.cpp の theme_color_at を使う。
 
 const lv_image_dsc_t** img_slot(Theme* t, int i) {
   switch (i) {
@@ -118,7 +94,7 @@ bool load_file_theme(const char* id, Theme* out) {
   t = *builtin_theme("standard");
   for (int i = 0; i < 19; ++i) {
     if (m.color_set & (1u << i)) {
-      *color_at(&t, i) = lv_color_hex(m.color[i]);
+      *theme_color_at(&t, i) = lv_color_hex(m.color[i]);
     }
   }
   if (m.metric_set & 1) t.radius_sm = m.radius_sm;

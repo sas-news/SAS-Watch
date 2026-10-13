@@ -34,10 +34,37 @@ extern const char* const kThemeScreenNames[kThemeScreenCount];
 // manifest パーサと ui 側の画面→スキン解決で共通。
 int theme_screen_index(const char* name);
 
+struct ThemeManifest;
+// palette["name"] を引く ("@pink" → 色。無ければ false)。
+bool theme_palette_color(const ThemeManifest& m, const char* name,
+                         size_t name_len, uint32_t* out);
+
+// v4: 装飾画像 (deco)。画面の bg とは別に、任意位置に画像を置く。
+// x/y が負値なら右端・下端基準 (x=-10 → 右端から 10px)。
+constexpr int kThemeDecoMax = 4;   // 1画面あたりの deco 上限
+constexpr int kThemePaletteMax = 8;
+
+struct ThemeDeco {
+  char img[kThemeImageNameMax] = {};
+  int16_t x = 0;
+  int16_t y = 0;
+  uint8_t front = 0;  // 0=back (内容の背面) / 1=front (前面、タップは透過)
+};
+
+struct ThemePaletteEntry {
+  char name[16] = {};   // "pink" 等 (face_layout で "@pink" と参照)
+  uint32_t color = 0;   // 0xRRGGBB
+};
+
 // 画面ごとの背景+スクリム。
 struct ThemeScreenSkin {
   char bg[kThemeImageNameMax];  // 画像ファイル名 (.bin / .png)
   uint8_t scrim = 0;            // 黒敷きの不透明度 0-255
+  // ---- v4 ----
+  uint32_t token_color[19] = {};  // 画面単位の色上書き (kColorKeys 順)
+  uint32_t token_set = 0;         // bit i = token_color[i] 指定あり
+  ThemeDeco deco[kThemeDecoMax];  // 装飾画像 (deco_count 個まで有効)
+  uint8_t deco_count = 0;
 };
 
 // "style" のコンポーネントスキン。
@@ -187,6 +214,10 @@ struct ThemeManifest {
   uint8_t font_file_set = 0;
 
   ThemeMascot mascot;
+
+  // v4: "palette" の名前付き色 (face_layout の "@name" 参照用)。
+  ThemePaletteEntry palette[kThemePaletteMax];
+  uint8_t palette_count = 0;
 
   // face_layout[elem] が埋まった = face_layout_set bit i。
   // 全て空なら "theme" 文字盤は既定レイアウト。
