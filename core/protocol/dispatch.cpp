@@ -620,6 +620,17 @@ DispatchError h_media_state(const cbor::Value& params, Services& svc,
     have_playing = true;
   }
   (void)have_playing;
+  // art (任意): アルバムアートの識別子 u32。省略/0 = 画像なし。
+  uint32_t art = 0;
+  {
+    cbor::Value av;
+    if (cbor::map_find(params, "art", &av)) {
+      uint64_t u;
+      if (!cbor::as_uint(av, &u) || u > 0xFFFFFFFFu)
+        return DispatchError::BadRequest;
+      art = static_cast<uint32_t>(u);
+    }
+  }
   if (svc.media_state) {
     char title_s[96], artist_s[96];
     auto copy = [](char* dst, size_t cap, const char* s, size_t n) {
@@ -629,7 +640,7 @@ DispatchError h_media_state(const cbor::Value& params, Services& svc,
     };
     copy(title_s, sizeof(title_s), title, tn);
     copy(artist_s, sizeof(artist_s), artist, an);
-    svc.media_state(title_s, artist_s, playing, svc.ctx);
+    svc.media_state(title_s, artist_s, playing, art, svc.ctx);
   }
   r->map(0);
   return DispatchError::Ok;

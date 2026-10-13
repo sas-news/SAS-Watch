@@ -30,6 +30,7 @@ enum class EventType : uint16_t {
   NotificationsCleared,  // 通知一覧を全消しした
   MediaCmdRequested,     // arg0 = MediaCmd (時計→スマホ)
   MediaStateChanged,     // media.state を受け取って表示が変わった
+  MediaArtReceived,      // BULK "asset" のアート受信完了 (arg0 = art id)
   AlarmRinging,          // arg0 = alarm id。鳴動開始 (繰り返し再通知も出る)
   AlarmChanged,          // 一覧変更・鳴動停止・スヌーズ設定など表示更新用
   AgentStatusChanged,

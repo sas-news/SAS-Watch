@@ -47,7 +47,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `memo.delete` | `{id:<int>}` | `{}` |
 | `memo.audio.get` | `{id:<int>}` | `{id, size, sha256:<bytes32>}` この直後に時計から BULK (kind=`"memo"`, id=メモid & 0xFFFF) が送られる |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
-| `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可) | `{}` |
+| `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可、任意 `art:<u32>` = アルバムアート識別子。0/省略なら画像なし) | `{}` |
 | `alarm.list` | `{}` | `{alarms:[{id:<int>, hour:<0-23>, min:<0-59>, dow:<曜日bit bit0=日..bit6=土, 0=毎日>, on:<bool>}]}` (最大5件) |
 | `alarm.set` | `{hour, min}` + 省略可 `{id:<int>, dow:<int>, on:<bool>}` | `{id:<int>}` | `id` 省略/0 で新規 (満杯なら `busy`)、既存 id で更新 (`not_found`)。`dow` 0-0x7F 省略時 0、`on` 省略時 true |
 | `alarm.delete` | `{id:<int>}` | `{}` | 無い id は `not_found` |
@@ -193,6 +193,15 @@ BULK_END payload (CBOR): `{id}`
 - Phone → Watch (kind `"theme"|"asset"|"ota"|"firmware"`): bulk char に write-without-response。
   Watch は8チャンクごとに `BULK_ACK{next}` を notify で返し、
   `BULK_END` 受信後は sha256 を検証して最終 `BULK_ACK{next=size}` を返す
+
+### BULK kind="asset" (アルバムアート, T11)
+`media.state.art` (u32、sha256 先頭4B LE) と対応する画像。
+中身は LVGL bin: 12B ヘッダ `lv_image_header_t` LE
+(`magic=0x19, cf=0x12(RGB565), flags=0, w=120, h=120, stride=240, reserved=0`)
++ RGB565 ピクセル 28,800B = 計 28,812B。
+時計は PSRAM バッファ 1 枚に受け (flash には書かない)、完了で
+MediaArtReceived を出して media 画面に出す。切断で破棄する。
+同じ art id が時計に既にあれば送り直さない (電話側が送信済み id を記録)。
   (RES-on-ctrl でも同じ結果を返してよい)。
 - Watch → Phone (kind `"memo"`): `memo.audio.get` の直後に時計が bulk char の
   notify で BULK_START→CHUNK→END を送る。Phone は同じく8チャンクごとに

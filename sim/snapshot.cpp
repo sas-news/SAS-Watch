@@ -527,7 +527,7 @@ int main(int argc, char** argv) {
   watch::features::notify_add("Gmail", "GitHub", "[SAS-Watch] PR #9 merged");
 #endif
 #if SAS_APP_MEDIA
-  watch::features::media_set("夜に駆ける", "YOASOBI", true, fctx);
+  watch::features::media_set("夜に駆ける", "YOASOBI", true, 0, fctx);
 #endif
 
   // 文字盤の補助データ (ui/face_data.hpp)。歩数・通知数・次のアラーム

@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.util.Log
 import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.notif.NotificationForwarder
+import dev.sasnews.amoledwatch.protocol.MediaArtCodec
 import dev.sasnews.amoledwatch.protocol.MediaCmd
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,13 @@ class MediaBridge(private val app: WatchApp) {
     // GATT 競合 → "internal write failed" の対策)。
     private val coalescer = MediaStateCoalescer()
     private var coalesceJob: Job? = null
+
+    // ---- アルバムアート (T11) ----
+    // media.state の "art" に入れる識別子と、BULK "asset" で送る bin。
+    private var currentArtId = 0L
+    private var lastArtBin: MediaArtCodec.Result? = null
+    private var sentArtId = 0L       // 時計に送り終えた art id
+    private var artJob: Job? = null
 
     private fun now(): Long = SystemClock.elapsedRealtime()
 
@@ -92,6 +100,7 @@ class MediaBridge(private val app: WatchApp) {
     private fun push() {
         val c = active
         val md = c?.metadata
+        updateArt(md)
         val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
         val artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST)
             ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""
@@ -108,7 +117,47 @@ class MediaBridge(private val app: WatchApp) {
     }
 
     private fun sendState(s: MediaStateCoalescer.State) {
-        scope.launch { app.manager.mediaState(s.title, s.artist, s.playing) }
+        scope.launch {
+            app.manager.mediaState(s.title, s.artist, s.playing, currentArtId)
+            maybeSendArt()
+        }
+    }
+
+    /** MediaMetadata のアートを LVGL bin に変換して currentArtId を更新。 */
+    private fun updateArt(md: MediaMetadata?) {
+        val bmp = md?.let {
+            it.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: it.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: it.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        }
+        if (bmp == null) {
+            currentArtId = 0
+            lastArtBin = null
+            return
+        }
+        val px = IntArray(bmp.width * bmp.height)
+        bmp.getPixels(px, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        val enc = MediaArtCodec.encode(px, bmp.width, bmp.height)
+        currentArtId = enc.artId
+        lastArtBin = enc
+    }
+
+    /** art id が変わっていたら BULK "asset" で画像を送る (時計は重複受信しない)。 */
+    private fun maybeSendArt() {
+        val enc = lastArtBin ?: return
+        if (enc.artId == sentArtId || artJob?.isActive == true) return
+        artJob = scope.launch {
+            val tid = (enc.artId and 0xFFFF).toInt()
+            if (app.manager.sendAsset(enc.bin, tid)) {
+                sentArtId = enc.artId
+            }
+        }
+    }
+
+    /** 再接続: 時計は切断でアートを捨てるので送信済みフラグを戻して再送。 */
+    fun resync() {
+        sentArtId = 0
+        push()
     }
 
     /** 間引き中の最後の状態を trailing で送る遅延ジョブ。 */

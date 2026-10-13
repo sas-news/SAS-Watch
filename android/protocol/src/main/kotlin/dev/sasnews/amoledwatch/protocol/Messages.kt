@@ -114,13 +114,15 @@ sealed interface Req {
         override fun params() = Cbor.Cmap(emptyMap())
     }
 
-    data class MediaState(val title: String, val artist: String, val playing: Boolean) : Req {
+    /** `art`: アルバムアート識別子 u32 (0 = なし)。BULK kind="asset" で送る画像と対応。 */
+    data class MediaState(val title: String, val artist: String, val playing: Boolean, val art: Long = 0) : Req {
         override val method get() = "media.state"
         override fun params() = Cbor.Cmap(
-            mapOf(
-                "title" to Cbor.Ctext(title), "artist" to Cbor.Ctext(artist),
-                "playing" to Cbor.Cbool(playing),
-            ),
+            buildMap {
+                put("title", Cbor.Ctext(title)); put("artist", Cbor.Ctext(artist))
+                put("playing", Cbor.Cbool(playing))
+                if (art != 0L) put("art", Cbor.Cint(art))
+            },
         )
     }
 

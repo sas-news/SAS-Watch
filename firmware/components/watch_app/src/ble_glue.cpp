@@ -22,6 +22,7 @@
 #include "esp_system.h"
 #include "ota/ota.hpp"
 #include "theme_store/theme_store.hpp"
+#include "ui/media_art.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/alarm.hpp"
 #include "watch/features/media.hpp"
@@ -538,8 +539,8 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
 #endif
 #if SAS_APP_MEDIA
   svc.media_state = [](const char* title, const char* artist, bool playing,
-                       void* c) {
-    watch::features::media_set(title, artist, playing,
+                       uint32_t art, void* c) {
+    watch::features::media_set(title, artist, playing, art,
                                *static_cast<watch::FeatureContext*>(c));
   };
 #endif
@@ -618,39 +619,101 @@ void on_passkey(uint32_t passkey, void*) {
 // ---- BULK 受信の振り分け -----------------------------------------------------
 // kind は BULK_START でしか届かないので begin 時に路線を固定する。
 // "firmware" は ota (ファーム更新)、それ以外は theme_store (theme/asset/memo)。
-enum class BulkRoute : uint8_t { None, Theme, Firmware };
+enum class BulkRoute : uint8_t { None, Theme, Firmware, Asset };
 BulkRoute s_bulk_route = BulkRoute::None;
+
+// ---- アルバムアート (T11) ----
+// BULK kind="asset" (name="media_art") → PSRAM 1 枚 (flash には書かない)。
+// LVGL bin: header 12B + RGB565 120x120。
+constexpr uint32_t kMediaArtSize = 28812;
+constexpr uint32_t kMediaArtW = 120, kMediaArtH = 120;
+uint8_t* s_art_buf = nullptr;
+uint32_t s_art_got = 0;
+
+bool asset_begin(uint16_t, uint32_t size) {
+  if (size != kMediaArtSize) return false;
+  if (!s_art_buf) {
+    s_art_buf = static_cast<uint8_t*>(
+        heap_caps_malloc(kMediaArtSize, MALLOC_CAP_SPIRAM));
+    if (!s_art_buf) {
+      ESP_LOGE(TAG, "media art psram alloc failed");
+      return false;
+    }
+  }
+  s_art_got = 0;
+  return true;
+}
+
+bool asset_write(uint32_t offset, const uint8_t* data, size_t len) {
+  if (!s_art_buf || offset + len > kMediaArtSize) return false;
+  std::memcpy(s_art_buf + offset, data, len);
+  s_art_got = offset + len;
+  return true;
+}
+
+// commit された画像を UI に登録 (切断時は破棄)。
+bool asset_commit(uint16_t) {
+  if (s_art_got != kMediaArtSize) return false;
+  // LVGL bin 先頭 12B = image header (magic 0x19 / cf / w / h LE)。
+  if (s_art_buf[0] != 0x19) return false;
+  const uint32_t w = s_art_buf[4] | (s_art_buf[5] << 8);
+  const uint32_t h = s_art_buf[6] | (s_art_buf[7] << 8);
+  if (w != kMediaArtW || h != kMediaArtH) return false;
+  ui::media_art_set(s_art_buf + 12, w, h,
+                    watch::features::media_state().art);
+  bus().publish({watch::EventType::MediaArtReceived,
+                 watch::features::media_state().art});
+  return true;
+}
+
+void asset_abort(uint16_t) { s_art_got = 0; }
+
+void asset_discard() {
+  s_art_got = 0;
+  ui::media_art_set(nullptr, 0, 0, 0);
+}
 
 bool bulk_begin_tr(uint16_t id, const char* kind, uint32_t size, void*) {
   const bool fw = std::strcmp(kind, "firmware") == 0;
+  const bool as = std::strcmp(kind, "asset") == 0;
   const bool ok = fw ? ota::bulk_begin(id, size)
-                     : theme_store::bulk_begin(id, kind, size, nullptr);
-  s_bulk_route = ok ? (fw ? BulkRoute::Firmware : BulkRoute::Theme)
+                  : as ? asset_begin(id, size)
+                       : theme_store::bulk_begin(id, kind, size, nullptr);
+  s_bulk_route = ok ? (fw ? BulkRoute::Firmware
+                        : as ? BulkRoute::Asset : BulkRoute::Theme)
                     : BulkRoute::None;
   return ok;
 }
 
 bool bulk_write_tr(uint16_t id, uint32_t offset, const uint8_t* data,
                    size_t len, void*) {
-  return s_bulk_route == BulkRoute::Firmware
-             ? ota::bulk_write(id, offset, data, len)
-             : theme_store::bulk_write(id, offset, data, len, nullptr);
+  switch (s_bulk_route) {
+    case BulkRoute::Firmware:
+      return ota::bulk_write(id, offset, data, len);
+    case BulkRoute::Asset:
+      return asset_write(offset, data, len);
+    default:
+      return theme_store::bulk_write(id, offset, data, len, nullptr);
+  }
 }
 
 bool bulk_commit_tr(uint16_t id, void*) {
   const BulkRoute r = s_bulk_route;
   s_bulk_route = BulkRoute::None;
-  return r == BulkRoute::Firmware ? ota::bulk_commit(id)
-                                  : theme_store::bulk_commit(id, nullptr);
+  switch (r) {
+    case BulkRoute::Firmware: return ota::bulk_commit(id);
+    case BulkRoute::Asset:    return asset_commit(id);
+    default:                  return theme_store::bulk_commit(id, nullptr);
+  }
 }
 
 void bulk_abort_tr(uint16_t id, void*) {
   const BulkRoute r = s_bulk_route;
   s_bulk_route = BulkRoute::None;
-  if (r == BulkRoute::Firmware) {
-    ota::bulk_abort(id);
-  } else {
-    theme_store::bulk_abort(id, nullptr);
+  switch (r) {
+    case BulkRoute::Firmware: ota::bulk_abort(id); break;
+    case BulkRoute::Asset:    asset_abort(id); break;
+    default:                  theme_store::bulk_abort(id, nullptr); break;
   }
 }
 
@@ -708,6 +771,9 @@ void ble_glue_poll() {
     if (conn == 0 && s_out.active) {
       bulk_out_stop("disconnected");
     }
+#endif
+#if SAS_APP_MEDIA
+    if (conn == 0) asset_discard();  // アートは接続中だけ有効
 #endif
   }
   const int32_t key = s_pending_key;

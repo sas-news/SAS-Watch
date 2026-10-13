@@ -247,7 +247,7 @@ TEST(Notify, ClearAll) {
 
 TEST(Media, StateAndCommand) {
   AppsFixture f;
-  features::media_set("song", "artist", true, f.ctx);
+  features::media_set("song", "artist", true, 0, f.ctx);
   const MediaState& s = features::media_state();
   EXPECT_TRUE(s.valid);
   EXPECT_TRUE(s.playing);

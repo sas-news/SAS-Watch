@@ -1,8 +1,11 @@
 // media.cpp — 音楽操作: 曲名・アーティスト・再生状態 + 縦並びの操作ボタン。
 // ボタン → MediaCommand Action → MediaCmdRequested Event → EVT "media.cmd"。
 #include "components.hpp"
+
+LV_FONT_DECLARE(font_icon_36);
 #include "theme.hpp"
 #include "screens/screens.hpp"
+#include "ui/media_art.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/media.hpp"
 
@@ -14,12 +17,22 @@ struct M {
   lv_obj_t* title = nullptr;
   lv_obj_t* artist = nullptr;
   lv_obj_t* state = nullptr;
+  lv_obj_t* art = nullptr;    // アルバムアート画像 (無ければ音符アイコン)
+  lv_obj_t* note = nullptr;
 };
 M s;
 
 void refresh() {
   if (!s.title) return;
   const watch::features::MediaState& m = watch::features::media_state();
+  // アート: art id が一致する受信画像があれば出す、無ければ音符アイコン。
+  const lv_image_dsc_t* dsc = ui::media_art(m.art);
+  lv_image_set_src(s.art, dsc);
+  if (dsc) {
+    lv_obj_add_flag(s.note, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(s.note, LV_OBJ_FLAG_HIDDEN);
+  }
   if (!m.valid) {
     lv_label_set_text(s.title, "再生情報がありません");
     lv_label_set_text(s.artist, "スマホで音楽を再生するとここに出ます");
@@ -50,6 +63,24 @@ lv_obj_t* build(lv_obj_t* scr) {
   s = M{};
 
   lv_obj_t* info = ui::c::card(col);
+  // アート枠 120x120 (image 未受信時は音符グリフ)。image は
+  // label を兼ねた obj にする (lv_image と label の出し分けが簡単)。
+  s.art = lv_image_create(info);
+  lv_obj_set_size(s.art, 120, 120);
+  lv_obj_center(s.art);
+  // 画像が無い時に出す音符はラベルとして別に持つ方が自然だが、
+  // lv_image の src が無い状態で中身を出すため text は使わず、
+  // 子ラベルにする。
+  s.note = lv_label_create(s.art);
+  lv_obj_set_style_text_font(s.note, &font_icon_36, 0);
+  lv_obj_set_style_text_color(s.note, t.primary, 0);
+  lv_obj_set_style_text_opa(s.note, LV_OPA_60, 0);
+  lv_label_set_text(s.note, "\xee\xa4\x85");
+  lv_obj_center(s.note);
+  lv_obj_set_style_radius(s.art, 12, 0);
+  lv_obj_set_style_bg_color(s.art, t.surface2, 0);
+  lv_obj_set_style_bg_opa(s.art, LV_OPA_COVER, 0);
+  lv_obj_set_style_clip_corner(s.art, true, 0);
   s.state = lv_label_create(info);
   lv_obj_set_style_text_font(s.state, t.font_body, 0);
   lv_obj_set_style_text_color(s.state, t.accent, 0);
@@ -76,7 +107,10 @@ lv_obj_t* build(lv_obj_t* scr) {
 }
 
 void on_event(lv_obj_t*, const watch::Event& e) {
-  if (e.type == watch::EventType::MediaStateChanged) refresh();
+  if (e.type == watch::EventType::MediaStateChanged ||
+      e.type == watch::EventType::MediaArtReceived) {
+    refresh();
+  }
 }
 
 }  // namespace

@@ -3,6 +3,7 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/theme.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/theme_manager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/theme_res.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/media_art.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/components.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/shell.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/face_data.cpp

@@ -33,11 +33,12 @@ bool handle(const Action& a, FeatureContext& ctx) {
 const MediaState& media_state() { return g_state; }
 
 void media_set(const char* title, const char* artist, bool playing,
-               FeatureContext& ctx) {
+               uint32_t art, FeatureContext& ctx) {
   copy_str(g_state.title, sizeof(g_state.title), title);
   copy_str(g_state.artist, sizeof(g_state.artist), artist);
   g_state.playing = playing;
   g_state.valid = true;
+  g_state.art = art;
   ctx.bus.publish({EventType::MediaStateChanged, 0});
 }
 

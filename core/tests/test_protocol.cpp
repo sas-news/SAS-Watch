@@ -212,6 +212,7 @@ struct SvcFixture {
   int timer_stopped = 0;
   std::string notified_app;
   std::string media_title;
+  uint32_t media_art = 0;
 
   SvcFixture() {
     rec.attach_all(bus);
@@ -249,8 +250,10 @@ struct SvcFixture {
     svc.notify_posted = [](const char* app, const char*, const char*, void* c) {
       static_cast<SvcFixture*>(c)->notified_app = app;
     };
-    svc.media_state = [](const char* title, const char*, bool, void* c) {
+    svc.media_state = [](const char* title, const char*, bool,
+                         uint32_t art, void* c) {
       static_cast<SvcFixture*>(c)->media_title = title;
+      static_cast<SvcFixture*>(c)->media_art = art;
     };
   }
 
@@ -506,7 +509,27 @@ TEST(Dispatch, MediaStateCallsHandler) {
   EXPECT_EQ(f.media_title, "Song");
 }
 
-// ---------- Dispatch: memo.* (Phase 9) ----------
+TEST(Dispatch, MediaStateArtField) {
+  SvcFixture f;
+  f.media_art = 0xFFFFFFFF;
+  uint8_t out[512];
+  f.req(
+      "media.state",
+      [](cbor::Writer& w) {
+        w.map(4).text("title").text("S").text("artist").text("A").text("playing").bool_v(true).text("art").uint_v(1234);
+      },
+      out, sizeof(out));
+  EXPECT_EQ(f.media_art, 1234u);
+  // art 省略 → 0
+  f.media_art = 9;
+  f.req(
+      "media.state",
+      [](cbor::Writer& w) {
+        w.map(3).text("title").text("S").text("artist").text("A").text("playing").bool_v(false);
+      },
+      out, sizeof(out));
+  EXPECT_EQ(f.media_art, 0u);
+}
 
 namespace {
 

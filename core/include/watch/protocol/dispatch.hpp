@@ -88,7 +88,7 @@ struct Services {
   void (*notify_posted)(const char* app, const char* title, const char* body,
                         void* ctx) = nullptr;
   void (*media_state)(const char* title, const char* artist, bool playing,
-                      void* ctx) = nullptr;
+                      uint32_t art, void* ctx) = nullptr;
   // settings.* が1キー変わるごとに呼ぶ (反映用)
   void (*setting_changed)(const char* key, void* ctx) = nullptr;
 
