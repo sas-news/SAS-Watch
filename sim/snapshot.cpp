@@ -240,7 +240,7 @@ lv_obj_t* gbox(lv_obj_t* p, int32_t w, int32_t h) {
 }
 
 lv_obj_t* grow3(lv_obj_t* p, int32_t h) {
-  lv_obj_t* r = gbox(p, 366, h);
+  lv_obj_t* r = gbox(p, 346, h);
   lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
@@ -272,8 +272,8 @@ void parts_gallery(const char* out_dir, const char* theme_id, int num,
   lv_obj_set_style_bg_opa(g, LV_OPA_COVER, 0);
   ui::c::header(g, "パーツ", true);  // header_bar + back_pill
 
-  lv_obj_t* col = gbox(g, 366, 464 - 78);
-  lv_obj_set_pos(col, 22, 78);
+  lv_obj_t* col = gbox(g, 346, 464 - 78);
+  lv_obj_set_pos(col, 32, 78);
   // 下端は丸角の安全域 (y<=464) で止め、あふれた分はスクロールにする。
   lv_obj_add_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(col, LV_DIR_VER);
@@ -321,6 +321,29 @@ void parts_gallery(const char* out_dir, const char* theme_id, int num,
 
   // スライダー (track/fill/knob)。
   ui::c::slider_row(col, "明るさ", "%", 0, 100, 60, nullptr, nullptr);
+
+  // 小さいサイズ: ボタン h40 (長いラベルは末尾 … になる) + カード h40
+  // + 行 h40 (radius が高さ/2 に丸められるかの確認用)。
+  ui::c::caption(col, "小さいサイズ / 状態");
+  lv_obj_t* rs = grow3(col, 40);
+  {
+    lv_obj_t* o = ui::c::button_primary(rs, "とても長いボタンラベルの例",
+                                        nullptr, nullptr);
+    lv_obj_set_size(o, 172, 40);
+    lv_obj_t* o2 = ui::c::button(rs, "副", nullptr, nullptr);
+    lv_obj_set_size(o2, 90, 40);
+    lv_obj_t* o3 = ui::c::button_danger(rs, "危", nullptr, nullptr);
+    lv_obj_set_size(o3, 90, 40);
+    lv_obj_add_state(o3, LV_STATE_PRESSED);
+  }
+  lv_obj_t* rs2 = grow3(col, 40);
+  {
+    lv_obj_t* cd = ui::c::card(rs2);
+    lv_obj_set_size(cd, 172, 40);
+    glabel(cd, "小カード");
+    lv_obj_t* sw = ui::c::mk_switch(rs2, true);
+    lv_obj_set_size(sw, 46, 26);  // 小スイッチ (knob は track−2·pad で導出)
+  }
 
   // グループ: list_group + row + divider + icon_tile。
   lv_obj_t* grp = ui::c::group(col);
@@ -620,6 +643,9 @@ int main(int argc, char** argv) {
   tap(205, 387);  // 止める
   pump(200);
 
+  // 内蔵 standard のパーツギャラリー (テーマ別ギャラリーは各節で撮る)。
+  parts_gallery(out, "standard", 90, &ok);
+
   // ---- テーマ切替 (docs/theme-format.md) ----
   if (want_theme("light")) {
     // 内蔵の明るめテーマ。
@@ -629,6 +655,8 @@ int main(int argc, char** argv) {
     ok &= save(out, "15_theme_light_home");
     nav_to(watch::Route::Settings);
     ok &= save(out, "16_theme_light_settings");
+
+    parts_gallery(out, "light", 88, &ok);
   }
 
   if (want_theme("mame")) {

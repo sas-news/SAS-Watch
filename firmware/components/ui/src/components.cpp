@@ -138,9 +138,10 @@ void skin_card(lv_obj_t* o) {
             : t.line,
         0);
   }
-  // glow: カードの影 (glow_w 指定時のみ)。
+  // glow: カードの影 (glow_w 指定時のみ)。描画負荷を抑えるため
+  // テーマ値も 6px までにクランプする (roadmap T5)。
   if (t.style.set & (1u << watch::kStyleGlowW)) {
-    lv_obj_set_style_shadow_width(o, t.style.glow_w, 0);
+    lv_obj_set_style_shadow_width(o, LV_MIN(t.style.glow_w, 6), 0);
     lv_obj_set_style_shadow_color(
         o,
         (t.style.set & (1u << watch::kStyleGlow))
@@ -537,11 +538,14 @@ lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
   lv_obj_t* b = lv_button_create(parent);
   clickable(b);
   lv_obj_set_size(b, LV_PCT(100), kBtnH);
-  lv_obj_set_style_radius(b, skin_btn_radius(), 0);
+  // radius は高さの半分まで (小さいボタンで突き抜けない)。
+  lv_obj_set_style_radius(b, LV_MIN(skin_btn_radius(), kBtnH / 2), 0);
   lv_obj_set_style_bg_color(b, bg, 0);
   lv_obj_set_style_bg_opa(b, bg_opa, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_t* l = mk_label(b, text, t.font_body, fg);
+  // 長いラベルは中央省略ではなく末尾 … にする。
+  lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
   lv_obj_center(l);
   skin_apply_obj(b, part, 0, true);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, ud);
@@ -752,7 +756,9 @@ lv_obj_t* mk_switch(lv_obj_t* row, bool on) {
   lv_obj_set_style_bg_color(sw, lv_color_hex(0xFFFFFF),
                             LV_PART_KNOB | LV_STATE_CHECKED);
   lv_obj_set_style_pad_all(sw, (kSwitchH - kKnob) / 2, LV_PART_KNOB);
-  // v3 skin: トラック/ノブ画像があればベクタ部品を透明化して画像を描く。
+  // ノブの影・外周は付けない (ON/OFF は色だけで表す)。
+  lv_obj_set_style_shadow_width(sw, 0, LV_PART_KNOB);
+  lv_obj_set_style_outline_width(sw, 0, LV_PART_KNOB);
   const bool sk_tr = theme_skin(watch::kSkinSwitchTrack) != nullptr;
   const bool sk_kn = theme_skin(watch::kSkinSwitchKnob) != nullptr;
   if (sk_tr) {
@@ -886,9 +892,12 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   // 白いノブ + primary の外周リング (モックの box-shadow 相当)。
   lv_obj_set_style_bg_color(s, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
   lv_obj_set_style_pad_all(s, (kKnob - kTrackH) / 2, LV_PART_KNOB);
-  lv_obj_set_style_outline_color(s, t.primary, LV_PART_KNOB);
-  lv_obj_set_style_outline_opa(s, 90, LV_PART_KNOB);
-  lv_obj_set_style_outline_width(s, 4, LV_PART_KNOB);
+  // ノブの外周リング (outline 4) は小さいサイズで潰れるので廃止。
+  // ノブの影も付けない (ON/OFF・値は色だけで表す)。
+  lv_obj_set_style_outline_width(s, 0, LV_PART_KNOB);
+  lv_obj_set_style_shadow_width(s, 0, LV_PART_KNOB);
+  // タップ判定: 高さ 10 のトラックだけだと細いので 48px 確保 (tap_min)。
+  lv_obj_set_ext_click_area(s, (48 - kTrackH) / 2);
   // v3 skin: トラック/塗り/ノブ画像があればベクタ部品を透明化して画像を描く。
   const bool sk_tr = theme_skin(watch::kSkinSliderTrack) != nullptr;
   const bool sk_fl = theme_skin(watch::kSkinSliderFill) != nullptr;
