@@ -36,6 +36,10 @@ uint8_t s_last_depth = 1;
 lv_obj_t* s_alert = nullptr;
 lv_timer_t* s_alert_timer = nullptr;
 lv_timer_t* s_alarm_beep_timer = nullptr;  // アラーム繰り返しビープ
+lv_obj_t* s_alert_flash = nullptr;         // T9: 点滅する全面レイヤ
+lv_timer_t* s_flash_timer = nullptr;       // T9: 500ms 点滅
+lv_timer_t* s_vibe_timer = nullptr;        // T9: 2s ごとの振動
+uint32_t s_flash_count = 0;
 #if SAS_APP_NOTIFY
 lv_obj_t* s_toast = nullptr;               // 通知ポップアップ
 lv_timer_t* s_toast_timer = nullptr;
@@ -327,7 +331,59 @@ void swap_screen(watch::Route r, bool rebuild = false) {
 
 // ---- タイマー終了アラート ---------------------------------------------------
 
+// ---- T9: 画面フラッシュ通知 (音の代わり) -------------------------------------
+// 鳴動中はアラート背面の全面レイヤを 500ms 周期で白/黒に切り替え、
+// 輝度を 100% にする。60 秒 or 何か入力で点滅停止 (アラート自体は残る)。
+
+void flash_stop() {
+  if (s_flash_timer) {
+    lv_timer_delete(s_flash_timer);
+    s_flash_timer = nullptr;
+  }
+  if (s_vibe_timer) {
+    lv_timer_delete(s_vibe_timer);
+    s_vibe_timer = nullptr;
+  }
+  if (s_alert_flash) {
+    // 残りが黒のまま消えないよう透明に戻してから消す。
+    lv_obj_set_style_bg_opa(s_alert_flash, LV_OPA_TRANSP, 0);
+    s_alert_flash = nullptr;
+  }
+  port::brightness_apply(
+      static_cast<int>(s_ctx.settings ? s_ctx.settings->brightness : 50));
+}
+
+void flash_tick(lv_timer_t*) {
+  if (!s_alert_flash) {
+    flash_stop();
+    return;
+  }
+  ++s_flash_count;
+  const bool white = (s_flash_count & 1u) != 0;
+  lv_obj_set_style_bg_color(
+      s_alert_flash,
+      white ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000), 0);
+  if (s_flash_count >= 120) flash_stop();  // 60s で点滅終了
+}
+
+void flash_start(lv_obj_t* alert) {
+  s_flash_count = 0;
+  // alert の最初の子として作り、内容の背面に置く。
+  s_alert_flash = lv_obj_create(alert);
+  lv_obj_remove_flag(s_alert_flash, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(s_alert_flash, 410, 502);
+  lv_obj_set_pos(s_alert_flash, 0, 0);
+  lv_obj_set_style_bg_opa(s_alert_flash, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(s_alert_flash, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_border_width(s_alert_flash, 0, 0);
+  port::brightness_apply(100);
+  s_flash_timer = lv_timer_create(flash_tick, 500, nullptr);
+  s_vibe_timer = lv_timer_create(
+      [](lv_timer_t*) { port::vibrate(600); }, 2000, nullptr);
+}
+
 void hide_alert(lv_timer_t*) {
+  flash_stop();
   if (s_alert) {
     lv_obj_delete(s_alert);
     s_alert = nullptr;
@@ -375,6 +431,11 @@ void show_timer_alert() {
   lv_obj_set_style_bg_opa(s_alert, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_alert, 0, 0);
   lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
+  // T9: 背面に点滅レイヤを敷き、入力があれば点滅だけ止める。
+  flash_start(s_alert);
+  lv_obj_add_event_cb(
+      s_alert, [](lv_event_t*) { flash_stop(); }, LV_EVENT_CLICKED,
+      nullptr);
 
   // テーマスキン: screens["alert"] があればそちらを敷く。
   // 無ければ暖色グロー (ラジアルグラデーション。静的描画)。
@@ -454,6 +515,7 @@ void show_timer_alert() {
 // 「止める」「スヌーズ」縦並び。鳴動中は ~4.5s ごとにビープ+短振動を繰り返す。
 
 void hide_alarm_alert() {
+  flash_stop();
   if (s_alert) {
     lv_obj_delete(s_alert);
     s_alert = nullptr;
@@ -491,6 +553,12 @@ void show_alarm_alert(uint32_t id) {
   lv_obj_add_flag(s_alert, LV_OBJ_FLAG_CLICKABLE);
   // テーマスキン (screens["alert"]) があれば背景に敷く。
   skin_base(s_alert, watch::theme_screen_index("alert"));
+
+  // T9: 背面に点滅レイヤ、入力で点滅停止。
+  flash_start(s_alert);
+  lv_obj_add_event_cb(
+      s_alert, [](lv_event_t*) { flash_stop(); }, LV_EVENT_CLICKED,
+      nullptr);
 
   lv_obj_t* l = lv_label_create(s_alert);
   lv_label_set_text(l, "アラーム");

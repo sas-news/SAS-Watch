@@ -663,6 +663,9 @@ int main(int argc, char** argv) {
   s_bus.publish({watch::EventType::TimerFinished, 0});
   pump(300);
   ok &= save(out, "14_timer_alert");
+  // T9: 点滅の 2 フレーム目 (500ms 周期 → 400ms 後は反対色)。
+  pump(400);
+  ok &= save(out, "14b_timer_alert_flash");
   tap(205, 387);  // 止める
   pump(200);
 
