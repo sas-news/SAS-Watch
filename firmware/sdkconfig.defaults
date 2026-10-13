@@ -18,7 +18,9 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 # audio を有効のままにすると bsp_audio_init() が I2S DMA バッファの
 # 内蔵RAM確保失敗 (i2s_alloc_dma_desc ESP_ERR_NO_MEM) で abort するため
 # 音声初期化ごと無効化する (コード自体は残る)。搭載機体では n にするか消す。
-CONFIG_WATCH_DISABLE_AUDIO=y
+# 音声: マイク (録音) だけ先行有効化。スピーカーは未検証のため off。
+# CONFIG_WATCH_DISABLE_AUDIO is not set
+CONFIG_WATCH_ENABLE_MIC=y
 
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 

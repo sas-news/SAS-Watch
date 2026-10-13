@@ -130,8 +130,13 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_t* col = ui::c::content(scr);
   s = M{};
 
-  // 録音ブロックは AudioPort がある時だけ (スピーカー無し機種もあり得る)。
-  if (fctx() && fctx()->audio) {
+  // 録音ブロックはマイクが使える時だけ。使えなければ理由を出す。
+  watch::AudioPort* au = fctx() ? fctx()->audio : nullptr;
+  if (au && !au->can_record()) {
+    lv_obj_t* c = ui::c::card(col);
+    ui::c::line(c, "この個体では録音できません");
+  }
+  if (au && au->can_record()) {
     s.rec_card = ui::c::card(col);
     s.rec_btn = fit_btn(s.rec_card, "録音開始",
         [](lv_event_t*) {

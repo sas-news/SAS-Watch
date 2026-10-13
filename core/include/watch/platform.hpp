@@ -65,6 +65,12 @@ class AudioPort {
  public:
   virtual ~AudioPort() = default;
 
+  // ---- 有無 (実行時フラグ) ----
+  // マイク/スピーカーが使えるか。false のとき UI は対応する
+  // ボタンを隠し「この個体では使えません」を出す。
+  virtual bool can_record() const { return true; }
+  virtual bool can_play() const { return true; }
+
   // ---- 録音 (音声メモ) ----
   // memo_id 宛に録り始める。開始できなければ false。
   virtual bool record_begin(uint32_t memo_id, uint32_t max_sec) = 0;

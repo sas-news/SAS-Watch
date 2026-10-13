@@ -3,8 +3,21 @@ menu "SAS-Watch audio"
         bool "Disable audio (unit without speaker/codec)"
         default n
         help
-            スピーカー/コーデック未搭載の個体用。
+            音声を丸ごと無効化する互換スイッチ。
             有効にすると PA/I2S/コーデック/音声タスクの初期化を
             すべてスキップし、beep/録音/再生は何もしなくなる。
-            音声コード自体は残るので、搭載機体では無効のまま使う。
+            マイク/スピーカーの個別制御は下の ENABLE_* を使う。
+    config WATCH_ENABLE_MIC
+        bool "Enable microphone recording (ES7210)"
+        default y
+        help
+            ES7210 マイク ADC + I2S RX による録音を有効化する。
+            I2C でコーデックが見つからない機体では自動的に
+            録音 UI を隠す。I2S/DMA は録音開始時にだけ確保する。
+    config WATCH_ENABLE_SPEAKER
+        bool "Enable speaker playback (ES8311 + PA)"
+        default n
+        help
+            ES8311 コーデック + PA (GPIO46) による再生/ビープ。
+            出音は未検証なので既定 off (録音だけ先行して有効化)。
 endmenu

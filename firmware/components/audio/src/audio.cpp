@@ -18,7 +18,10 @@
 #include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/i2s_std.h"
+#include "es7210_adc.h"
 #include "esp_codec_dev.h"
+#include "esp_codec_dev_defaults.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_pm.h"
@@ -51,12 +54,25 @@ TaskHandle_t s_rec_task = nullptr;
 TaskHandle_t s_play_task = nullptr;
 
 // この個体で音声を使うか。スピーカー/コーデック未搭載機体は
-// sdkconfig で CONFIG_WATCH_DISABLE_AUDIO=y にする。
-// 無効なら I2S/codec/タスク初期化ごとスキップする(音声コード自体は残す)。
+// sdkconfig で CONFIG_WATCH_DISABLE_AUDIO=y にすると丸ごと off。
+// 個別には CONFIG_WATCH_ENABLE_MIC / CONFIG_WATCH_ENABLE_SPEAKER
+// (未定義 = off) で分ける。音声コード自体は残す。
 #if CONFIG_WATCH_DISABLE_AUDIO
-constexpr bool kAudioEnabled = false;
+constexpr bool kMicEnabled = false;
+constexpr bool kSpkEnabled = false;
 #else
-constexpr bool kAudioEnabled = true;
+constexpr bool kMicEnabled =
+#ifdef CONFIG_WATCH_ENABLE_MIC
+    true;
+#else
+    false;
+#endif
+constexpr bool kSpkEnabled =
+#ifdef CONFIG_WATCH_ENABLE_SPEAKER
+    true;
+#else
+    false;
+#endif
 #endif
 
 // コーデック IC の 7bit I2C アドレス (docs/board.md)。
@@ -109,13 +125,104 @@ void unlock() { xSemaphoreGive(s_mtx); }
 // ---- コーデック ----
 
 esp_codec_dev_handle_t speaker() {
-  if (!s_spk && kAudioEnabled && s_spk_codec)
+  if (!s_spk && kSpkEnabled && s_spk_codec)
     s_spk = bsp_audio_codec_speaker_init();
   return s_spk;
 }
+// ---- 録音用の軽量 I2S RX ----
+// BSP の bsp_audio_init は TX+RX を既定 DMA で両方作るので SRAM を
+// 圧迫する。録音は RX だけ・最小 DMA (4×240 フレーム ≈2KB) にする。
+// 初回の録音要求時にだけ確保し、その後は再利用する
+// (codec_dev に data_if の delete API が無いので、回ごとの
+// 作り直しだと小リークになる)。
+// 注意: 将来 ENABLE_SPEAKER=y にする場合は BSP の duplex init と
+// 同じ I2S ポートを二重確保できないので統合が必要 (TODO(hw))。
+i2s_chan_handle_t s_i2s_rx = nullptr;
+
+esp_codec_dev_handle_t mic_open() {
+  i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(
+      static_cast<i2s_port_t>(CONFIG_BSP_I2S_NUM), I2S_ROLE_MASTER);
+  chan.auto_clear = true;
+  chan.dma_desc_num = 4;   // 既定 6 → 4
+  chan.dma_frame_num = 240;
+  if (i2s_new_channel(&chan, nullptr, &s_i2s_rx) != ESP_OK ||
+      !s_i2s_rx) {
+    ESP_LOGE(TAG, "mic i2s channel alloc failed");
+    return nullptr;
+  }
+  const i2s_std_config_t std_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(
+          watch::audio::kAdpcmSampleRate),
+      .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(
+          I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+      .gpio_cfg =
+          {
+              .mclk = BSP_I2S_MCLK,
+              .bclk = BSP_I2S_SCLK,
+              .ws = BSP_I2S_LCLK,
+              .dout = BSP_I2S_DOUT,
+              .din = BSP_I2S_DSIN,
+              .invert_flags =
+                  {
+                      .mclk_inv = false,
+                      .bclk_inv = false,
+                      .ws_inv = false,
+                  },
+          },
+  };
+  if (i2s_channel_init_std_mode(s_i2s_rx, &std_cfg) != ESP_OK ||
+      i2s_channel_enable(s_i2s_rx) != ESP_OK) {
+    ESP_LOGE(TAG, "mic i2s init/enable failed");
+    i2s_del_channel(s_i2s_rx);
+    s_i2s_rx = nullptr;
+    return nullptr;
+  }
+  audio_codec_i2s_cfg_t i2s_cfg = {
+      .port = static_cast<i2s_port_t>(CONFIG_BSP_I2S_NUM),
+      .rx_handle = s_i2s_rx,
+      .tx_handle = nullptr,
+      .clk_src = 0,
+  };
+  const audio_codec_data_if_t* data_if =
+      audio_codec_new_i2s_data(&i2s_cfg);
+  if (!data_if) {
+    ESP_LOGE(TAG, "mic i2s data_if failed");
+    return nullptr;
+  }
+  audio_codec_i2c_cfg_t i2c_cfg = {
+      .port = BSP_I2C_NUM,
+      .addr = 0x40,  // ES7210_CODEC_DEFAULT_ADDR (BSP の .c 内マクロのため直書き)
+      .bus_handle = bsp_i2c_get_handle(),
+  };
+  const audio_codec_ctrl_if_t* ctrl_if =
+      audio_codec_new_i2c_ctrl(&i2c_cfg);
+  if (!ctrl_if) {
+    ESP_LOGE(TAG, "mic i2c ctrl_if failed");
+    return nullptr;
+  }
+  // BSP と同じく ctrl_if だけ渡す (残りはドライバ既定)。
+  es7210_codec_cfg_t es_cfg = {
+      .ctrl_if = ctrl_if,
+      .master_mode = false,
+      .mic_selected = 0,
+      .mclk_src = ES7210_MCLK_FROM_PAD,
+      .mclk_div = 0,
+  };
+  const audio_codec_if_t* es_dev = es7210_codec_new(&es_cfg);
+  if (!es_dev) {
+    ESP_LOGE(TAG, "es7210 codec_new failed");
+    return nullptr;
+  }
+  esp_codec_dev_cfg_t dev_cfg = {
+      .dev_type = ESP_CODEC_DEV_TYPE_IN,
+      .codec_if = es_dev,
+      .data_if = data_if,
+  };
+  return esp_codec_dev_new(&dev_cfg);
+}
+
 esp_codec_dev_handle_t mic() {
-  if (!s_mic && kAudioEnabled && s_mic_codec)
-    s_mic = bsp_audio_codec_microphone_init();
+  if (!s_mic && kMicEnabled && s_mic_codec) s_mic = mic_open();
   return s_mic;
 }
 
@@ -377,6 +484,13 @@ void play_task(void*) {
 
 class EspAudio : public watch::AudioPort {
  public:
+  bool can_record() const override {
+    return kMicEnabled && s_mic_codec;
+  }
+  bool can_play() const override {
+    return kSpkEnabled && s_spk_codec;
+  }
+
   bool record_begin(uint32_t memo_id, uint32_t max_sec) override {
     if (!s_ready || !s_mounted || !mic()) return false;
     lock();
@@ -471,7 +585,7 @@ class EspAudio : public watch::AudioPort {
   }
 
   void beep(watch::BeepKind kind, uint8_t volume) override {
-    if (!s_ready || !kAudioEnabled || !s_spk_codec || volume == 0) return;
+    if (!s_ready || !kSpkEnabled || !s_spk_codec || volume == 0) return;
     lock();
     // 録音中・再生中は鳴らさない (時計には1系統しかない)。
     if (s_rec.active || s_play.active) {
@@ -596,7 +710,15 @@ bool init(const Deps& deps) {
     ESP_LOGW(TAG, "pm lock create: %s", esp_err_to_name(pl));
   }
 
-  if (kAudioEnabled) {
+  // コーデック IC の有無を I2C で確認。未搭載なら codec init に進まない
+  // (BSP 側が assert で落ちるため)。音声機能のみ無効化し残りは動かす。
+  // I2S/DMA は各 codec handle を初めて開いた時に確保される (遅延)。
+  i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
+  s_spk_codec = kSpkEnabled && bus &&
+                i2c_master_probe(bus, kEs8311Addr, 50) == ESP_OK;
+  s_mic_codec = kMicEnabled && bus &&
+                i2c_master_probe(bus, kEs7210Addr, 50) == ESP_OK;
+  if (kSpkEnabled) {
     // PA ピンは「再生中だけON」。起動時は OFF 固定。
     gpio_config_t io{};
     io.pin_bit_mask = 1ULL << BSP_POWER_AMP_IO;
@@ -606,20 +728,18 @@ bool init(const Deps& deps) {
     io.intr_type = GPIO_INTR_DISABLE;
     gpio_config(&io);
     pa_off();
-
-    // コーデック IC の有無を I2C で確認。未搭載なら codec init に進まない
-    // (BSP 側が assert で落ちるため)。音声機能のみ無効化し残りは動かす。
-    i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
-    s_spk_codec = bus && i2c_master_probe(bus, kEs8311Addr, 50) == ESP_OK;
-    s_mic_codec = bus && i2c_master_probe(bus, kEs7210Addr, 50) == ESP_OK;
     if (!s_spk_codec) {
-      ESP_LOGW(TAG, "ES8311(0x%02x) no response - speaker/beep disabled", kEs8311Addr);
-    }
-    if (!s_mic_codec) {
-      ESP_LOGW(TAG, "ES7210(0x%02x) no response - mic/rec disabled", kEs7210Addr);
+      ESP_LOGW(TAG, "ES8311(0x%02x) no response - speaker/beep disabled",
+               kEs8311Addr);
     }
   } else {
-    ESP_LOGW(TAG, "audio disabled (CONFIG_WATCH_DISABLE_AUDIO) - speaker unit absent");
+    ESP_LOGW(TAG, "speaker disabled (WATCH_ENABLE_SPEAKER=n)");
+  }
+  if (kMicEnabled && !s_mic_codec) {
+    ESP_LOGW(TAG, "ES7210(0x%02x) no response - mic/rec disabled",
+             kEs7210Addr);
+  } else if (!kMicEnabled) {
+    ESP_LOGW(TAG, "mic disabled (WATCH_ENABLE_MIC=n)");
   }
 
   esp_vfs_littlefs_conf_t conf{};
@@ -636,12 +756,16 @@ bool init(const Deps& deps) {
   mkdir(kMemoDir, 0775);
   cleanup_tmp_files();
 
-  if (kAudioEnabled &&
-      (xTaskCreate(rec_task, "audio_rec", 4096, nullptr, 8, &s_rec_task) !=
-           pdPASS ||
-       xTaskCreate(play_task, "audio_play", 4096, nullptr, 8, &s_play_task) !=
-           pdPASS)) {
-    ESP_LOGE(TAG, "task create failed");
+  if (kMicEnabled &&
+      xTaskCreate(rec_task, "audio_rec", 4096, nullptr, 8, &s_rec_task) !=
+          pdPASS) {
+    ESP_LOGE(TAG, "rec task create failed");
+    return false;
+  }
+  if (kSpkEnabled &&
+      xTaskCreate(play_task, "audio_play", 4096, nullptr, 8,
+                  &s_play_task) != pdPASS) {
+    ESP_LOGE(TAG, "play task create failed");
     return false;
   }
   s_ready = true;
