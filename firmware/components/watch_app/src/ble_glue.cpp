@@ -406,6 +406,50 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
   svc.free_psram = [](void*) {
     return static_cast<int64_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   };
+  // debug.info (T13): 実機診断。取れない項目は省略可。
+  svc.debug_info = [](cbor::Writer& w, void*) -> bool {
+    int n = 0;
+    // 先に書き込める項目数を数える (RSSI/間隔は接続中だけ)。
+    int8_t rssi = 0;
+    uint16_t itvl = 0;
+    const bool conn = ble_link_conn_info(&rssi, &itvl);
+    board::pmic::PmicStatus ps;
+    const bool has_pmic = board::pmic::pmic_status(&ps);
+    n = 9 + (conn ? 2 : 0) + (has_pmic ? 2 : 0);
+    auto& m = w.map(static_cast<uint32_t>(n));
+    m.text("heap_int")
+        .int_v(static_cast<int64_t>(
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL)))
+        .text("heap_int_min")
+        .int_v(static_cast<int64_t>(
+            heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)))
+        .text("psram")
+        .int_v(static_cast<int64_t>(
+            heap_caps_get_free_size(MALLOC_CAP_SPIRAM)))
+        .text("psram_min")
+        .int_v(static_cast<int64_t>(
+            heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM)))
+        .text("uptime_s")
+        .int_v(esp_timer_get_time() / 1'000'000)
+        .text("reset_reason")
+        .int_v(static_cast<int64_t>(esp_reset_reason()))
+        .text("fw")
+        .text(esp_app_get_description()->version)
+        .text("screen")
+        .text(ui::current_screen_name())
+        .text("battery")
+        .int_v(board::pmic::battery_percent());
+    if (has_pmic) {
+      m.text("batt_mv")
+          .int_v(static_cast<int64_t>(ps.batt_v * 1000))
+          .text("vbus_mv")
+          .int_v(static_cast<int64_t>(ps.vbus_v * 1000));
+    }
+    if (conn) {
+      m.text("ble_rssi").int_v(rssi).text("ble_itvl_ms").int_v(itvl);
+    }
+    return true;
+  };
   svc.timer_start = [](uint32_t seconds, void* c) {
     watch::Action a{};
     a.type = watch::ActionType::TimerStart;

@@ -531,6 +531,41 @@ TEST(Dispatch, MediaStateArtField) {
   EXPECT_EQ(f.media_art, 0u);
 }
 
+TEST(Dispatch, DebugInfo) {
+  SvcFixture f;
+  f.svc.debug_info = [](cbor::Writer& w, void*) -> bool {
+    w.map(3)
+        .text("heap_int").int_v(100)
+        .text("uptime_s").int_v(42)
+        .text("fw").text("1.2.3");
+    return true;
+  };
+  uint8_t out[512];
+  const size_t n = f.req("debug.info", nullptr, out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  cbor::Value top{out, out + n}, m, v;
+  ASSERT_TRUE(cbor::map_find(top, "r", &m));
+  ASSERT_TRUE(cbor::map_find(m, "heap_int", &v));
+  uint64_t u;
+  ASSERT_TRUE(cbor::as_uint(v, &u));
+  EXPECT_EQ(u, 100u);
+  ASSERT_TRUE(cbor::map_find(m, "fw", &v));
+  size_t fwlen;
+  const char* fwt;
+  ASSERT_TRUE(cbor::as_text(v, &fwt, &fwlen));
+  EXPECT_EQ(std::string(fwt, fwlen), "1.2.3");
+}
+
+TEST(Dispatch, DebugInfoWithoutServiceIsErr) {
+  SvcFixture f;  // debug_info 未設定
+  uint8_t out[512];
+  const size_t n = f.req("debug.info", nullptr, out, sizeof(out));
+  const char* code = nullptr;
+  size_t code_n = 0;
+  ASSERT_TRUE(f.res_err_code(out, n, &code, &code_n));
+  EXPECT_EQ(std::string(code, code_n), "internal");
+}
+
 namespace {
 
 struct SvcMemoFixture : SvcFixture {

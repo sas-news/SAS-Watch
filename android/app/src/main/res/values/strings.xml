@@ -175,6 +175,7 @@
 
     <!-- 更新画面 (Wi-Fi 設定 / ファーム更新) -->
     <string name="tab_update">更新</string>
+    <string name="tab_debug">デバッグ</string>
     <string name="update_not_connected">時計に接続するとファームを更新できます。</string>
     <string name="update_current">現在: v%1$s</string>
     <string name="update_unknown">（不明）</string>

@@ -784,6 +784,10 @@ void handle_event(const watch::Event& e) {
 
 const Ctx& ctx() { return s_ctx; }
 
+const char* current_screen_name() {
+  return route_name(s_ctx.nav ? s_ctx.nav->current() : watch::Route::Home);
+}
+
 void set_passkey_confirm(void (*fn)(bool accept)) {
   s_passkey_confirm = fn;
 }

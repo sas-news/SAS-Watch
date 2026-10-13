@@ -52,6 +52,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `alarm.set` | `{hour, min}` + 省略可 `{id:<int>, dow:<int>, on:<bool>}` | `{id:<int>}` | `id` 省略/0 で新規 (満杯なら `busy`)、既存 id で更新 (`not_found`)。`dow` 0-0x7F 省略時 0、`on` 省略時 true |
 | `alarm.delete` | `{id:<int>}` | `{}` | 無い id は `not_found` |
 | `agent.reply` | `{id:<int>, text:<str>}` | `{}` | AI の返答。id は直前の `agent.request` / BULK kind=`"agent_audio"` の id と同じ。text は最大960バイト (UTF-8)。適用できない id でも `ok` |
+| `debug.info` | `{}` | `{heap_int, heap_int_min, psram, psram_min, uptime_s, reset_reason, fw, screen, battery, batt_mv?, vbus_mv?, ble_rssi?, ble_itvl_ms?}` | 実機診断 (T13)。`?` は接続中/PMIC 検出時のみ |
 | `wifi.set` | `{ssid:<1-32文字>, pass:<0または8-63文字>}` | `{}` |
 | `wifi.status` | `{}` | `{configured:<bool>, ssid:<str>}` |
 | `ota.start` | `{url:<http(s)://〜 ≤255文字>, sha256:<bytes32>, version:<str>}` | `{}` |

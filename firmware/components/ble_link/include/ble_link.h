@@ -93,6 +93,10 @@ esp_err_t ble_link_confirm_passkey(bool accept);
 // ---- 時計→スマホ方向の BULK 送信 (音声メモなど) ----
 // bulk characteristic が notify 購読済みなら true。
 bool ble_link_bulk_ready(void);
+
+// 接続中の RSSI (dBm) と接続間隔 (ms)。未接続なら false で out は触らない。
+// debug.info 用。
+bool ble_link_conn_info(int8_t* out_rssi, uint16_t* out_itvl_ms);
 // 1 つの BULK_* メッセージ (payload = CBOR または CHUNK 生バイト) を
 // bulk characteristic で notify する。frame_type は protocol の
 // 0x10 BULK_START / 0x11 BULK_CHUNK / 0x13 BULK_END (ACK は時計側は送らない)。

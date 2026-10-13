@@ -92,6 +92,10 @@ struct Services {
   // settings.* が1キー変わるごとに呼ぶ (反映用)
   void (*setting_changed)(const char* key, void* ctx) = nullptr;
 
+  // debug.info: 実機診断値を w に書く (heap/psram/uptime/reset/fw/
+  // batt_mv/vbus/rssi/itvl/screen)。firmware が埋める。
+  bool (*debug_info)(cbor::Writer& w, void* ctx) = nullptr;
+
   // steps.get 用: 今日の歩数。
   uint32_t (*steps_today)(void* ctx) = nullptr;
 

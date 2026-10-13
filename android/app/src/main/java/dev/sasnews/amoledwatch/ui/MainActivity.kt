@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.ui.screens.AlarmScreen
+import dev.sasnews.amoledwatch.ui.screens.DebugScreen
 import dev.sasnews.amoledwatch.ui.screens.DevicesScreen
 import dev.sasnews.amoledwatch.ui.screens.MemoScreen
 import dev.sasnews.amoledwatch.ui.screens.NotifyScreen
@@ -64,7 +65,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { DEVICES, MEMO, ALARM, SETTINGS, THEMES, UPDATE, NOTIFY }
+enum class Tab { DEVICES, MEMO, ALARM, SETTINGS, THEMES, UPDATE, NOTIFY, DEBUG }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,6 +155,12 @@ fun App(vm: WatchViewModel) {
                     label = { Text(stringResource(R.string.tab_notify)) },
                     icon = {},
                 )
+                NavigationBarItem(
+                    selected = tab == Tab.DEBUG.ordinal,
+                    onClick = { tab = Tab.DEBUG.ordinal },
+                    label = { Text(stringResource(R.string.tab_debug)) },
+                    icon = {},
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -202,6 +209,12 @@ fun App(vm: WatchViewModel) {
                 onOpenNotifSettings = {
                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+            Tab.DEBUG -> DebugScreen(
+                vm = vm,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),

@@ -11,6 +11,7 @@ import dev.sasnews.amoledwatch.protocol.AlarmEntry
 import dev.sasnews.amoledwatch.protocol.AlarmListResult
 import dev.sasnews.amoledwatch.protocol.BulkResumer
 import dev.sasnews.amoledwatch.protocol.Cbor
+import dev.sasnews.amoledwatch.protocol.DebugInfo
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.HelloResult
@@ -105,6 +106,10 @@ class WatchLinkManager(private val app: WatchApp) {
     /** settings.get で読んだ最新の設定。 */
     private val _settings = MutableStateFlow<Map<String, Cbor>?>(null)
     val settings: StateFlow<Map<String, Cbor>?> = _settings
+
+    /** debug.info の最新値 (T13 デバッグ画面)。 */
+    private val _debugInfo = MutableStateFlow<DebugInfo?>(null)
+    val debugInfo: StateFlow<DebugInfo?> = _debugInfo
 
     /** steps.get で読んだ今日の歩数。null は未取得。 */
     private val _steps = MutableStateFlow<StepsInfo?>(null)
@@ -256,6 +261,11 @@ class WatchLinkManager(private val app: WatchApp) {
     suspend fun refreshSettings() {
         val res = send(Req.SettingsGet())
         if (res is Res.Ok) _settings.value = (res.result as? Cbor.Cmap)?.value
+    }
+
+    suspend fun refreshDebugInfo() {
+        val res = send(Req.DebugInfo)
+        if (res is Res.Ok) _debugInfo.value = DebugInfo.fromCbor(res.result)
     }
 
     suspend fun refreshSteps() {

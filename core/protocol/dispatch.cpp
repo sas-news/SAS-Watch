@@ -489,6 +489,15 @@ DispatchError h_ota_start(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// debug.info — 実機診断 (T13)。値の中身は firmware 任せ。
+DispatchError h_debug_info(const cbor::Value&, Services& svc,
+                           cbor::Writer* r) {
+  if (!svc.debug_info || !svc.debug_info(*r, svc.ctx)) {
+    return DispatchError::Internal;
+  }
+  return DispatchError::Ok;
+}
+
 DispatchError h_ota_status(const cbor::Value&, Services& svc,
                            cbor::Writer* r) {
   if (!svc.ota_status) return DispatchError::Internal;
@@ -674,6 +683,7 @@ constexpr Handler kHandlers[] = {
     {"alarm.delete", h_alarm_delete},
     {"wifi.set", h_wifi_set},         {"wifi.status", h_wifi_status},
     {"ota.start", h_ota_start},       {"ota.status", h_ota_status},
+    {"debug.info", h_debug_info},
     {"steps.get", h_steps_get},
     {"agent.reply", h_agent_reply},
 };

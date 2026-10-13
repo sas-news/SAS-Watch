@@ -114,6 +114,12 @@ sealed interface Req {
         override fun params() = Cbor.Cmap(emptyMap())
     }
 
+    /** 実機診断 (T13)。結果は {heap_int,psram,uptime_s,reset_reason,fw,battery,batt_mv?,vbus_mv?,ble_rssi?,ble_itvl_ms?,screen}。 */
+    data object DebugInfo : Req {
+        override val method get() = "debug.info"
+        override fun params() = Cbor.Cmap(emptyMap())
+    }
+
     /** `art`: アルバムアート識別子 u32 (0 = なし)。BULK kind="asset" で送る画像と対応。 */
     data class MediaState(val title: String, val artist: String, val playing: Boolean, val art: Long = 0) : Req {
         override val method get() = "media.state"

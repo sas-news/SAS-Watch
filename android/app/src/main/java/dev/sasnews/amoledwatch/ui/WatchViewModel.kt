@@ -45,6 +45,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     val linkState: StateFlow<LinkState> = manager.linkState
     val hello: StateFlow<HelloResult?> = manager.hello
     val deviceInfo: StateFlow<DeviceInfo?> = manager.deviceInfo
+    val debugInfo: StateFlow<dev.sasnews.amoledwatch.protocol.DebugInfo?> = manager.debugInfo
     val settings: StateFlow<Map<String, Cbor>?> = manager.settings
     val steps: StateFlow<StepsInfo?> = manager.steps
     val log: StateFlow<List<String>> = manager.log
@@ -144,6 +145,8 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshSteps() = viewModelScope.launch { manager.refreshSteps() }
+
+    fun refreshDebug() = viewModelScope.launch { manager.refreshDebugInfo() }
 
     fun saveSettings(values: Map<String, Cbor>) = viewModelScope.launch {
         for ((k, v) in values) manager.setSetting(k, v)

@@ -50,6 +50,9 @@ bool create(const Ctx& ctx);
 // 画面が ctx を引けるように (shell.cpp が保持)。
 const Ctx& ctx();
 
+// 現在の画面名 ("home"/"settings"/"timer" 等。debug.info 用)。
+const char* current_screen_name();
+
 // BLE パスキー確認 (Numeric Comparison)。
 // request_passkey はどのタスクからでも呼べる (内部で LVGL タスクへ中継)。
 void request_passkey(uint32_t passkey);
