@@ -386,8 +386,8 @@ void show_timer_alert() {
     // 描画負荷対策 (T5): radial grad は全面補間が重いので単色 + 細いリング。
     lv_obj_set_style_bg_color(s_alert, lv_color_hex(0x140B05), 0);
     lv_obj_t* ring = lv_obj_create(s_alert);
-    lv_obj_set_size(ring, 220, 220);
-    lv_obj_align(ring, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_set_size(ring, 140, 140);  // 00:00 の背面だけ (「タイマー終了」を跨がない)
+    lv_obj_align(ring, LV_ALIGN_CENTER, 0, -34);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(ring, 2, 0);

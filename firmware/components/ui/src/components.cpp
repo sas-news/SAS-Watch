@@ -560,6 +560,8 @@ lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
   // 長いラベルは末尾 … にする (幅をボタン幅に固定しないと省略されない)。
   lv_obj_set_width(l, LV_PCT(100));
   lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+  // DOTS は高さが可変だと2行目が覗くので 1 行高に固定。
+  lv_obj_set_height(l, lv_font_get_line_height(t.font_body) + 2);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(l);
   skin_apply_obj(b, part, 0, true);

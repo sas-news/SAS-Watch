@@ -349,19 +349,20 @@ void parts_gallery(const char* out_dir, const char* theme_id, int num,
   ui::c::caption(col, "小さいサイズ / 状態");
   lv_obj_t* rs = grow3(col, 40);
   {
+    // 列幅は content 幅 346 から導出 (gap 6 × 2)。
     lv_obj_t* o = ui::c::button_primary(rs, "とても長いボタンラベルの例",
                                         nullptr, nullptr);
-    lv_obj_set_size(o, 172, 40);
+    lv_obj_set_size(o, 184, 40);
     lv_obj_t* o2 = ui::c::button(rs, "副", nullptr, nullptr);
-    lv_obj_set_size(o2, 90, 40);
+    lv_obj_set_size(o2, (346 - 184 - 12) / 2, 40);
     lv_obj_t* o3 = ui::c::button_danger(rs, "危", nullptr, nullptr);
-    lv_obj_set_size(o3, 90, 40);
+    lv_obj_set_size(o3, (346 - 184 - 12) / 2, 40);
     lv_obj_add_state(o3, LV_STATE_PRESSED);
   }
   lv_obj_t* rs2 = grow3(col, 40);
   {
     lv_obj_t* cd = ui::c::card(rs2);
-    lv_obj_set_size(cd, 172, 40);
+    lv_obj_set_size(cd, 184, 40);
     glabel(cd, "小カード");
     lv_obj_t* sw = ui::c::mk_switch(rs2, true);
     lv_obj_set_size(sw, 46, 26);  // 小スイッチ (knob は track−2·pad で導出)
