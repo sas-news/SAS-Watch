@@ -760,7 +760,8 @@ int main(int argc, char** argv) {
   tap(205, 130);
   pump(200);
   ok &= save(out, "43_notification_detail");
-  tap(205, 290);  // 一覧に戻る (detail カード末尾のボタン)
+  tap(205, 212);  // 一覧に戻る (detail カード内のボタン y≈188-236。
+                  // 290 は列末尾の「すべて消す」を踏む)
   pump(200);
 
   // 通知ポップアップ: notify.post 相当 (store 追加 + NotificationPosted)。
