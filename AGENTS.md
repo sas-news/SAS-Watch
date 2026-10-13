@@ -1,6 +1,7 @@
 # AGENTS.md
 
 作業前に `docs/plan.md`（設計）、`docs/board.md`（ハード）、`docs/protocol-v1.md`（BLE仕様）を読むこと。
+残タスクと決定済みの方針は `docs/roadmap.md`。そこにある順・方針どおりに進め、各タスクの `状態:` を更新する。
 
 ## ルール
 - `core/` は ESP-IDF / LVGL / FreeRTOS のヘッダを include しない。時刻・保存・ログは `core/include/watch/platform.hpp` のインターフェース経由。PC（Linux, g++/clang, CMake, GoogleTest）でビルド・テストできる状態を保つ。
