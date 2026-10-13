@@ -102,11 +102,17 @@ lv_obj_t* build(lv_obj_t* scr) {
                 [](lv_event_t*) { show_list(); }, nullptr);
   lv_obj_add_flag(s.detail_box, LV_OBJ_FLAG_HIDDEN);
 
+  // 全削除は確認ダイアログを経る (T14 操作ルール)。
   ui::c::button_danger(
       col, "すべて消す",
       [](lv_event_t*) {
-        ui::emit(watch::ActionType::NotifyClearAll);
-        show_list();
+        ui::c::confirm(
+            nullptr, "通知をすべて消しますか？",
+            [](lv_event_t*) {
+              ui::emit(watch::ActionType::NotifyClearAll);
+              show_list();
+            },
+            nullptr);
       },
       nullptr);
 

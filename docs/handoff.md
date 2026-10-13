@@ -328,6 +328,7 @@ BOOT短=その画面の主操作 / 右スワイプ=戻る(Home以外) /
 |---|---|---|
 | メモ詳細 (apps/memo/screen.cpp:178) | 「削除」が即 MemoDelete | `ui::c::confirm` ダイアログを追加して経由 |
 | カウンター (apps/counter/screen.cpp:47) | 「リセット」が即 CounterReset | 同上 (値を失うので破壊的扱い) |
+| 通知一覧 (apps/notify/screen.cpp:105) | 「すべて消す」が即 NotifyClearAll | 同上 |
 
 `ui::c::confirm` (components.cpp): layer_top に半透明黒の全面
 オーバーレイ + 中央カード (msg + はい/いいえ)。いいえ・枠外タップは
