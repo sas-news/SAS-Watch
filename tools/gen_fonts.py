@@ -111,6 +111,39 @@ NUM_SYMBOLS = "0123456789:.,-/% "
 
 STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
+# lv_font_conv の glyph_dsc 行: {.bitmap_index = i, .adv_w = a, ...}
+GLYPH_DSC_RE = re.compile(
+    r"\{\.bitmap_index = (\d+), \.adv_w = (\d+), \.box_w = (\d+), "
+    r"\.box_h = (\d+), \.ofs_x = (-?\d+), \.ofs_y = (-?\d+)\}")
+
+
+def monospace_digits(path: pathlib.Path) -> None:
+    """fc_* フォントの数字グリフを等幅化する後処理。
+
+    lv_font_conv には等幅化の手段が無い (tnum feature はこれらの TTF に
+    入っていない) のため、数字グリフの adv_w を最大幅に揃え、ずれた分だけ
+    ofs_x を足してグリフをセル中央に保つ。cmap は unicode 昇順なので
+    "0123456789:." のグリフ順は [予約, '.', '0'-'9', ':'] = 添字 2..11。
+    """
+    text = path.read_text(encoding="utf-8")
+    matches = list(GLYPH_DSC_RE.finditer(text))
+    if len(matches) < 13:
+        sys.exit(f"glyph_dsc が 13 個未満 ({path}: {len(matches)})")
+    digit_max = max(int(matches[i].group(2)) for i in range(2, 12))
+    out, last = [], 0
+    for i, m in enumerate(matches):
+        out.append(text[last:m.start()])
+        bi, adv, bw, bh, ox, oy = (int(g) for g in m.groups())
+        if 2 <= i <= 11:
+            ox += (digit_max - adv) // 2
+            adv = digit_max
+        out.append(
+            f"{{.bitmap_index = {bi}, .adv_w = {adv}, .box_w = {bw}, "
+            f".box_h = {bh}, .ofs_x = {ox}, .ofs_y = {oy}}}")
+        last = m.end()
+    out.append(text[last:])
+    path.write_text("".join(out), encoding="utf-8")
+
 
 def collect_ui_chars() -> str:
     """UI ソースの文字列リテラルに含まれる非ASCII文字を全部拾う。"""
@@ -220,6 +253,7 @@ def main() -> int:
                 "--lv-font-name", name,
                 "-o", str(out / f"{name}.c"),
             ])
+            monospace_digits(out / f"{name}.c")
 
     print(f"done -> {out}")
     return 0

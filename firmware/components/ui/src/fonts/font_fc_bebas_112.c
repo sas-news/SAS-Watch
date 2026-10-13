@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 112 px
  * Bpp: 4
- * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/BebasNeue-400.ttf --size 112 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_bebas_112 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_bebas_112.c
+ * Opts: --font /home/sasnews/Desktop/ai-space/SAS-Watch/tools/fonts/face/BebasNeue-400.ttf --size 112 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_bebas_112 -o /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/components/ui/src/fonts/font_fc_bebas_112.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

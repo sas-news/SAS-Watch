@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 18 px
  * Bpp: 4
- * Opts: --font /home/ubuntu/repos/SAS-Watch/tools/fonts/face/Outfit-300.ttf --size 18 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_outfit_18 -o /home/ubuntu/repos/SAS-Watch/firmware/components/ui/src/fonts/font_fc_outfit_18.c
+ * Opts: --font /home/sasnews/Desktop/ai-space/SAS-Watch/tools/fonts/face/Outfit-300.ttf --size 18 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:. --lv-font-name font_fc_outfit_18 -o /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/components/ui/src/fonts/font_fc_outfit_18.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -125,15 +125,15 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
     {.bitmap_index = 0, .adv_w = 83, .box_w = 3, .box_h = 3, .ofs_x = 1, .ofs_y = 0},
     {.bitmap_index = 5, .adv_w = 189, .box_w = 11, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 68, .adv_w = 97, .box_w = 5, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 79, .adv_w = 156, .box_w = 9, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 129, .adv_w = 154, .box_w = 9, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 179, .adv_w = 172, .box_w = 11, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 227, .adv_w = 155, .box_w = 9, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 275, .adv_w = 163, .box_w = 10, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 332, .adv_w = 152, .box_w = 9, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 373, .adv_w = 159, .box_w = 10, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 435, .adv_w = 163, .box_w = 10, .box_h = 13, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 68, .adv_w = 189, .box_w = 5, .box_h = 13, .ofs_x = 46, .ofs_y = 0},
+    {.bitmap_index = 79, .adv_w = 189, .box_w = 9, .box_h = 13, .ofs_x = 16, .ofs_y = 0},
+    {.bitmap_index = 129, .adv_w = 189, .box_w = 9, .box_h = 13, .ofs_x = 17, .ofs_y = 0},
+    {.bitmap_index = 179, .adv_w = 189, .box_w = 11, .box_h = 13, .ofs_x = 8, .ofs_y = 0},
+    {.bitmap_index = 227, .adv_w = 189, .box_w = 9, .box_h = 13, .ofs_x = 17, .ofs_y = 0},
+    {.bitmap_index = 275, .adv_w = 189, .box_w = 10, .box_h = 13, .ofs_x = 13, .ofs_y = 0},
+    {.bitmap_index = 332, .adv_w = 189, .box_w = 9, .box_h = 13, .ofs_x = 18, .ofs_y = 0},
+    {.bitmap_index = 373, .adv_w = 189, .box_w = 10, .box_h = 13, .ofs_x = 15, .ofs_y = 0},
+    {.bitmap_index = 435, .adv_w = 189, .box_w = 10, .box_h = 13, .ofs_x = 13, .ofs_y = 0},
     {.bitmap_index = 493, .adv_w = 78, .box_w = 3, .box_h = 8, .ofs_x = 1, .ofs_y = 0}
 };
 

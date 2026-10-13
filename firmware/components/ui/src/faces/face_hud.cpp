@@ -140,7 +140,8 @@ lv_obj_t* build(lv_obj_t* scr) {
 
   // 中央の大きな数字。
   s.time = ui::face::label(scr, "00:00", ui::face::digits(112), t.text);
-  lv_obj_align(s.time, LV_ALIGN_TOP_MID, 0, 96);
+  // 等幅化でバウンディングが広がったので少し下げて角帯から外す。
+  lv_obj_align(s.time, LV_ALIGN_TOP_MID, 0, 102);
   lv_obj_set_style_text_letter_space(s.time, 2, 0);
 
   // 和文日付 (左寄せ)。
