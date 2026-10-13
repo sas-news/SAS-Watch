@@ -31,22 +31,27 @@ set(WATCH_UI_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_l_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_34.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_oswald_18.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_34.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_bebas_18.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_34.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_orbitron_18.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_34.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_outfit_18.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_150.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_112.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_96.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_34.c
     ${CMAKE_CURRENT_LIST_DIR}/src/fonts/font_fc_chakra_18.c
 )

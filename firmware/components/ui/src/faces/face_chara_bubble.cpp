@@ -242,7 +242,7 @@ lv_obj_t* build(lv_obj_t* scr) {
     s.bubble_l = ui::face::label(scr, "", t.font_body, t.bubble_text);
     lv_obj_set_width(s.bubble_l, 166);
     lv_label_set_long_mode(s.bubble_l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(s.bubble_l, 24, 272);
+    lv_obj_set_pos(s.bubble_l, 36, 272);
   } else {
     s.bubble_l = lv_label_create(scr);
     lv_obj_add_flag(s.bubble_l, LV_OBJ_FLAG_HIDDEN);

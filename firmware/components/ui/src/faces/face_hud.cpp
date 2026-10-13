@@ -139,10 +139,10 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_add_flag(s.ble_dot, LV_OBJ_FLAG_EVENT_BUBBLE);
 
   // 中央の大きな数字。
-  s.time = ui::face::label(scr, "00:00", ui::face::digits(112), t.text);
-  // 等幅化でバウンディングが広がったので少し下げて角帯から外す。
+  // 96px (112 だと等幅化後にコンテンツ幅 346 をはみ出すので一回り小さい)。
+  s.time = ui::face::label(scr, "00:00", ui::face::digits(96), t.text);
   lv_obj_align(s.time, LV_ALIGN_TOP_MID, 0, 102);
-  lv_obj_set_style_text_letter_space(s.time, 2, 0);
+  // letter_space は 0: 等幅化後の数字幅で 346px 内に収める。
 
   // 和文日付 (左寄せ)。
   s.jp = ui::face::label(scr, "", t.font_body, t.text_dim);

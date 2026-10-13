@@ -126,11 +126,13 @@ void skin_card(lv_obj_t* o) {
       (t.style.set & (1u << watch::kStyleCardOpa)) ? t.style.card_opa
                                                    : LV_OPA_COVER,
       0);
+  // カード枠: 内蔵テーマは 1px の line 色。style.border_w/border が
+  // 指定されていればそちらを優先 (LVGL 既定の白枠を残さない)。
   const uint8_t bw = (t.style.set & (1u << watch::kStyleBorderW))
                          ? t.style.border_w
-                         : 0;
+                         : 1;
+  lv_obj_set_style_border_width(o, bw, 0);
   if (bw) {
-    lv_obj_set_style_border_width(o, bw, 0);
     lv_obj_set_style_border_color(
         o,
         (t.style.set & (1u << watch::kStyleBorder))
@@ -544,8 +546,10 @@ lv_obj_t* mk_button(lv_obj_t* parent, const char* text,
   lv_obj_set_style_bg_opa(b, bg_opa, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
   lv_obj_t* l = mk_label(b, text, t.font_body, fg);
-  // 長いラベルは中央省略ではなく末尾 … にする。
+  // 長いラベルは末尾 … にする (幅をボタン幅に固定しないと省略されない)。
+  lv_obj_set_width(l, LV_PCT(100));
   lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(l);
   skin_apply_obj(b, part, 0, true);
   if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, ud);
@@ -755,7 +759,9 @@ lv_obj_t* mk_switch(lv_obj_t* row, bool on) {
       sw, lv_color_mix(t.text_dim, t.text, 170), LV_PART_KNOB);
   lv_obj_set_style_bg_color(sw, lv_color_hex(0xFFFFFF),
                             LV_PART_KNOB | LV_STATE_CHECKED);
-  lv_obj_set_style_pad_all(sw, (kSwitchH - kKnob) / 2, LV_PART_KNOB);
+  // LVGL の switch は KNOB pad 分だけノブが track より大きくなる
+  // (pad<0 で小さく)。knob = track - 2·3 = 24 にするため pad=-3。
+  lv_obj_set_style_pad_all(sw, (kKnob - kSwitchH) / 2, LV_PART_KNOB);
   // ノブの影・外周は付けない (ON/OFF は色だけで表す)。
   lv_obj_set_style_shadow_width(sw, 0, LV_PART_KNOB);
   lv_obj_set_style_outline_width(sw, 0, LV_PART_KNOB);

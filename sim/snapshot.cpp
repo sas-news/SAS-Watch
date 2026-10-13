@@ -149,8 +149,29 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
         }
         if (bad) {
           char head[40] = "";
-          if (text) std::snprintf(head, sizeof(head), "%.30s", text);
+          if (text) {
+            std::snprintf(head, sizeof(head), "%.30s", text);
+            for (char* q = head; *q; ++q)
+              if (*q == '\n') *q = ' ';
+          }
           std::fprintf(s_report, "%s / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
+                       s_audit_screen, kind, (int)a.x1, (int)a.y1,
+                       (int)a.x2, (int)a.y2, head);
+        }
+        // 左右余白: テキスト bbox がコンテンツ余白 kPad(32) を越えたら警告。
+        // スクロール領域の内側 (clip が画面全体でない) は行幅に制限済み
+        // なので除外し、自由配置の面だけを見る。
+        const bool free_pos =
+            clip.x1 <= 0 && clip.y1 <= 0 && clip.x2 >= kW - 1 &&
+            clip.y2 >= kH - 1;
+        if (free_pos && text && text[0] &&
+            (a.x1 < 32 || a.x2 > kW - 1 - 32)) {
+          char head[40] = "";
+          std::snprintf(head, sizeof(head), "%.30s", text);
+          for (char* q = head; *q; ++q)
+            if (*q == '\n') *q = ' ';
+          std::fprintf(s_report,
+                       "%s / margin / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
                        s_audit_screen, kind, (int)a.x1, (int)a.y1,
                        (int)a.x2, (int)a.y2, head);
         }
@@ -297,7 +318,8 @@ void parts_gallery(const char* out_dir, const char* theme_id, int num,
     lv_obj_t* r = grow3(col, 30);
     for (int i = 0; i < 3; ++i) {
       lv_obj_t* o = b.mk(r, b.tx, nullptr, nullptr);
-      lv_obj_set_size(o, 118, 30);
+      // 列幅は content 幅 (346) から計算: (346 - 2*gap 6) / 3。
+      lv_obj_set_size(o, (346 - 12) / 3, 30);
       if (sts[i]) lv_obj_add_state(o, sts[i]);
     }
   }

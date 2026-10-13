@@ -18,22 +18,27 @@ LV_FONT_DECLARE(font_digits_56);
 LV_FONT_DECLARE(font_fc_oswald_150);
 LV_FONT_DECLARE(font_fc_oswald_l_150);
 LV_FONT_DECLARE(font_fc_oswald_112);
+LV_FONT_DECLARE(font_fc_oswald_96);
 LV_FONT_DECLARE(font_fc_oswald_34);
 LV_FONT_DECLARE(font_fc_oswald_18);
 LV_FONT_DECLARE(font_fc_bebas_150);
 LV_FONT_DECLARE(font_fc_bebas_112);
+LV_FONT_DECLARE(font_fc_bebas_96);
 LV_FONT_DECLARE(font_fc_bebas_34);
 LV_FONT_DECLARE(font_fc_bebas_18);
 LV_FONT_DECLARE(font_fc_orbitron_150);
 LV_FONT_DECLARE(font_fc_orbitron_112);
+LV_FONT_DECLARE(font_fc_orbitron_96);
 LV_FONT_DECLARE(font_fc_orbitron_34);
 LV_FONT_DECLARE(font_fc_orbitron_18);
 LV_FONT_DECLARE(font_fc_outfit_150);
 LV_FONT_DECLARE(font_fc_outfit_112);
+LV_FONT_DECLARE(font_fc_outfit_96);
 LV_FONT_DECLARE(font_fc_outfit_34);
 LV_FONT_DECLARE(font_fc_outfit_18);
 LV_FONT_DECLARE(font_fc_chakra_150);
 LV_FONT_DECLARE(font_fc_chakra_112);
+LV_FONT_DECLARE(font_fc_chakra_96);
 LV_FONT_DECLARE(font_fc_chakra_34);
 LV_FONT_DECLARE(font_fc_chakra_18);
 
@@ -72,21 +77,27 @@ struct ClockFont {
   const lv_font_t* px150;       // 縦積み大数字
   const lv_font_t* px150_thin;  // 縦積みの「細」側 (無ければ px150)
   const lv_font_t* px112;       // 横並び大数字
+  const lv_font_t* px96;        // 幅に余裕がない画面の大数字
   const lv_font_t* px34;        // analog 数字
   const lv_font_t* px18;        // 小さい数値
 };
 
 const ClockFont kFonts[] = {
     {"oswald", &font_fc_oswald_150, &font_fc_oswald_l_150,
-     &font_fc_oswald_112, &font_fc_oswald_34, &font_fc_oswald_18},
+     &font_fc_oswald_112, &font_fc_oswald_96, &font_fc_oswald_34,
+     &font_fc_oswald_18},
     {"bebas", &font_fc_bebas_150, nullptr,
-     &font_fc_bebas_112, &font_fc_bebas_34, &font_fc_bebas_18},
+     &font_fc_bebas_112, &font_fc_bebas_96, &font_fc_bebas_34,
+     &font_fc_bebas_18},
     {"orbitron", &font_fc_orbitron_150, nullptr,
-     &font_fc_orbitron_112, &font_fc_orbitron_34, &font_fc_orbitron_18},
+     &font_fc_orbitron_112, &font_fc_orbitron_96, &font_fc_orbitron_34,
+     &font_fc_orbitron_18},
     {"outfit", &font_fc_outfit_150, nullptr,
-     &font_fc_outfit_112, &font_fc_outfit_34, &font_fc_outfit_18},
+     &font_fc_outfit_112, &font_fc_outfit_96, &font_fc_outfit_34,
+     &font_fc_outfit_18},
     {"chakra", &font_fc_chakra_150, nullptr,
-     &font_fc_chakra_112, &font_fc_chakra_34, &font_fc_chakra_18},
+     &font_fc_chakra_112, &font_fc_chakra_96, &font_fc_chakra_34,
+     &font_fc_chakra_18},
 };
 
 const ClockFont* font_by_id(const char* id) {
@@ -109,6 +120,7 @@ const lv_font_t* at(const ClockFont* f, int px, bool thin) {
   switch (px) {
     case 150: return (thin && f->px150_thin) ? f->px150_thin : f->px150;
     case 112: return f->px112;
+    case 96: return f->px96;
     case 34: return f->px34;
     case 18: return f->px18;
     default: return f->px112;

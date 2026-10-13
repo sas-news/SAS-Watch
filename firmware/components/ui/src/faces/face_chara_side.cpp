@@ -131,14 +131,14 @@ lv_obj_t* build(lv_obj_t* scr) {
     lv_obj_align(s.date, LV_ALIGN_TOP_LEFT, 34, 38);  // 時の ink と重ならない位置
 
     s.hour = ui::face::label(scr, "00", ui::face::digits(150), t.text);
-    lv_obj_align(s.hour, LV_ALIGN_TOP_LEFT, 30, 68);
+    lv_obj_align(s.hour, LV_ALIGN_TOP_LEFT, 34, 68);
     lv_obj_set_style_text_letter_space(s.hour, -2, 0);
 
     // 線の上下に12px以上の余白を取る (時 ink下端 ~222, 分上端 ~254)。
     ui::face::rect(scr, 36, 238, 160 - 36, 3, t.accent5, 1);
 
     s.min = ui::face::label(scr, "00", ui::face::digits(150), t.accent5);
-    lv_obj_align(s.min, LV_ALIGN_TOP_LEFT, 30, 254);
+    lv_obj_align(s.min, LV_ALIGN_TOP_LEFT, 34, 254);
     lv_obj_set_style_text_letter_space(s.min, -2, 0);
 
     // 左下: 電池・歩数 (名前は薄く、値は白)。
