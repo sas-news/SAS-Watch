@@ -38,6 +38,20 @@ static esp_lcd_touch_handle_t s_tp = nullptr;
 static lv_display_t* s_disp = nullptr;
 static lv_indev_t* s_indev = nullptr;
 
+// perf_mark_screen で積まれた画面名を、次の RENDER_READY で消費する。
+static const char* s_perf_screen = nullptr;
+static uint32_t s_perf_render_start = 0;
+
+static void perf_render_cb(lv_event_t* e) {
+  if (lv_event_get_code(e) == LV_EVENT_RENDER_START) {
+    s_perf_render_start = lv_tick_get();
+  } else if (s_perf_screen) {
+    ESP_LOGI("perf", "screen=%s render=%lums", s_perf_screen,
+             (unsigned long)lv_tick_elaps(s_perf_render_start));
+    s_perf_screen = nullptr;
+  }
+}
+
 // BSP rounder_event_cb と同じ (esp32_s3_touch_amoled_2_06.c):
 // CO5300 の invalid area は偶数座標でないとチラつくため丸める。
 static void rounder_event_cb(lv_event_t* e) {
@@ -54,6 +68,8 @@ static void rounder_event_cb(lv_event_t* e) {
 }
 
 namespace ui {
+
+void perf_mark_screen(const char* name) { s_perf_screen = name; }
 
 // indev の PRESSED で Wake Action を emit する (消灯中のタップ起こし)。
 // widget に当たらない場所のタップでも発火するので全面で起きる。
@@ -234,8 +250,14 @@ lv_display_t* init_display() {
   s_disp = lvgl_port_add_disp(&disp_cfg);
   ESP_RETURN_ON_FALSE(s_disp != nullptr, nullptr, TAG, "add_disp failed");
 
-  // 偶数丸め (BSP と同じイベント)。
+    // 偶数丸め (BSP と同じイベント)。
   lv_display_add_event_cb(s_disp, rounder_event_cb, LV_EVENT_INVALIDATE_AREA,
+                          nullptr);
+
+  // 画面遷移ごとの初回 render 計測 (perf_mark_screen が名前を積む)。
+  lv_display_add_event_cb(s_disp, perf_render_cb, LV_EVENT_RENDER_START,
+                          nullptr);
+  lv_display_add_event_cb(s_disp, perf_render_cb, LV_EVENT_RENDER_READY,
                           nullptr);
 
   // タッチ (CST816S 想定 — BSP が i2c 初期化済み)。

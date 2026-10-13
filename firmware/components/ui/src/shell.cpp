@@ -5,6 +5,7 @@
 
 #include "components.hpp"
 #include "faces/faces.hpp"
+#include "perf.hpp"
 #include "theme_res.hpp"
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
@@ -261,6 +262,18 @@ void skin_base(lv_obj_t* scr, int8_t sidx) {
   }
 }
 
+// Route → ログ用の画面名 (テーマ名表 + スキン対象外の3種)。
+const char* route_name(watch::Route r) {
+  const int8_t sidx = kRouteScreen[static_cast<int>(r)];
+  if (sidx >= 0) return watch::kThemeScreenNames[sidx];
+  switch (r) {
+    case watch::Route::About: return "about";
+    case watch::Route::Dev: return "dev";
+    case watch::Route::Confirm: return "confirm";
+    default: return "none";
+  }
+}
+
 void swap_screen(watch::Route r, bool rebuild = false) {
   const ScreenOps* ops = screen_ops(r);
   if (!ops) {
@@ -281,6 +294,7 @@ void swap_screen(watch::Route r, bool rebuild = false) {
     lv_screen_load_anim(s_home, anim, t.anim_ms, 0, false);
     s_cur = s_home;
     s_ops = ops;
+    perf_mark_screen(route_name(r));
     if (prev && prev != s_home) schedule_delete(prev, t.anim_ms + 60);
     if (s_ops->on_event) {
       // 再表示時に時刻・状態を最新化するためダミーの Tick を流す。
@@ -307,6 +321,7 @@ void swap_screen(watch::Route r, bool rebuild = false) {
   }
   s_cur = scr;
   s_ops = ops;
+  perf_mark_screen(route_name(r));
   if (prev && prev != s_home) schedule_delete(prev, t.anim_ms + 60);
 }
 

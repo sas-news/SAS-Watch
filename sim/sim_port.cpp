@@ -252,6 +252,11 @@ void theme_tmp_free(uint8_t* p) { std::free(p); }
 
 }  // namespace ui::port
 
+namespace ui {
+// sim は描画計測しない (実装は firmware の esp_display.cpp)。
+void perf_mark_screen(const char*) {}
+}  // namespace ui
+
 namespace sim {
 
 void set_ota_debug(int stage, int pct, const char* msg, const char* version) {

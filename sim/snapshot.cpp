@@ -21,6 +21,7 @@
 #include "watch/features/notify.hpp"
 #include "watch/features/steps.hpp"
 #include "watch/input_mapper.hpp"
+#include "watch/safe_area.hpp"
 #include "watch/power.hpp"
 #include "watch/runtime.hpp"
 #include "components.hpp"
@@ -82,10 +83,109 @@ void pump(int ms) {
   }
 }
 
+// ---- 安全域監査 (roadmap T0-2) ---------------------------------------
+// 各スクリーンショット取得時に LVGL オブジェクトツリーを巡回し、
+// テキストを持つか CLICKABLE なオブジェクトの座標を safe_area で判定。
+// 装飾 (画像・背景) は対象外、画面外のオブジェクトも角カットとは無関係
+// なので無視する。違反は <out>/safe_area_report.txt に書く。
+
+FILE* s_report = nullptr;
+const char* s_audit_screen = nullptr;
+
+void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
+  if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+  // 画面と交差するものだけ (スクロールで外に出た行は角カットと無関係)。
+  if (a.x1 < kW && a.x2 >= 0 && a.y1 < kH && a.y2 >= 0) {
+    // 全画面をほぼ覆うもの (画面root・アラート背景) は全幅の帯として除外。
+    const int w = a.x2 - a.x1 + 1, h = a.y2 - a.y1 + 1;
+    const bool full_bleed = (a.x1 <= 0 && a.x2 >= kW - 1);
+    if (!full_bleed) {
+      // 種類名は public API の lv_obj_check_type で判別 (class 構造体は private)。
+      const struct {
+        const lv_obj_class_t* cls;
+        const char* name;
+      } kinds[] = {
+          {&lv_label_class, "label"}, {&lv_button_class, "button"},
+          {&lv_arc_class, "arc"},     {&lv_slider_class, "slider"},
+          {&lv_switch_class, "sw"},   {&lv_image_class, "img"},
+      };
+      const char* kind = "obj";
+      const char* text = nullptr;
+      for (const auto& k : kinds) {
+        if (lv_obj_check_type(o, k.cls)) {
+          kind = k.name;
+          if (k.cls == &lv_label_class) text = lv_label_get_text(o);
+          break;
+        }
+      }
+      // 対象: テキストを持つ、または自分で描く要素 (bg/border/角丸が見える)。
+      // 透明なクリックゾーンやレイアウト容器は対象外。
+      const int32_t radius = lv_obj_get_style_radius(o, LV_PART_MAIN);
+      const bool draws =
+          lv_obj_get_style_bg_opa(o, LV_PART_MAIN) > LV_OPA_TRANSP ||
+          lv_obj_get_style_border_width(o, LV_PART_MAIN) > 0;
+      const bool check = (text && text[0]) ||
+                         (lv_obj_has_flag(o, LV_OBJ_FLAG_CLICKABLE) && draws) ||
+                         (radius > 0 && draws);
+      if (check) {
+        // 角丸オブジェクトは描画角がバウンディング角より内側
+        // (内側の弧の極値 = r·(1-√2/2) ≈ 0.293·r)。
+        const int r = LV_MIN(LV_MIN(radius, w / 2), h / 2);
+        const int k = (int)(r * 0.293f + 0.5f);
+        const int cx[4] = {a.x1 + k, a.x2 - k, a.x1 + k, a.x2 - k};
+        const int cy[4] = {a.y1 + k, a.y1 + k, a.y2 - k, a.y2 - k};
+        bool bad = false;
+        for (int i = 0; i < 4; ++i) {
+          // 親の clip 内・画面内にある角点だけ判定
+          // (clip 外の角点は描かれないので角カットに無関係)。
+          const bool in_clip = cx[i] >= clip.x1 && cx[i] <= clip.x2 &&
+                               cy[i] >= clip.y1 && cy[i] <= clip.y2;
+          if (in_clip && cx[i] >= 0 && cx[i] < kW && cy[i] >= 0 &&
+              cy[i] < kH && !watch::point_in_safe_area(cx[i], cy[i])) {
+            bad = true;
+          }
+        }
+        if (bad) {
+          char head[40] = "";
+          if (text) std::snprintf(head, sizeof(head), "%.30s", text);
+          std::fprintf(s_report, "%s / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
+                       s_audit_screen, kind, (int)a.x1, (int)a.y1,
+                       (int)a.x2, (int)a.y2, head);
+        }
+      }
+    }
+  }
+  // 子に渡す clip: スクロール可能な親は内容領域で子を切る、それ以外は
+  // 子がはみ出せるので親の外形のまま。
+  lv_area_t child_clip;
+  if (lv_obj_has_flag(o, LV_OBJ_FLAG_SCROLLABLE)) {
+    lv_obj_get_content_coords(o, &child_clip);
+  } else {
+    child_clip = a;
+  }
+  child_clip.x1 = LV_MAX(child_clip.x1, clip.x1);
+  child_clip.y1 = LV_MAX(child_clip.y1, clip.y1);
+  child_clip.x2 = LV_MIN(child_clip.x2, clip.x2);
+  child_clip.y2 = LV_MIN(child_clip.y2, clip.y2);
+  const uint32_t n = lv_obj_get_child_count(o);
+  for (uint32_t i = 0; i < n; ++i) audit_walk(lv_obj_get_child(o, i), child_clip);
+}
+
+void audit_screen(const char* name) {
+  if (!s_report) return;
+  s_audit_screen = name;
+  const lv_area_t scr_clip{0, 0, kW - 1, kH - 1};
+  audit_walk(lv_screen_active(), scr_clip);
+  audit_walk(lv_layer_top(), scr_clip);  // トースト/アラートは layer_top に載る
+}
+
 bool save(const char* dir, const char* name) {
   char path[512];
   std::snprintf(path, sizeof(path), "%s/%s.png", dir, name);
   const bool ok = write_png_rgb565(path, s_fb, kW, kH);
+  audit_screen(name);
   std::printf("%s -> %s\n", name, ok ? "ok" : "FAILED");
   return ok;
 }
@@ -313,12 +413,23 @@ bool seam_check() {
 
 int main(int argc, char** argv) {
   const char* out = "docs/screenshots";
+  const char* only_theme = nullptr;  // --theme <id> でテーマ節を絞る
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
       out = argv[++i];
+    } else if (std::strcmp(argv[i], "--theme") == 0 && i + 1 < argc) {
+      only_theme = argv[++i];
     }
   }
   std::filesystem::create_directories(out);
+  const auto want_theme = [only_theme](const char* id) {
+    return !only_theme || std::strcmp(only_theme, id) == 0;
+  };
+  {
+    char rp[512];
+    std::snprintf(rp, sizeof(rp), "%s/safe_area_report.txt", out);
+    s_report = std::fopen(rp, "w");
+  }
 
   watch::log_set(&sim::log());
 
@@ -506,24 +617,28 @@ int main(int argc, char** argv) {
   pump(200);
 
   // ---- テーマ切替 (docs/theme-format.md) ----
-  // 内蔵の明るめテーマ。
-  back_home();
-  ui::emit_text(watch::ActionType::SetTheme, "light");
-  pump(500);
-  ok &= save(out, "15_theme_light_home");
-  nav_to(watch::Route::Settings);
-  ok &= save(out, "16_theme_light_settings");
+  if (want_theme("light")) {
+    // 内蔵の明るめテーマ。
+    back_home();
+    ui::emit_text(watch::ActionType::SetTheme, "light");
+    pump(500);
+    ok &= save(out, "15_theme_light_home");
+    nav_to(watch::Route::Settings);
+    ok &= save(out, "16_theme_light_settings");
+  }
 
-  // サンプルキャラテーマ (sim/themes/mame。tools/build_themes.py で生成)。
-  back_home();
-  ui::emit_text(watch::ActionType::SetTheme, "mame");
-  pump(500);
-  ok &= save(out, "17_theme_mame_home");
-  s_bus.publish({watch::EventType::TimerFinished, 0});
-  pump(300);
-  ok &= save(out, "18_theme_mame_timer");
-  tap(205, 387);  // 止める
-  pump(200);
+  if (want_theme("mame")) {
+    // サンプルキャラテーマ (sim/themes/mame。tools/build_themes.py で生成)。
+    back_home();
+    ui::emit_text(watch::ActionType::SetTheme, "mame");
+    pump(500);
+    ok &= save(out, "17_theme_mame_home");
+    s_bus.publish({watch::EventType::TimerFinished, 0});
+    pump(300);
+    ok &= save(out, "18_theme_mame_timer");
+    tap(205, 387);  // 止める
+    pump(200);
+  }
 
   // 元に戻しておく。
   ui::emit_text(watch::ActionType::SetTheme, "standard");
@@ -674,6 +789,7 @@ int main(int argc, char** argv) {
   // ---- テーマ v2 サンプル「cosmos」 ----
   // sim/themes/cosmos.zip を zip 直読み (展開済み dir は読まない)。
   // screens/style/icons/fonts/mascot/face_layout の v2 全キーを行使。
+  if (want_theme("cosmos")) {
   back_home();
   ui::emit_text(watch::ActionType::SetFace, "theme");  // face_layout 駆動
   ui::emit_text(watch::ActionType::SetTheme, "cosmos");
@@ -723,11 +839,13 @@ int main(int argc, char** argv) {
   nav_to(watch::Route::Quick);
   pump(200);
   ok &= save(out, "68_theme_cosmos_quick");
+  }  // want_theme("cosmos")
 
   // ---- テーマ v3 サンプル「cyber」「cute」 ----
   // sim/themes/<id>.zip (tools/build_themes.py --kit が kit.html から生成)。
   // skin の 9-slice 画像スキンが全コンポーネントに効く。
   for (const char* theme_id : {"cyber", "cute"}) {
+    if (!want_theme(theme_id)) continue;
     const bool cy = theme_id[0] == 'c' && theme_id[1] == 'y';
     int n = cy ? 70 : 80;
     char nm[64];
@@ -793,6 +911,10 @@ int main(int argc, char** argv) {
   ui::emit_text(watch::ActionType::SetTheme, "standard");
   pump(400);
 
+  if (s_report) {
+    std::fclose(s_report);
+    s_report = nullptr;
+  }
   std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
   return ok ? 0 : 1;
 }

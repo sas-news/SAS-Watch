@@ -54,6 +54,8 @@
 #define LV_USE_DEMO_STRESS 0
 #define LV_USE_DEMO_MUSIC 0
 #define LV_USE_SYSMON 0
+// bake_scroll が行一覧のスナップショット画像化に使う (firmware は Kconfig で有効)。
+#define LV_USE_SNAPSHOT 1
 #define LV_USE_PERF_MONITOR 0
 #define LV_USE_MEM_MONITOR 0
 
