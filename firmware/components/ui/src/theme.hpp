@@ -41,7 +41,7 @@ struct Theme {
   uint8_t space;      // 基本余白 (=8)
   uint8_t radius_sm;  // 小さい角丸 (=10)
   uint8_t radius_lg;  // カード角丸 (=18)
-  uint16_t anim_ms;   // 画面遷移 (=220)
+  uint16_t anim_ms;   // 画面遷移 (内蔵=0・テーマ指定は最大150)
   uint8_t tap_min;    // タップ最小高さ (=56)
 
   // 画像スロット (docs/theme-format.md)。nullptr = 画像なし。

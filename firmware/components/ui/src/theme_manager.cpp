@@ -122,7 +122,7 @@ bool load_file_theme(const char* id, Theme* out) {
   if (m.metric_set & 1) t.radius_sm = m.radius_sm;
   if (m.metric_set & 2) t.radius_lg = m.radius_lg;
   if (m.metric_set & 4) t.space = m.space;
-  if (m.metric_set & 8) t.anim_ms = m.anim_ms;
+  if (m.metric_set & 8) t.anim_ms = LV_MIN(m.anim_ms, 150);
   if (m.font_set & 1) t.font_body = font_for(m.font_px[0], t.font_body);
   if (m.font_set & 2) t.font_title = font_for(m.font_px[1], t.font_title);
   if (m.font_set & 4) t.font_digits = font_for(m.font_px[2], t.font_digits);

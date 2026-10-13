@@ -383,16 +383,18 @@ void show_timer_alert() {
   if (ask && (ask->bg[0] || ask->scrim)) {
     skin_base(s_alert, watch::theme_screen_index("alert"));
   } else {
-    // mockup: radial-gradient(circle at 50% 30%, #5a2a0a → #000 70%)。
-    // 連続補間なので stop は2個で滑らか (同心円バンディングも出ない)。
-    // ※ stops は LV_GRADIENT_MAX_STOPS (=2) まで。超えると LV_ASSERT で止まる。
-    static lv_grad_dsc_t s_glow;
-    static const lv_color_t s_glow_cols[] = {lv_color_hex(0x5A2A0A),
-                                           lv_color_hex(0x000000)};
-    lv_grad_init_stops(&s_glow, s_glow_cols, nullptr, nullptr, 2);
-    lv_grad_radial_init(&s_glow, LV_GRAD_CENTER, LV_PCT(30), LV_PCT(95),
-                        LV_PCT(30), LV_GRAD_EXTEND_PAD);
-    lv_obj_set_style_bg_grad(s_alert, &s_glow, 0);
+    // 描画負荷対策 (T5): radial grad は全面補間が重いので単色 + 細いリング。
+    lv_obj_set_style_bg_color(s_alert, lv_color_hex(0x140B05), 0);
+    lv_obj_t* ring = lv_obj_create(s_alert);
+    lv_obj_set_size(ring, 220, 220);
+    lv_obj_align(ring, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ring, 2, 0);
+    lv_obj_set_style_border_color(ring, lv_color_hex(0x5A2A0A), 0);
+    lv_obj_set_style_border_opa(ring, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(ring, LV_OBJ_FLAG_EVENT_BUBBLE);
   }
 
   // テーマ画像スロット: タイマー終了時の画像 (あれば文字の上)。

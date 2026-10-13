@@ -34,7 +34,7 @@ struct S {
 };
 S s;
 
-lv_grad_dsc_t s_grad;  // bg_grad は静的に持つ (style が参照する)
+// 盤面は単色 (grad は描画負荷対策で廃止)。
 
 inline void polar(int deg_from_12, float r, lv_value_precise_t* x,
                   lv_value_precise_t* y) {
@@ -130,24 +130,13 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_style_bg_color(scr, t.bg, 0);
   s = S{};
 
-  // 盤面の放射グラデーション (見本: 中心 #14181f → 外 #000)。
-  // grad の座標系はこのオブジェクトのローカル座標。
-  {
-    const lv_color_t cols[2] = {lv_color_mix(t.text_dim, t.bg, 28), t.bg};
-    const lv_opa_t opas[2] = {LV_OPA_COVER, LV_OPA_COVER};
-    const uint8_t fr[2] = {0, 255};
-    lv_grad_init_stops(&s_grad, cols, opas, fr, 2);
-    lv_grad_radial_init(&s_grad, kDialR + 10, kDialR + 10,
-                        kDialR + 10 + kDialR - 8, kDialR + 10,
-                        LV_GRAD_EXTEND_PAD);
-  }
+  // 盤面は単色 (描画負荷対策で radial grad をやめた)。
   lv_obj_t* disc = lv_obj_create(scr);
   lv_obj_set_size(disc, kDialR * 2 + 20, kDialR * 2 + 20);
   lv_obj_align(disc, LV_ALIGN_CENTER, kCx - 205, kCy - 251);
   lv_obj_set_style_radius(disc, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_opa(disc, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(disc, t.bg, 0);
-  lv_obj_set_style_bg_grad(disc, &s_grad, 0);
+  lv_obj_set_style_bg_color(disc, lv_color_mix(t.text_dim, t.bg, 28), 0);
   lv_obj_set_style_border_width(disc, 0, 0);
   lv_obj_remove_flag(disc, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(disc, LV_OBJ_FLAG_EVENT_BUBBLE);

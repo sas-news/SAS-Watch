@@ -832,13 +832,6 @@ void on_slider_value(lv_event_t* e) {
                    static_cast<lv_obj_t*>(lv_event_get_user_data(e)));
 }
 
-// スライダー塗りのグラデーション (primary → primary2)。style が参照するので静的。
-// テーマ切替で色が変わるので、色が違ったら組み直す。
-lv_grad_dsc_t s_sl_grad;
-lv_color32_t s_sl_grad_c0 = {};
-lv_color32_t s_sl_grad_c1 = {};
-bool s_sl_grad_init = false;
-
 lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
                        int32_t min, int32_t max, int32_t value,
                        lv_event_cb_t cb, void* ud) {
@@ -875,25 +868,7 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(s, t.line, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(s, LV_OPA_COVER, LV_PART_MAIN);
-  // 塗りは primary→primary2 の横グラデーション (色が変わったら組み直し)。
-  if (!s_sl_grad_init ||
-      s_sl_grad_c0.red != t.primary.red ||
-      s_sl_grad_c0.green != t.primary.green ||
-      s_sl_grad_c0.blue != t.primary.blue ||
-      s_sl_grad_c1.red != t.primary2.red ||
-      s_sl_grad_c1.green != t.primary2.green ||
-      s_sl_grad_c1.blue != t.primary2.blue) {
-    const lv_color_t cols[2] = {t.primary, t.primary2};
-    const lv_opa_t opas[2] = {LV_OPA_COVER, LV_OPA_COVER};
-    const uint8_t fr[2] = {0, 255};
-    lv_grad_init_stops(&s_sl_grad, cols, opas, fr, 2);
-    lv_grad_linear_init(&s_sl_grad, LV_GRAD_LEFT, LV_GRAD_CENTER,
-                        LV_GRAD_RIGHT, LV_GRAD_CENTER, LV_GRAD_EXTEND_PAD);
-    s_sl_grad_c0 = lv_color_to_32(t.primary, LV_OPA_COVER);
-    s_sl_grad_c1 = lv_color_to_32(t.primary2, LV_OPA_COVER);
-    s_sl_grad_init = true;
-  }
-  lv_obj_set_style_bg_grad(s, &s_sl_grad, LV_PART_INDICATOR);
+  // 塗りは単色 (T5: グラデーションは描画負荷対策で廃止)。
   lv_obj_set_style_bg_color(s, t.primary, LV_PART_INDICATOR);
   // 白いノブ + primary の外周リング (モックの box-shadow 相当)。
   lv_obj_set_style_bg_color(s, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
