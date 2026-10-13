@@ -340,7 +340,7 @@ lv_obj_t* alert_button(lv_obj_t* parent, const char* text, bool primary,
                        lv_event_cb_t cb) {
   const Theme& t = theme();
   lv_obj_t* b = lv_button_create(parent);
-  lv_obj_set_size(b, 366, 58);
+  lv_obj_set_size(b, 346, 58);  // 410 - 2·32 (コンテンツ幅)
   lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(b, 0, 0);
@@ -434,14 +434,14 @@ void show_timer_alert() {
         emit(watch::ActionType::TimerReset);
         hide_alert(nullptr);
       });
-  lv_obj_align(stop, LV_ALIGN_BOTTOM_MID, 0, -86);
+  lv_obj_align(stop, LV_ALIGN_BOTTOM_MID, 0, -100);
   lv_obj_t* more = alert_button(
       s_alert, "もう1分", false,
       [](lv_event_t*) {
         emit(watch::ActionType::TimerAddMinute);
         hide_alert(nullptr);
       });
-  lv_obj_align(more, LV_ALIGN_BOTTOM_MID, 0, -16);
+  lv_obj_align(more, LV_ALIGN_BOTTOM_MID, 0, -28);
 
   s_alert_timer = lv_timer_create(hide_alert, 15000, nullptr);
   lv_timer_set_repeat_count(s_alert_timer, 1);
@@ -519,7 +519,7 @@ void show_alarm_alert(uint32_t id) {
         emit(watch::ActionType::AlarmStop);
         hide_alarm_alert();
       });
-  lv_obj_align(stop, LV_ALIGN_BOTTOM_MID, 0, -86);
+  lv_obj_align(stop, LV_ALIGN_BOTTOM_MID, 0, -100);
 
   lv_obj_t* snz = alert_button(
       s_alert, "スヌーズ (5分)", false,
@@ -527,7 +527,7 @@ void show_alarm_alert(uint32_t id) {
         emit(watch::ActionType::AlarmSnooze);
         hide_alarm_alert();
       });
-  lv_obj_align(snz, LV_ALIGN_BOTTOM_MID, 0, -16);
+  lv_obj_align(snz, LV_ALIGN_BOTTOM_MID, 0, -28);
 
   // 鳴動中は繰り返す (停止/スヌーズ/タイムアウトでアラートが消えると止まる)。
   s_alarm_beep_timer = lv_timer_create(alarm_beep, 4500, nullptr);
@@ -556,8 +556,9 @@ void show_notify_popup() {
   const Theme& t = theme();
   s_toast = lv_obj_create(lv_layer_top());
   lv_obj_remove_flag(s_toast, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(s_toast, 390, 96);
-  lv_obj_set_pos(s_toast, 10, 8);
+  // 上端の丸角を避けるためコンテンツ余白 (x=32, y=36) 内に置く。
+  lv_obj_set_size(s_toast, 346, 96);
+  lv_obj_set_pos(s_toast, 32, 36);
   lv_obj_set_style_bg_color(s_toast, t.surface2, 0);
   lv_obj_set_style_bg_opa(s_toast, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(s_toast, 0, 0);
@@ -638,7 +639,7 @@ void show_passkey(uint32_t passkey) {
         if (s_passkey_confirm) s_passkey_confirm(true);
         hide_passkey(nullptr);
       });
-  lv_obj_align(yes, LV_ALIGN_BOTTOM_MID, 0, -86);
+  lv_obj_align(yes, LV_ALIGN_BOTTOM_MID, 0, -100);
 
   lv_obj_t* no = alert_button(
       s_key_modal, "いいえ", false,
@@ -646,7 +647,7 @@ void show_passkey(uint32_t passkey) {
         if (s_passkey_confirm) s_passkey_confirm(false);
         hide_passkey(nullptr);
       });
-  lv_obj_align(no, LV_ALIGN_BOTTOM_MID, 0, -16);
+  lv_obj_align(no, LV_ALIGN_BOTTOM_MID, 0, -28);
 
   // 30秒で自動で閉じる (リンク側のペアリングタイムアウトで拒否される)。
   s_key_timer = lv_timer_create(hide_passkey, 30000, nullptr);

@@ -124,10 +124,10 @@ lv_obj_t* build(lv_obj_t* scr) {
   // 上段: 左に EN曜日+日付、右に BLE 状態。
   s.en = ui::face::label(scr, "--- --.--", t.font_body, t.accent3);
   lv_obj_set_style_text_letter_space(s.en, 3, 0);
-  lv_obj_align(s.en, LV_ALIGN_TOP_LEFT, 44, 56);
+  lv_obj_align(s.en, LV_ALIGN_TOP_LEFT, 52, 64);  // 左上の丸角の安全域内
 
   s.ble = ui::face::label(scr, "BLE", t.font_body, t.text_dim);
-  lv_obj_align(s.ble, LV_ALIGN_TOP_RIGHT, -70, 56);
+  lv_obj_align(s.ble, LV_ALIGN_TOP_RIGHT, -70, 64);
   s.ble_dot = lv_obj_create(scr);
   lv_obj_set_size(s.ble_dot, 12, 12);
   lv_obj_set_style_radius(s.ble_dot, LV_RADIUS_CIRCLE, 0);

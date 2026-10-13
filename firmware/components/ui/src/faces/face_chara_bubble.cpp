@@ -254,7 +254,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   // 下: 電池。
   s.batt = ui::face::label(scr, "", t.font_body, t.text_dim);
   if (s.has_img) {
-    lv_obj_align(s.batt, LV_ALIGN_TOP_LEFT, 30, 430);  // しっぽ先端との隙間確保
+    lv_obj_align(s.batt, LV_ALIGN_TOP_LEFT, 40, 428);  // 左下角の安全域内
   } else {
     lv_obj_align(s.batt, LV_ALIGN_BOTTOM_MID, 0, -20);
   }

@@ -16,6 +16,7 @@
 #include "../theme.hpp"
 #include "ui/face_data.hpp"
 #include "ui/port.hpp"
+#include "watch/safe_area.hpp"
 
 namespace {
 
@@ -41,14 +42,30 @@ lv_color_t pick_color(const ui::Theme& t, const watch::ThemeFaceElem& e) {
   return (e.set & (1u << 5)) ? lv_color_hex(e.color) : t.text;
 }
 
-// 座標/端基準の align 計算。
-void place(lv_obj_t* o, const watch::ThemeFaceElem& e) {
+// 座標/端基準の align 計算。clamp=true なら、マニフェストの座標が
+// 丸角の安全域外になるとき内側へ寄せる (装飾の chara 立ち絵は対象外)。
+void place(lv_obj_t* o, const watch::ThemeFaceElem& e, bool clamp = true) {
   lv_align_t a;
   if (e.x < 0 && e.y < 0) a = LV_ALIGN_BOTTOM_RIGHT;
   else if (e.x < 0) a = LV_ALIGN_TOP_RIGHT;
   else if (e.y < 0) a = LV_ALIGN_BOTTOM_LEFT;
   else a = LV_ALIGN_TOP_LEFT;
   lv_obj_align(o, a, e.x, e.y);
+  if (!clamp) return;
+  // サイズ確定後に角が安全域に入るまで中央方向へ寄せる。
+  lv_obj_update_layout(o);
+  lv_area_t b;
+  lv_obj_get_coords(o, &b);
+  const int w = lv_area_get_width(&b), h = lv_area_get_height(&b);
+  int x = b.x1, y = b.y1;
+  for (int i = 0;
+       i < 96 && !watch::rect_in_safe_area(x, y, w - 1, h - 1); ++i) {
+    if (!watch::point_in_safe_area(x, y)) { ++x; ++y; }
+    if (!watch::point_in_safe_area(x + w - 1, y)) { --x; ++y; }
+    if (!watch::point_in_safe_area(x, y + h - 1)) { ++x; --y; }
+    if (!watch::point_in_safe_area(x + w - 1, y + h - 1)) { --x; --y; }
+  }
+  if (x != b.x1 || y != b.y1) lv_obj_set_pos(o, x, y);
 }
 
 void set_time(lv_obj_t* l) {
@@ -165,7 +182,7 @@ lv_obj_t* build(lv_obj_t* scr) {
       lv_obj_t* im = lv_image_create(scr);
       lv_image_set_src(im, img);
       lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
-      place(im, e);
+      place(im, e, false);  // 立ち絵は装飾: 角で切れてよい
     }
   }
 

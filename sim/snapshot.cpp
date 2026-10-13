@@ -272,8 +272,12 @@ void parts_gallery(const char* out_dir, const char* theme_id, int num,
   lv_obj_set_style_bg_opa(g, LV_OPA_COVER, 0);
   ui::c::header(g, "パーツ", true);  // header_bar + back_pill
 
-  lv_obj_t* col = gbox(g, 366, kH - 78);
+  lv_obj_t* col = gbox(g, 366, 464 - 78);
   lv_obj_set_pos(col, 22, 78);
+  // 下端は丸角の安全域 (y<=464) で止め、あふれた分はスクロールにする。
+  lv_obj_add_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(col, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(col, LV_SCROLLBAR_MODE_OFF);
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(col, 3, 0);
 

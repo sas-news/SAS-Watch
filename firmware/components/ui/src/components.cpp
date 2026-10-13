@@ -413,9 +413,10 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   lv_obj_set_pos(h, 0, 0);
   lv_obj_set_style_pad_left(h, kPad, 0);
   lv_obj_set_style_pad_right(h, kPad, 0);
-  // コンテンツ領域の中央がピル中心 ~41px になる pad (モック準拠)。
-  lv_obj_set_style_pad_top(h, 18, 0);
-  lv_obj_set_style_pad_bottom(h, 12, 0);
+  // コンテンツ領域の中央がピル中心 ~47px になる pad。ピルの描画角が
+  // パネルの丸角 (R≈100) の安全域に収まるよう上から少し下げた。
+  lv_obj_set_style_pad_top(h, 26, 0);
+  lv_obj_set_style_pad_bottom(h, 8, 0);
   lv_obj_set_style_pad_column(h, 12, 0);
   lv_obj_set_flex_flow(h, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(h, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
@@ -458,7 +459,9 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
 lv_obj_t* content(lv_obj_t* scr) {
   const Theme& t = theme();
   lv_obj_t* c = flat(scr);
-  lv_obj_set_size(c, kW - 2 * kPad, 502 - kHeaderH);
+  // 下端はパネルの丸角 (R≈100) の安全域 (kPad+6) まで。カード/行が
+  // 画面下端の角で欠けないよう、スクロール領域をそこで止める。
+  lv_obj_set_size(c, kW - 2 * kPad, 502 - kHeaderH - (kPad + 6));
   lv_obj_set_pos(c, kPad, kHeaderH);
   lv_obj_set_style_pad_row(c, 12, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
