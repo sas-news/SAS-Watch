@@ -141,8 +141,10 @@ bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
   if (size == 0 || size > kPkgMax) return false;
   // begin は常に「新しい転送」。再開 (同じ id/size/sha256 の BULK_START 再送)
   // は BulkReceiver 側が begin を呼ばず受信位置を返すので、ここに来た時点で
-  // 前の .theme.bulk は残ってるだけのゴミ → 必ず truncate して取り直す。
-  // (切れた転送は電話側が最初から送り直す)
+  // 同じ転送の再送 (レジューム) は BulkReceiver が begin を呼ばないので
+  // ここに来る begin は常に新しい転送 → 前の .theme.bulk はゴミとして
+  // truncate して取り直す。切断をまたいだ途中データは s_f を開いたまま
+  // 残る (BulkReceiver の状態も残るので offset から続きを受ける)。
   if (s_f) {
     std::fclose(s_f);
     s_f = nullptr;
