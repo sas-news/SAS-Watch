@@ -44,8 +44,16 @@ lv_obj_t* build(lv_obj_t* scr) {
                            static_cast<uint32_t>(-1));
                 },
                 nullptr);
+  // リセットは値を失うので確認ダイアログを経る (T14 操作ルール)。
   ui::c::button(col, "リセット",
-                [](lv_event_t*) { ui::emit(watch::ActionType::CounterReset); },
+                [](lv_event_t*) {
+                  ui::c::confirm(
+                      nullptr, "カウンターを 0 に戻しますか？",
+                      [](lv_event_t*) {
+                        ui::emit(watch::ActionType::CounterReset);
+                      },
+                      nullptr);
+                },
                 nullptr);
   refresh();
   return scr;

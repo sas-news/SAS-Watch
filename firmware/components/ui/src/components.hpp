@@ -45,6 +45,12 @@ lv_obj_t* button_primary(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
 lv_obj_t* button_danger(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
                        void* user_data);
 
+// 破壊的な操作の確認ダイアログ (T14 操作ルール)。
+// 全画面の半透明オーバーレイ + 中央カード (msg + 「はい」「いいえ」)。
+// 「はい」で cb を呼んで閉じる。「いいえ」・枠外タップはただ閉じる。
+// 同時に1枚。cb/ud は yes ボタンの CLICKED にそのまま渡す。
+void confirm(lv_obj_t* parent, const char* msg, lv_event_cb_t cb, void* ud);
+
 // グループ: 行を 1px 区切り線つきで縦に並べるカード (pad 0)。
 lv_obj_t* group(lv_obj_t* parent);
 

@@ -613,6 +613,12 @@ int main(int argc, char** argv) {
   ui::emit(watch::ActionType::CounterAdd, 1);
   pump(200);
   ok &= save(out, "08_counter");
+  // リセット → 確認ダイアログ (T14)。「いいえ」で閉じる。
+  tap(205, 350);
+  pump(200);
+  ok &= save(out, "32_counter_confirm");
+  tap(205, 305);
+  pump(200);
 #endif
 
 #if SAS_APP_MEMO
@@ -623,6 +629,12 @@ int main(int argc, char** argv) {
   tap(205, 210);
   pump(200);
   ok &= save(out, "10_memo_detail");
+  // 「削除」→ 確認ダイアログ (T14)。「いいえ」で閉じる。
+  tap(205, 200);
+  pump(200);
+  ok &= save(out, "33_memo_confirm");
+  tap(205, 305);
+  pump(200);
   // 「一覧に戻る」ボタン (詳細カード末尾) をタップ。
   tap(205, 249);
   pump(200);

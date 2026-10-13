@@ -303,3 +303,42 @@ indev read_timer が飢餓 → タッチサンプルに 300ms 級のギャップ
   上記 esptool を使う
 - 監視は `python -m esp_idf_monitor --port /dev/ttyACM0 build/sas_watch.elf`
   を `timeout` 付きでファイルにリダイレクトするのが安定
+
+## T14 操作ルール監査 (roadmap T14)
+
+ルール: PWR短=戻る(Homeでは画面OFF) / PWR長=電源メニュー /
+BOOT短=その画面の主操作 / 右スワイプ=戻る(Home以外) /
+リストは縦のみ・確定はタップ・破壊的操作は確認ダイアログ /
+戻るピルとPWRは同じ動作。
+
+### 適合 (修正不要)
+
+- PWR 短=back / 長=power_menu (settings.hpp 既定がそのままルール)
+- 戻るピル = `ActionType::Back` = PWR 短と同一経路 (components.cpp:457)
+- Home 末端の Back = 画面OFF (runtime.cpp:83)
+- 右スワイプ → Back が全画面共通 (shell.cpp on_gesture)。
+  横スクロール部品は全画面スキャンで 0 件 → 例外ゾーンなし
+- コンテンツは LV_DIR_VER のみ (components.cpp:484)
+- OTA 画面は表示専用 (開始はスマホ側) / アラーム編集はスマホ側のみ
+- 長押し = 電源メニュー (PWR 長と同じ)
+
+### 違反 → 修正済み
+
+| 画面 | 違反 | 修正 |
+|---|---|---|
+| メモ詳細 (apps/memo/screen.cpp:178) | 「削除」が即 MemoDelete | `ui::c::confirm` ダイアログを追加して経由 |
+| カウンター (apps/counter/screen.cpp:47) | 「リセット」が即 CounterReset | 同上 (値を失うので破壊的扱い) |
+
+`ui::c::confirm` (components.cpp): layer_top に半透明黒の全面
+オーバーレイ + 中央カード (msg + はい/いいえ)。いいえ・枠外タップは
+ただ閉じる。sim スクショ: /tmp/shots/t14/32_counter_confirm.png,
+33_memo_confirm.png。
+
+### 要判断 (ルールが一意に決まらないので手つかず)
+
+| 箇所 | 状況 | 案 |
+|---|---|---|
+| Home の右スワイプ | ルールは Home 以外のみ定義。現状 Back→Home末端→画面OFF になる (誤スワイプで画面が消える) | 右スワイプを Home で無視するか、画面OFFは維持か |
+| アラート中の PWR短/右スワイプ | s_alert は layer_top。右スワイプは scr に効かず無効 (無害)、ただし PWR 短は背後画面を pop する (アラートは残る) | アラート中は入力をアラートに集約するか |
+| 電源メニュー「再起動」 | 破壊的ではないが誤タップで即リブート | 確認ダイアログを付けるかどうか |
+| パスキーモーダル中の PWR短 | 背後画面を pop する (モーダルは残る) | アラート同様の扱い |

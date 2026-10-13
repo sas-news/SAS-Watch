@@ -1135,4 +1135,61 @@ bool skin_obj(lv_obj_t* o, watch::ThemeSkinPartId part) {
   return skin_apply_obj(o, part, 0, true);
 }
 
+
+// ---- 確認ダイアログ (T14) -------------------------------------------------
+
+namespace {
+struct CfmCtx {
+  lv_event_cb_t cb = nullptr;
+  void* ud = nullptr;
+  lv_obj_t* dlg = nullptr;
+};
+CfmCtx s_cfm;
+
+void cfm_close() {
+  if (s_cfm.dlg) {
+    lv_obj_delete(s_cfm.dlg);
+    s_cfm.dlg = nullptr;
+  }
+  s_cfm.cb = nullptr;
+  s_cfm.ud = nullptr;
+}
+
+void cfm_no(lv_event_t*) { cfm_close(); }
+
+}  // namespace
+
+void confirm(lv_obj_t* /*parent*/, const char* msg, lv_event_cb_t cb,
+             void* ud) {
+  const Theme& t = theme();
+  cfm_close();  // 既出なら置き換え
+
+  lv_obj_t* dlg = lv_obj_create(lv_layer_top());
+  s_cfm.dlg = dlg;
+  lv_obj_remove_flag(dlg, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(dlg, 410, 502);
+  lv_obj_set_pos(dlg, 0, 0);
+  lv_obj_set_style_pad_all(dlg, 0, 0);
+  lv_obj_set_style_bg_color(dlg, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(dlg, LV_OPA_60, 0);
+  lv_obj_set_style_border_width(dlg, 0, 0);
+  lv_obj_add_flag(dlg, LV_OBJ_FLAG_CLICKABLE);
+  // 枠外タップで閉じる。
+  lv_obj_add_event_cb(dlg, cfm_no, LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t* box = card(dlg);
+  lv_obj_set_size(box, 320, LV_SIZE_CONTENT);
+  lv_obj_center(box);
+  lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+  lv_obj_t* l = mk_label(box, msg, t.font_body, t.text);
+  lv_obj_set_width(l, LV_PCT(100));
+
+  // 「はい」は呼び出し元の cb+ud をそのまま動かし、その後に閉じる。
+  lv_obj_t* yes = button_primary(box, "はい", cb, ud);
+  lv_obj_add_event_cb(yes, cfm_no, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* no = button(box, "いいえ", cfm_no, nullptr);
+  (void)no;
+}
+
 }  // namespace ui::c

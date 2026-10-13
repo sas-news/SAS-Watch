@@ -175,11 +175,17 @@ lv_obj_t* build(lv_obj_t* scr) {
         }
       });
 
+  // 破壊的な操作は確認ダイアログを経る (T14 操作ルール)。
   ui::c::button_danger(
       s.detail_box, "削除",
       [](lv_event_t*) {
-        ui::emit(watch::ActionType::MemoDelete, s.detail_id);
-        show_list();
+        ui::c::confirm(
+            s.detail_box, "このメモを削除しますか？",
+            [](lv_event_t*) {
+              ui::emit(watch::ActionType::MemoDelete, s.detail_id);
+              show_list();
+            },
+            nullptr);
       },
       nullptr);
   ui::c::button(s.detail_box, "一覧に戻る",
