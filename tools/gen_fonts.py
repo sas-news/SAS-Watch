@@ -110,6 +110,13 @@ FACE_FONT_SPECS = [
 FACE_FONT_SYMBOLS = "0123456789:."
 
 # 等幅数字 (機能画面用)。JetBrains Mono は全数字が同じ進幅 (tabular)。
+# アプリアイコン (Material Symbols Rounded, Apache-2.0)。PUA コードポイント。
+ICON_FONT_TTF = REPO / "tools" / "fonts" / "icons" / "MaterialSymbolsRounded.ttf"
+# mic, music_note, timer, directions_walk, exposure_plus_1, alarm,
+# notifications, settings, apps, timer_play, smart_toy, bedtime
+ICON_FONT_RANGES = ("0xE31D,0xE405,0xE425,0xE536,0xE800,0xE855,"
+                    "0xE7F5,0xE8B8,0xE5C3,0xF4BA,0xF06C,0xF159")
+
 NUM_FONT_TTF = REPO / "tools" / "fonts" / "num" / "JetBrainsMono-Bold.ttf"
 NUM_FONT_SIZES = (40, 72)
 NUM_SYMBOLS = "0123456789:.,-/% "
@@ -186,6 +193,8 @@ def main() -> int:
                     help="文字盤フォントを tools/fonts/face/ から生成する")
     ap.add_argument("--num", action="store_true",
                     help="等幅数字フォントを tools/fonts/num/ から生成する")
+    ap.add_argument("--icons", action="store_true",
+                    help="アプリアイコンフォント (Material Symbols Rounded 36px)")
     ap.add_argument("--num-ttf", default=str(NUM_FONT_TTF),
                     help="等幅数字フォントの TTF (既定: JetBrains Mono Bold)")
     ap.add_argument("--face-ttf-dir", default=str(FACE_FONT_TTF_DIR),
@@ -194,8 +203,8 @@ def main() -> int:
     ap.add_argument("--bpp", default="4")
     args = ap.parse_args()
 
-    if not args.font and not args.faces and not args.num:
-        ap.error("--font か --faces か --num のどれかを指定して")
+    if not args.font and not args.faces and not args.num and not args.icons and not args.font_bold:
+        ap.error("--font か --faces か --num か --icons のどれかを指定して")
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -269,6 +278,22 @@ def main() -> int:
                 "--lv-font-name", f"font_num_{size}",
                 "-o", str(out / f"font_num_{size}.c"),
             ])
+
+    if args.icons:
+        src = pathlib.Path(ICON_FONT_TTF)
+        if not src.exists():
+            sys.exit(f"missing TTF: {src}")
+        run([
+            "lv_font_conv",
+            "--font", str(src),
+            "--size", "36",
+            "--bpp", args.bpp,
+            "--format", "lvgl",
+            "--lv-include", "lvgl.h",
+            "-r", ICON_FONT_RANGES,
+            "--lv-font-name", "font_icon_36",
+            "-o", str(out / "font_icon_36.c"),
+        ])
 
     if args.faces:
         ttf_dir = pathlib.Path(args.face_ttf_dir)

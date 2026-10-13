@@ -155,7 +155,7 @@
   media=music_note、steps=directions_walk、agent=smart_toy、settings=settings。
 - 受け入れ条件: applist のスクショで全アプリにアイコンが出る。flash の増加を報告する。
 
-状態: 未着手
+状態: 完了 (未コミット)
 
 ## T8. テーマの自由度を上げる (E) — 難度 M
 

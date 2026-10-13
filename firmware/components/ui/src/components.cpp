@@ -11,6 +11,7 @@
 // ‹ › (U+2039/203A) だけの小さなフォント。font_jp_* は既定収録範囲外で
 // 再生成すると既存グリフが全部入れ替わるので、シェブロン専用に分けた。
 LV_FONT_DECLARE(font_chev_22);
+LV_FONT_DECLARE(font_icon_36);
 
 namespace ui::c {
 
@@ -729,9 +730,16 @@ lv_obj_t* row_icon_img(lv_obj_t* grp, const lv_image_dsc_t* imgd,
     lv_obj_t* ic = flat(r);
     lv_obj_set_size(ic, kIconTile, kIconTile);
     lv_obj_set_style_radius(ic, 11, 0);
-    lv_obj_set_style_bg_opa(ic, LV_OPA_COVER, 0);
+    // 薄い色付きタイル + primary のアイコンフォント (T7)。
+    // icon が PUA (U+E000 以降) なら Material Symbols グリフ、
+    // それ以外は従来どおり本文フォントの文字として描く。
+    lv_obj_set_style_bg_opa(ic, LV_OPA_40, 0);
     lv_obj_set_style_bg_color(ic, icon_bg, 0);
-    lv_obj_t* il = mk_label(ic, icon, t.font_body, lv_color_hex(0x000000));
+    const bool glyph =
+        (reinterpret_cast<const unsigned char*>(icon)[0] & 0xFE) == 0xEE;
+    lv_obj_t* il = mk_label(ic, icon, glyph ? &font_icon_36 : t.font_body,
+                            glyph ? t.primary
+                                  : lv_color_hex(0x000000));
     lv_obj_center(il);
     skin_apply_obj(ic, watch::kSkinIconTile, 0, false);
   }
