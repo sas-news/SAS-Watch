@@ -220,6 +220,8 @@ const FeatureDescriptor kTimer = {
     /*next_deadline_ms*/ next_deadline,
     /*save*/ save,
     /*restore*/ restore,
+    // カウントダウン中は画面OFFにならない。
+    /*keep_screen_on*/ [](const FeatureContext&) { return g_st.running; },
 };
 
 }  // namespace features

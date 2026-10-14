@@ -348,7 +348,7 @@ TEST(Settings, Defaults) {
   EXPECT_EQ(s.screen_off_after_s, 12u);
   EXPECT_EQ(s.deep_sleep_after_s, 1800u);
   EXPECT_STREQ(s.theme, "standard");
-  EXPECT_STREQ(s.button_pwr_short, "back");
+  EXPECT_STREQ(s.button_pwr_short, "screen_off");
 }
 
 TEST(Settings, PersistRoundTrip) {

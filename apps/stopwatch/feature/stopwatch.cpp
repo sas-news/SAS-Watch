@@ -135,6 +135,8 @@ const FeatureDescriptor kStopwatch = {
     /*next_deadline_ms*/ nullptr,
     /*save*/ save,
     /*restore*/ restore,
+    // 計測中は画面OFFにならない (経過を読み取れるように)。
+    /*keep_screen_on*/ [](const FeatureContext&) { return g_st.running; },
 };
 
 }  // namespace features

@@ -183,8 +183,9 @@ void on_gesture(lv_event_t*) {
 }
 
 void on_long_press(lv_event_t*) {
-  // 長押し = 電源メニュー (PWR 長押しと同じ動作)
-  emit_nav(watch::Route::PowerMenu);
+  // 画面長押し = 現在の Feature へ (既定は何もしない。電源メニューは
+  // PWR 長押しのみ)。
+  emit(watch::ActionType::LongPress);
 }
 
 void attach_input(lv_obj_t* scr) {

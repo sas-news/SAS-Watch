@@ -66,6 +66,8 @@ class Runtime {
 
  private:
   bool dispatch(const Action& a, FeatureContext& ctx);
+  // タイマー終了/アラーム鳴動で画面を自動点灯 (消灯中でも見えるように)。
+  static void on_alert_event(const Event&, void* ctx);
 
   EventBus& bus_;
   Navigator& nav_;
@@ -74,6 +76,7 @@ class Runtime {
   const FeatureRegistry& features_;
   Settings& settings_;
   ActionQueue queue_;
+  int64_t now_ms_ = 0;  // 直近 step の時刻 (イベントハンドラ用)
 };
 
 }  // namespace watch

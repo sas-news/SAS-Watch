@@ -376,7 +376,10 @@ TEST(InputMapper, DefaultsMatchPlan) {
   EXPECT_STREQ(m.action_name(PhysicalButton::Boot, PressType::Long), "nav.dev");
   EXPECT_STREQ(m.action_name(PhysicalButton::Boot, PressType::Double),
                "none");
-  EXPECT_STREQ(m.action_name(PhysicalButton::Pwr, PressType::Short), "back");
+  // PWR 短押しの既定は「画面ON/OFF トグル」(T17)。戻るは
+  // 戻るピル/右スワイプが担う。
+  EXPECT_STREQ(m.action_name(PhysicalButton::Pwr, PressType::Short),
+               "screen_off");
   EXPECT_STREQ(m.action_name(PhysicalButton::Pwr, PressType::Long),
                "power_menu");
 }
@@ -485,6 +488,84 @@ TEST(Runtime, PrimaryActionGoesToCurrentRouteFeature) {
   f.runtime.queue().push(p);
   f.runtime.step(20, f.ctx);
   EXPECT_TRUE(features::timer_state().running);
+}
+
+TEST(Runtime, KeepScreenOnSuppressesAutoOff) {
+  RuntimeFixture f;
+  // ストップウォッチを開いて計測開始 → keep_screen_on で Dim/Off を抑止。
+  Action nav_a;
+  nav_a.type = ActionType::Navigate;
+  nav_a.arg0 = static_cast<uint32_t>(Route::Stopwatch);
+  nav_a.source = ActionSource::Touch;
+  f.runtime.queue().push(nav_a);
+  f.runtime.step(10, f.ctx);
+  ASSERT_EQ(f.nav.current(), Route::Stopwatch);
+  Action sw;
+  sw.type = ActionType::StopwatchToggle;
+  sw.source = ActionSource::Touch;
+  f.runtime.queue().push(sw);
+  f.runtime.step(20, f.ctx);
+  // dim/screen_off の時刻を越えても Active のまま。
+  f.runtime.step(30'000, f.ctx);
+  EXPECT_EQ(f.power.state(), PowerState::Active);
+  // 画面を離れたら効果が切れる → 自動で ScreenOff へ。
+  Action home;
+  home.type = ActionType::Home;
+  home.source = ActionSource::Touch;
+  f.runtime.queue().push(home);
+  f.runtime.step(30'100, f.ctx);
+  f.runtime.step(60'000, f.ctx);
+  EXPECT_EQ(f.power.state(), PowerState::ScreenOff);
+}
+
+TEST(Runtime, KeepScreenOnManualOffStillWorks) {
+  RuntimeFixture f;
+  Action nav_a;
+  nav_a.type = ActionType::Navigate;
+  nav_a.arg0 = static_cast<uint32_t>(Route::Stopwatch);
+  nav_a.source = ActionSource::Touch;
+  f.runtime.queue().push(nav_a);
+  f.runtime.step(10, f.ctx);
+  Action sw;
+  sw.type = ActionType::StopwatchToggle;
+  sw.source = ActionSource::Touch;
+  f.runtime.queue().push(sw);
+  f.runtime.step(20, f.ctx);
+  // 手動消灯 (PWR short = screen_off) は keep_screen_on 中でも効く。
+  Action off;
+  off.type = ActionType::ScreenOff;
+  off.source = ActionSource::Button;
+  f.runtime.queue().push(off);
+  f.runtime.step(30, f.ctx);
+  EXPECT_EQ(f.power.state(), PowerState::ScreenOff);
+}
+
+TEST(Runtime, AlertEventWakesScreen) {
+  RuntimeFixture f;
+  f.runtime.init(f.ctx);
+  f.power.kick_activity(0);
+  f.power.update(60'000);  // ScreenOff
+  ASSERT_EQ(f.power.state(), PowerState::ScreenOff);
+  f.bus.publish({EventType::TimerFinished, 0});
+  EXPECT_EQ(f.power.state(), PowerState::Active);
+}
+
+TEST(Runtime, LongPressReachesCurrentFeature) {
+  RuntimeFixture f;
+  Action nav_a;
+  nav_a.type = ActionType::Navigate;
+  nav_a.arg0 = static_cast<uint32_t>(Route::Timer);
+  nav_a.source = ActionSource::Touch;
+  f.runtime.queue().push(nav_a);
+  f.runtime.step(10, f.ctx);
+  // 既定: Feature が受けても何もしない → 画面も電源も変わらない。
+  Action lp;
+  lp.type = ActionType::LongPress;
+  lp.source = ActionSource::Touch;
+  f.runtime.queue().push(lp);
+  f.runtime.step(20, f.ctx);
+  EXPECT_EQ(f.nav.current(), Route::Timer);
+  EXPECT_FALSE(features::timer_state().running);
 }
 
 TEST(Runtime, NextDeadlineCoversPower) {

@@ -64,6 +64,8 @@ enum class ActionType : uint16_t {
   SetRaiseToWake,   // arg0 = 0/1 (腕を上げて画面オン)
   StepsHwSync,      // arg0 = HW pedometer の累積歩数 (24bit 生値)。
                     // firmware が定期/起床時に読んで投げる。source=System 必須
+  LongPress,        // 画面の長押し (現在の Route の Feature の handle に
+                    // 届く。既定は何もしない)
 };
 
 enum class ActionSource : uint8_t {

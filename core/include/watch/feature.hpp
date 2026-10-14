@@ -48,6 +48,10 @@ struct FeatureDescriptor {
   // 時刻が要るなら ctx.clock を使う (Timer)。無ければ nullptr。
   void (*save)(FeatureContext&) = nullptr;
   void (*restore)(FeatureContext&) = nullptr;
+  // この画面を開いている間「画面を消さない」。true の間は
+  // 自動の Dim/ScreenOff/DeepSleep を抑止する (手動 PWR 消灯は効く)。
+  // 画面を離れたら効果は切れる (バッテリー保護)。nullptr = 使わない。
+  bool (*keep_screen_on)(const FeatureContext&) = nullptr;
 };
 
 // 静的 Registry。実行時プラグインは作らない (plan.md E章)。

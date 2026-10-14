@@ -96,7 +96,7 @@ error code:
 | `button.boot.short` | text | `primary` | BOOT 短押しの Action 名 |
 | `button.boot.long` | text | `nav.dev` | BOOT 長押しの Action 名 |
 | `button.boot.double` | text | `none` | BOOT 2回押しの Action 名 |
-| `button.pwr.short` | text | `back` | PWR 短押しの Action 名 |
+| `button.pwr.short` | text | `screen_off` | PWR 短押しの Action 名 (T17: 既定は画面ON/OFF。戻るはピル/右スワイプ) |
 | `button.pwr.long` | text | `power_menu` | PWR 長押しの Action 名 |
 | `button.pwr.double` | text | `none` | PWR 2回押しの Action 名 |
 | `audio.volume` | u32 | 70 | クリック音・ビープ・メモ再生の音量 0-100 |

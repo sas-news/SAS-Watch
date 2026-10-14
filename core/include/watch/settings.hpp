@@ -24,7 +24,7 @@ struct Settings {
   char button_boot_short[24] = "primary";
   char button_boot_long[24] = "nav.dev";
   char button_boot_double[24] = "none";  // この個体は録音不可のため
-  char button_pwr_short[24] = "back";
+  char button_pwr_short[24] = "screen_off";
   char button_pwr_long[24] = "power_menu";
   char button_pwr_double[24] = "none";
   // 音 (Phase 9)。volume は再生/ビープ共通、click はボタン音のON/OFF。

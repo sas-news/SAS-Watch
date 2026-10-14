@@ -72,7 +72,7 @@ void InputMapper::reset_defaults() {
   // この個体は録音不可 (スピーカー/マイク非搭載) なので既定は none。
   // none にすると単押しがダブル判定待ちせず即時に効く (board::buttons)。
   map(PhysicalButton::Boot, PressType::Double, "none");
-  map(PhysicalButton::Pwr, PressType::Short, "back");
+  map(PhysicalButton::Pwr, PressType::Short, "screen_off");
   map(PhysicalButton::Pwr, PressType::Long, "power_menu");
   map(PhysicalButton::Pwr, PressType::Double, "none");
 }

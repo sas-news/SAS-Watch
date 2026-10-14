@@ -39,13 +39,27 @@ Runtime::Runtime(EventBus& bus, Navigator& nav, PowerPolicy& power,
       features_(features),
       settings_(settings) {}
 
-void Runtime::init(FeatureContext& ctx) { features_.init_all(ctx); }
+void Runtime::init(FeatureContext& ctx) {
+  features_.init_all(ctx);
+  // アラート系イベントで画面を自動点灯 (消灯中でも見せる)。
+  bus_.subscribe(EventType::TimerFinished, &Runtime::on_alert_event, this);
+  bus_.subscribe(EventType::AlarmRinging, &Runtime::on_alert_event, this);
+}
+
+void Runtime::on_alert_event(const Event&, void* ctx) {
+  Runtime* rt = static_cast<Runtime*>(ctx);
+  rt->power_.kick_activity(rt->now_ms_);
+}
 
 bool Runtime::step(int64_t now_ms, FeatureContext& ctx) {
+  now_ms_ = now_ms;
   Action a;
   const bool had = queue_.pop(&a);
   if (had) dispatch(a, ctx);
   features_.tick_all(now_ms, ctx);
+  // 現在の画面の Feature が「画面を消さない」を返す間は自動遷移を止める。
+  const FeatureDescriptor* f = features_.find_by_route(nav_.current());
+  power_.set_keep_screen_on(f && f->keep_screen_on && f->keep_screen_on(ctx));
   power_.update(now_ms);
   return had;
 }
@@ -70,8 +84,9 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
     }
   }
 
-  // 画面の主アクション: 現在の Route に結び付いた Feature へ。
-  if (a.type == ActionType::PrimaryAction) {
+  // 画面の主アクション/画面長押し: 現在の Route に結び付いた Feature へ。
+  if (a.type == ActionType::PrimaryAction ||
+      a.type == ActionType::LongPress) {
     const FeatureDescriptor* f = features_.find_by_route(nav_.current());
     if (f && f->handle && f->handle(a, ctx)) return true;
   }

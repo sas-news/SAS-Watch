@@ -373,7 +373,7 @@ object SettingsKeys {
         BUTTON_BOOT_SHORT to Cbor.Ctext("primary"),
         BUTTON_BOOT_LONG to Cbor.Ctext("nav.dev"),
         BUTTON_BOOT_DOUBLE to Cbor.Ctext("none"),
-        BUTTON_PWR_SHORT to Cbor.Ctext("back"),
+        BUTTON_PWR_SHORT to Cbor.Ctext("screen_off"),
         BUTTON_PWR_LONG to Cbor.Ctext("power_menu"),
         BUTTON_PWR_DOUBLE to Cbor.Ctext("none"),
         AUDIO_VOLUME to Cbor.Cint(70),

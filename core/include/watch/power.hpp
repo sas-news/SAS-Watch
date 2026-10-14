@@ -66,6 +66,12 @@ class PowerPolicy {
   }
   uint32_t usb_keep_awake() const { return usb_keep_awake_; }
 
+  // アプリの「画面を消さない」(FeatureDescriptor::keep_screen_on)。
+  // true の間、自動の Dim / ScreenOff / DeepSleepCandidate を抑止。
+  // request_screen_off (手動消灯) には効かない。
+  void set_keep_screen_on(bool on) { keep_screen_on_ = on; }
+  bool keep_screen_on() const { return keep_screen_on_; }
+
   // Deep Sleep に進んでよいか。状態 + Lease + BLE の総合判断。
   bool wants_deep_sleep() const { return state_ == PowerState::DeepSleepCandidate; }
 
@@ -131,6 +137,7 @@ class PowerPolicy {
   bool external_power_ = false;
   uint32_t usb_keep_awake_ = 1;
   bool screen_off_forced_ = false;  // request_screen_off で立つ。kick で降りる
+  bool keep_screen_on_ = false;     // Feature 画面の keep_screen_on
   LeaseSlot leases_[kMaxLeases] = {};
   uint8_t lease_count_ = 0;
 };
