@@ -7,12 +7,10 @@
 
 #include <sys/stat.h>
 
-#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 
-#include "esp_heap_caps.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_vfs.h"
@@ -34,22 +32,15 @@ constexpr uint32_t kPkgMax = 4 * 1024 * 1024;
 constexpr int kMaxEntries = watch::kThemePackageMaxEntries;
 constexpr size_t kManifestMax = 32 * 1024;
 
-// 受信 staging は PSRAM。チャンクの sink.write は NimBLE ホストタスク上で
-// 走るため、ここで littlefs/fwrite (= フラッシュ書き込み・キャッシュ停止)
-// をするとホストタスクが HCI 処理を滞留させて mbuf 枯渇→ble_att_tx assert
-// クラッシュする (実機で確認済み)。転送中は memcpy だけに留め、
-// commit 時にまとめてファイルに落とす。
-// staging は 64KiB ページの束: テーマアリーナ (4MiB) 等で細切れになった
-// PSRAM でも確保できる (918KiB の連続確保は実機で失敗した)。
-constexpr size_t kStagePage = 64 * 1024;
-constexpr uint32_t kStageMaxPages = kPkgMax / kStagePage;
-uint8_t* s_pages[kStageMaxPages] = {};  // 受信中のページ (PSRAM)
-uint32_t s_npages = 0;                  // 確保済みページ数
-uint32_t s_size = 0;                    // 期待サイズ
+// staging は /assets/.theme.bulk への逐次 fwrite。sink.write は
+// ble_link のワーカータスク (bulk_rx) 上で走る (NimBLE ホストタスク
+// ではない — そこで書くと mbuf 枯渇→ble_att_tx assert で再起動した)。
+FILE* s_f = nullptr;          // 受信中の .theme.bulk
+uint32_t s_size = 0;          // 期待サイズ
 char s_pending[32] = {};      // 適用待ち theme id (volatile 共有)
 volatile bool s_has_pending = false;
 
-// NimBLE タスク上だけで動くため、大きいバッファは static に置いて
+// bulk_rx ワーカー上だけで動くため、大きいバッファは static に置いて
 // スタックを食わない (単一スレッド前提で再入なし)。
 uint8_t s_tail[4096];
 watch::ThemePackageEntry s_list[kMaxEntries];
@@ -161,30 +152,17 @@ bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
   // begin は常に「新しい転送」。再開 (同じ id/size/sha256 の BULK_START 再送)
   // は BulkReceiver 側が begin を呼ばず受信位置を返すので、ここに来た時点で
   // 同じ転送の再送 (レジューム) は BulkReceiver が begin を呼ばないので
-  // ここに来る begin は常に新しい転送 → 前の staging はゴミとして捨てる。
-  // 切断をまたいだ途中データは s_pages がそのまま残る (BulkReceiver の
-  // 状態も残るので offset から続きを受ける)。
-  for (uint32_t i = 0; i < s_npages; ++i) heap_caps_free(s_pages[i]);
-  s_npages = 0;
-  s_npages = (size + kStagePage - 1) / kStagePage;
-  for (uint32_t i = 0; i < s_npages; ++i) {
-    const size_t n =
-        ((i + 1) * kStagePage <= size) ? kStagePage : size - i * kStagePage;
-    s_pages[i] = static_cast<uint8_t*>(
-        heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!s_pages[i]) {
-      ESP_LOGW(TAG,
-               "bulk begin: psram alloc %lu failed (page %lu/%lu, "
-               "largest=%u total=%u)",
-               (unsigned long)size, (unsigned long)i,
-               (unsigned long)s_npages,
-               (unsigned)heap_caps_get_largest_free_block(
-                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-      while (i > 0) heap_caps_free(s_pages[--i]);
-      s_npages = 0;
-      return false;
-    }
+  // ここに来る begin は常に新しい転送 → 前の .theme.bulk はゴミとして
+  // truncate して取り直す。切断をまたいだ途中データは s_f を開いたまま
+  // 残る (BulkReceiver の状態も残るので offset から続きを受ける)。
+  if (s_f) {
+    std::fclose(s_f);
+    s_f = nullptr;
+  }
+  s_f = std::fopen(kBulkFile, "w+b");
+  if (!s_f) {
+    ESP_LOGW(TAG, "bulk begin: fopen %s failed (errno=%d)", kBulkFile, errno);
+    return false;
   }
   s_size = size;
   return true;
@@ -192,44 +170,25 @@ bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
 
 bool bulk_write(uint16_t, uint32_t offset, const uint8_t* data, size_t len,
                 void*) {
-  if (s_npages == 0 || !data || offset + len > s_size) return false;
-  size_t done = 0;
-  while (done < len) {
-    const uint32_t pos = offset + static_cast<uint32_t>(done);
-    const size_t po = pos % kStagePage;
-    const size_t n = std::min(len - done, kStagePage - po);
-    std::memcpy(s_pages[pos / kStagePage] + po, data + done, n);
-    done += n;
+  if (!s_f || !data || offset + len > s_size) return false;
+  if (std::fseek(s_f, offset, SEEK_SET) != 0) {
+    ESP_LOGW(TAG, "bulk write: fseek %lu failed (errno=%d)",
+             (unsigned long)offset, errno);
+    return false;
+  }
+  if (std::fwrite(data, 1, len, s_f) != len) {
+    // パーティション満杯など — 受信側は ACK で現位置を返すので再送になる。
+    ESP_LOGW(TAG, "bulk write: fwrite %luB @%lu failed (errno=%d)",
+             (unsigned long)len, (unsigned long)offset, errno);
+    return false;
   }
   return true;
 }
 
 bool bulk_commit(uint16_t, void*) {
-  if (s_npages == 0) {
-    ESP_LOGW(TAG, "bulk commit: no staged data");
-    return false;
-  }
-  // staging (PSRAM) → .theme.bulk → 検証して <id>.zip へ。
-  // ここは NimBLE ホストタスク上だが転送は完了済みで相手は応答待ちなので、
-  // この一度きりのフラッシュ書き込みで mbuf は枯渇しない。
-  FILE* f = std::fopen(kBulkFile, "w+b");
-  bool saved = false;
-  if (f) {
-    saved = true;
-    uint32_t left = s_size;
-    for (uint32_t i = 0; saved && i < s_npages; ++i) {
-      const size_t n = left < kStagePage ? left : kStagePage;
-      saved = std::fwrite(s_pages[i], 1, n, f) == n;
-      left -= n;
-    }
-    std::fclose(f);
-  }
-  for (uint32_t i = 0; i < s_npages; ++i) heap_caps_free(s_pages[i]);
-  s_npages = 0;
-  if (!saved) {
-    ESP_LOGW(TAG, "bulk commit: write %s failed (errno=%d)", kBulkFile,
-             errno);
-    return false;
+  if (s_f) {
+    std::fclose(s_f);
+    s_f = nullptr;
   }
   char id[32];
   const bool ok = install(kBulkFile, id, sizeof(id));
@@ -241,8 +200,10 @@ bool bulk_commit(uint16_t, void*) {
 
 void bulk_abort(uint16_t id, void*) {
   ESP_LOGW(TAG, "bulk abort id=%u", id);
-  for (uint32_t i = 0; i < s_npages; ++i) heap_caps_free(s_pages[i]);
-  s_npages = 0;
+  if (s_f) {
+    std::fclose(s_f);
+    s_f = nullptr;
+  }
   std::remove(kBulkFile);
 }
 

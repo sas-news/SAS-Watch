@@ -1,7 +1,10 @@
 // ble_link — NimBLE GATT サーバ (docs/protocol-v1.md)
 //
 // スレッドモデル:
-//   - GATT コールバックと送信は全部 NimBLE host タスクの中で動く。
+//   - GATT コールバックと送信は基本 NimBLE host タスクの中で動く。
+//   - BULK 受信だけは bulk_rx ワーカータスクで処理する (sink の
+//     littlefs 書き込みをホストタスクから退避 → mbuf 枯渇の防止)。
+//     access_cb はフレームをキューに入れるだけ。
 //   - ble_link_send_event() / ble_link_confirm_passkey() は他タスクから
 //     呼ばれる前提 (NimBLE 側が内部でロックを取る)。
 //   - BULK の受信状態は切断をまたいで保持する (再送で再開できる)。
@@ -14,6 +17,8 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_att.h"
@@ -310,26 +315,58 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
   bulk_lock_sync();  // 転送の開始/完了/中断を反映
 }
 
+// ---------- bulk 受信キュー + ワーカー ----------
+// sink.write/commit (theme_store = littlefs への書き込み) を NimBLE
+// ホストタスク上で走らせると、フラッシュ書き込み (cache 停止) の間に
+// HCI 処理が滞って受信 mbuf が枯渇し、ble_att_tx_with_conn assert で
+// 再起動する (実機で確認)。access_cb は mbuf のフラット化とキュー投入
+// だけを行い、組み立て・保存・ACK/RES 応答は専用ワーカーで処理する。
+// BLE の送信 API (notify 等) はホスト sync 後なら別タスクから呼べる。
+constexpr uint32_t kBulkQDepth = 8;
+struct BulkRxItem {
+  uint16_t len;
+  uint8_t data[watch::proto::kDefaultMtu + 16];
+};
+StaticQueue_t s_bulk_q_store;
+BulkRxItem s_bulk_q_buf[kBulkQDepth];
+QueueHandle_t s_bulk_q = nullptr;
+uint32_t s_bulk_rx_dropped = 0;
+
+void bulk_rx_task(void*) {
+  for (;;) {
+    BulkRxItem it;
+    if (xQueueReceive(s_bulk_q, &it, portMAX_DELAY) != pdTRUE) continue;
+    watch::proto::Frame f;
+    if (watch::proto::frame_parse(it.data, it.len, &f) !=
+        watch::proto::FrameError::Ok) {
+      continue;
+    }
+    watch::proto::Frame msg;
+    if (s_bulk_rx_frames.feed(f, &msg)) {
+      handle_bulk_msg(msg);
+    } else if (s_bulk_rx_frames.error()) {
+      ESP_LOGW(kTag, "bulk: bad frame dropped (reassembly reset)");
+      s_bulk_rx_frames.reset();
+    }
+  }
+}
+
 int bulk_access(uint16_t conn_handle, uint16_t attr_handle,
                 ble_gatt_access_ctxt* ctxt, void* arg) {
   // write-without-response は ATT エラーを返せないので、
   // 壊れたフレームは捨てるだけ。
   if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return 0;
-  uint8_t buf[watch::proto::kDefaultMtu + 16];
-  uint16_t len = 0;
-  if (ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf), &len) != 0) return 0;
-
-  watch::proto::Frame f;
-  if (watch::proto::frame_parse(buf, len, &f) !=
-      watch::proto::FrameError::Ok) {
+  BulkRxItem it;
+  if (ble_hs_mbuf_to_flat(ctxt->om, it.data, sizeof(it.data), &it.len) != 0) {
     return 0;
   }
-  watch::proto::Frame msg;
-  if (s_bulk_rx_frames.feed(f, &msg)) {
-    handle_bulk_msg(msg);
-  } else if (s_bulk_rx_frames.error()) {
-    ESP_LOGW(kTag, "bulk: bad frame dropped (reassembly reset)");
-    s_bulk_rx_frames.reset();
+  if (!s_bulk_q || xQueueSendToBack(s_bulk_q, &it, 0) != pdTRUE) {
+    // ワーカーが書き込みに追いついていない。捨てたチャンクは BulkReceiver
+    // 側の offset 不整合 ACK で電話が巻き戻って再送するので自己回復する。
+    if ((++s_bulk_rx_dropped & 0x3F) == 1) {
+      ESP_LOGW(kTag, "bulk: rx queue full, frame dropped (total=%lu)",
+               (unsigned long)s_bulk_rx_dropped);
+    }
   }
   return 0;
 }
@@ -612,6 +649,20 @@ extern "C" esp_err_t ble_link_start(const ble_link_config_t* cfg) {
   s_bulk.init(sink);
   s_ctrl_rx.reset();
   s_bulk_rx_frames.reset();
+
+  // BULK 受信ワーカー (ホストタスクからフラッシュ書き込みを退避するため)。
+  // キューは static 確保、タスクは BLE init 前 = 内蔵 RAM に余裕のある
+  // うちに立てる。
+  s_bulk_q = xQueueCreateStatic(
+      kBulkQDepth, sizeof(BulkRxItem),
+      reinterpret_cast<uint8_t*>(s_bulk_q_buf), &s_bulk_q_store);
+  configASSERT(s_bulk_q);
+  if (xTaskCreatePinnedToCore(bulk_rx_task, "bulk_rx", 6144, nullptr,
+                              tskIDLE_PRIORITY + 6, nullptr,
+                              0) != pdPASS) {
+    ESP_LOGE(kTag, "bulk_rx task create failed");
+    return ESP_ERR_NO_MEM;
+  }
 
   // light sleep 抑止の PM lock を起動時に確保しておく (acquire/release は
   // 実行時に対称に行う)。確保は初期化時のみのルール。
