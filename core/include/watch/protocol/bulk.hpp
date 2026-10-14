@@ -83,6 +83,8 @@ class BulkReceiver {
   uint16_t current_id() const { return id_; }
   // 次に受け取るべきオフセット = BULK_ACK{next} の値。
   uint32_t next_offset() const { return received_; }
+  // BULK_START で宣言された全体サイズ (診断用)。
+  uint32_t expected_size() const { return size_; }
 
   // BULK_START を処理。true = 受理したので *next_out を ACK で返す。
   //   同じ id・同じ内容で進行中なら再開 (begin は呼ばない)。

@@ -7,6 +7,7 @@
 
 #include <sys/stat.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 
@@ -137,8 +138,14 @@ bool init() {
 }
 
 bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
-  if (!kind || std::strcmp(kind, "theme") != 0) return false;
-  if (size == 0 || size > kPkgMax) return false;
+  if (!kind || std::strcmp(kind, "theme") != 0) {
+    ESP_LOGW(TAG, "bulk begin: bad kind '%s'", kind ? kind : "(null)");
+    return false;
+  }
+  if (size == 0 || size > kPkgMax) {
+    ESP_LOGW(TAG, "bulk begin: bad size %lu", (unsigned long)size);
+    return false;
+  }
   // begin は常に「新しい転送」。再開 (同じ id/size/sha256 の BULK_START 再送)
   // は BulkReceiver 側が begin を呼ばず受信位置を返すので、ここに来た時点で
   // 同じ転送の再送 (レジューム) は BulkReceiver が begin を呼ばないので
@@ -150,7 +157,10 @@ bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
     s_f = nullptr;
   }
   s_f = std::fopen(kBulkFile, "w+b");
-  if (!s_f) return false;
+  if (!s_f) {
+    ESP_LOGW(TAG, "bulk begin: fopen %s failed (errno=%d)", kBulkFile, errno);
+    return false;
+  }
   s_size = size;
   return true;
 }
@@ -158,8 +168,18 @@ bool bulk_begin(uint16_t, const char* kind, uint32_t size, void*) {
 bool bulk_write(uint16_t, uint32_t offset, const uint8_t* data, size_t len,
                 void*) {
   if (!s_f || !data || offset + len > s_size) return false;
-  if (std::fseek(s_f, offset, SEEK_SET) != 0) return false;
-  return std::fwrite(data, 1, len, s_f) == len;
+  if (std::fseek(s_f, offset, SEEK_SET) != 0) {
+    ESP_LOGW(TAG, "bulk write: fseek %lu failed (errno=%d)",
+             (unsigned long)offset, errno);
+    return false;
+  }
+  if (std::fwrite(data, 1, len, s_f) != len) {
+    // パーティション満杯など — 受信側は ACK で現位置を返すので再送になる。
+    ESP_LOGW(TAG, "bulk write: fwrite %luB @%lu failed (errno=%d)",
+             (unsigned long)len, (unsigned long)offset, errno);
+    return false;
+  }
+  return true;
 }
 
 bool bulk_commit(uint16_t, void*) {
@@ -175,7 +195,8 @@ bool bulk_commit(uint16_t, void*) {
   return ok;
 }
 
-void bulk_abort(uint16_t, void*) {
+void bulk_abort(uint16_t id, void*) {
+  ESP_LOGW(TAG, "bulk abort id=%u", id);
   if (s_f) {
     std::fclose(s_f);
     s_f = nullptr;

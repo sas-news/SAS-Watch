@@ -248,14 +248,19 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
     case watch::proto::FrameType::BulkStart: {
       watch::proto::BulkStart bs;
       if (!watch::proto::bulk_parse_start(msg.payload, msg.payload_len, &bs)) {
+        ESP_LOGW(kTag, "bulk: START parse failed");
         send_res_err(msg.msg_id, "bad_request");
         break;
       }
       if (!s_bulk.start(bs, &next)) {
+        ESP_LOGW(kTag, "bulk: START rejected id=%u kind=%s size=%lu", bs.id,
+                 bs.kind, (unsigned long)bs.size);
         send_res_err(msg.msg_id, "busy");
         break;
       }
       // 新規は next=0、再送(再開)は途中位置が返る。
+      ESP_LOGI(kTag, "bulk: START id=%u kind=%s size=%lu resume_at=%lu", bs.id,
+               bs.kind, (unsigned long)bs.size, (unsigned long)next);
       send_bulk_ack(bs.id, next);
       break;
     }
@@ -267,11 +272,23 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
       break;
     case watch::proto::FrameType::BulkEnd: {
       uint16_t id = 0;
-      if (watch::proto::bulk_parse_end(msg.payload, msg.payload_len, &id) &&
-          s_bulk.finish(id)) {
+      const bool parsed =
+          watch::proto::bulk_parse_end(msg.payload, msg.payload_len, &id);
+      if (parsed && s_bulk.finish(id)) {
+        ESP_LOGI(kTag, "bulk: END ok id=%u size=%lu", id,
+                 (unsigned long)s_bulk.expected_size());
         uint8_t buf[32];
         send_res_payload(msg.msg_id, buf, encode_res_ok(buf, sizeof(buf)));
       } else {
+        // finish() は受領数不足・sha256 不一致・commit 失敗をまとめて false
+        // にするので、拒否理由はここで残す (commit 失敗は theme_store が
+        // 別途ログを出す → ここでは受理数との不一致か hash が怪しい)。
+        ESP_LOGW(kTag,
+                 "bulk: END rejected id=%u parsed=%d active=%d cur_id=%u "
+                 "rcvd=%lu size=%lu",
+                 id, parsed, s_bulk.in_progress(), s_bulk.current_id(),
+                 (unsigned long)s_bulk.next_offset(),
+                 (unsigned long)s_bulk.expected_size());
         send_res_err(msg.msg_id, "bad_request");
       }
       break;
@@ -311,6 +328,7 @@ int bulk_access(uint16_t conn_handle, uint16_t attr_handle,
   if (s_bulk_rx_frames.feed(f, &msg)) {
     handle_bulk_msg(msg);
   } else if (s_bulk_rx_frames.error()) {
+    ESP_LOGW(kTag, "bulk: bad frame dropped (reassembly reset)");
     s_bulk_rx_frames.reset();
   }
   return 0;
