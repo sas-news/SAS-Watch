@@ -7,6 +7,13 @@
 //   全て LVGL コンテキスト内 (port::lock 下 or LVGL タスク) で呼ぶ。
 #include "theme.hpp"
 
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#define SAS_BIG_STATIC EXT_RAM_BSS_ATTR
+#else
+#define SAS_BIG_STATIC
+#endif
+
 #include <cstdio>
 #include <cstring>
 
@@ -80,7 +87,7 @@ bool load_file_theme(const char* id, Theme* out) {
     return false;
   }
   // LVGL コンテキスト内のみから呼ばれるので static でスタックを節約。
-  static watch::ThemeManifest m;
+  SAS_BIG_STATIC static watch::ThemeManifest m;
   if (watch::theme_manifest_parse(data, len, &m) !=
           watch::ThemeManifestError::kOk ||
       std::strcmp(m.id, id) != 0) {
@@ -90,7 +97,7 @@ bool load_file_theme(const char* id, Theme* out) {
   // 欠けた Token は standard で補完する。
   // Theme は ~5KB あり main タスクスタック(3584B)に乗らないため、
   // LVGL コンテキスト内のみから呼ばれる前提で static で持つ。
-  static Theme t;
+  SAS_BIG_STATIC static Theme t;
   t = *builtin_theme("standard");
   for (int i = 0; i < 19; ++i) {
     if (m.color_set & (1u << i)) {
@@ -199,7 +206,7 @@ bool theme_apply(const char* id) {
   port::theme_assets_reset();
   const Theme* b = builtin_theme(id);
   // sizeof(Theme) ~5KB > main タスクスタック(3584B) → static。
-  static Theme t;
+  SAS_BIG_STATIC static Theme t;
   bool ok;
   if (b) {
     t = *b;
