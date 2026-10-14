@@ -280,9 +280,8 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
       const bool parsed =
           watch::proto::bulk_parse_end(msg.payload, msg.payload_len, &id);
       if (parsed && s_bulk.finish(id)) {
-        ESP_LOGI(kTag, "bulk: END ok id=%u size=%lu rx_hwm=%u", id,
-                 (unsigned long)s_bulk.expected_size(),
-                 (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+        ESP_LOGI(kTag, "bulk: END ok id=%u size=%lu", id,
+                 (unsigned long)s_bulk.expected_size());
         uint8_t buf[32];
         send_res_payload(msg.msg_id, buf, encode_res_ok(buf, sizeof(buf)));
       } else {
@@ -323,7 +322,7 @@ void handle_bulk_msg(const watch::proto::Frame& msg) {
 // 再起動する (実機で確認)。access_cb は mbuf のフラット化とキュー投入
 // だけを行い、組み立て・保存・ACK/RES 応答は専用ワーカーで処理する。
 // BLE の送信 API (notify 等) はホスト sync 後なら別タスクから呼べる。
-constexpr uint32_t kBulkQDepth = 16;
+constexpr uint32_t kBulkQDepth = 8;
 struct BulkRxItem {
   uint16_t len;
   uint8_t data[watch::proto::kDefaultMtu + 16];
@@ -658,9 +657,7 @@ extern "C" esp_err_t ble_link_start(const ble_link_config_t* cfg) {
       kBulkQDepth, sizeof(BulkRxItem),
       reinterpret_cast<uint8_t*>(s_bulk_q_buf), &s_bulk_q_store);
   configASSERT(s_bulk_q);
-  // 深い呼び出し: feed_chunk→sink.write→fwrite→littlefs、END では
-  // commit→install (zip 検証)。6144 では実機で overflow した。
-  if (xTaskCreatePinnedToCore(bulk_rx_task, "bulk_rx", 10240, nullptr,
+  if (xTaskCreatePinnedToCore(bulk_rx_task, "bulk_rx", 6144, nullptr,
                               tskIDLE_PRIORITY + 6, nullptr,
                               0) != pdPASS) {
     ESP_LOGE(kTag, "bulk_rx task create failed");
