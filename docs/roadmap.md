@@ -142,7 +142,7 @@
   - ヘッダはどの画面も同じ形にする (タイトル左寄せ・戻るピル・右に mascot)。
 - 監査結果 (違反一覧) は sim スクショ付きでユーザーに見せ、承認後に直す。
 
-状態: 未着手
+状態: T16 に吸収 (監査結果は docs/t6-audit.md)
 
 ## T7. アプリアイコン (E) — 難度 S
 
@@ -287,6 +287,138 @@
   (テスト用のサンプルを `core/tests/data/` に置く)。sim の `--theme` で表示できる。
 
 状態: 完了 3356f7a
+
+---
+
+# 第2弾 (2026-10-13 ユーザーフィードバック由来)
+
+ユーザーからの確認結果: T9/T11/T12 は実機で OK。数字の色は今のままでよい。
+T14 の「要判断」4件は変更しない。行の補足テキストを -14px 重ねて詰めている件は、前任 AI の判断なので変えてよい。
+**T6 は下の T16 に吸収する** (数字の色は変えない。残りの確実な違反は T16 と一緒に直す)。
+
+## T16. 文字の重なり・豆腐の一掃 (最優先) — 難度 M
+
+- 症状 (ユーザー報告): 「文字が色んなところで被りすぎ」「`-` がフォントに無く豆腐」。
+  T4 のフォント刷新 (行 26px・見出し 32px・行間 1.25) で高さが増えたのが主因と推定。
+- sim 監査に2つ追加する (どちらも 0 件を受け入れ条件にして CI で fail させる):
+  1. **テキストの重なり**: 同じ画面で可視のラベルどうしの bbox が交差したら報告。
+     親子・同一オブジェクトは除外する。装飾は対象外。
+  2. **欠けグリフ**: 各ラベルのテキストを `lv_font_get_glyph_dsc` で検査し、
+     フォントに無いコードポイントを報告 (フォールバックフォントも辿る)。
+- 修正方針:
+  - 全フォントに ASCII 0x20–0x7E を必ず含める。jp_32 の subset にも入れる。
+    `‐ – — ・ … 「」` など UI でよく使う記号も含める。
+  - 重なりは行・カードの高さを内容依存 (SIZE_CONTENT + min_height) にして直す。
+    ぎりぎり固定の高さはやめる。-14px の重ね詰めはやめて、行間で調整する。
+  - T6 監査 (docs/t6-audit.md) の「確実な違反」のうち、数字の色に関するもの以外も直す。
+- 受け入れ条件: 全テーマ × 全画面で、重なり 0・欠けグリフ 0・safe_area 0。
+  変更前後のスクショを並べてユーザーに見せる。
+
+状態: 未着手
+
+## T17. 電源・入力の仕様変更 — 難度 M
+
+1. **PWR 短押し = どの画面でも画面 ON/OFF のトグル** (戻るにしない)。
+   戻るは戻るピルと右スワイプで行う。
+   InputMapper の既定を `button.pwr.short = "screen_off"` にする (消灯中は既存の仕組みで Wake)。
+   電話側の既定値、protocol-v1.md、plan.md G章、テストも合わせる。
+2. **タイマー終了・アラーム鳴動で自動的に画面 ON**: core の Runtime で
+   TimerFinished/AlarmRinging の Event を受けたら、power を Wake (kick_activity + Active)。
+   消灯中でも alert が見えるようにする。
+3. **アプリから「画面を消さない」を指定できる**: FeatureDescriptor に
+   `bool (*keep_screen_on)(const FeatureContext&)` (nullptr 可) を追加する。
+   Runtime は「現在の Route の Feature」の keep_screen_on が true の間、
+   Dim/ScreenOff への自動遷移を止める。手動の PWR 消灯は効く。
+   画面を離れたら効果は切れる (バッテリー保護のため)。
+   stopwatch は計測中だけ true にする。timer にも同様に入れる。
+   core テスト: 該当画面の間は遷移しないこと、離れたら遷移すること、手動消灯は効くこと。
+4. **画面の長押しを電源メニューに使わない**: 画面長押しのグローバルな割り当て
+   (powermenu 等) を外す。新しい ActionType `LongPress` を「現在の Feature の handle」に渡す
+   (既定は何もしない)。電源メニューへは PWR 長押し (従来どおり) で行く。
+
+状態: 未着手
+
+## T18. 録音できない (T10 の続き) — 難度 M (実機)
+
+- 症状: メモの録音開始を押しても反応しない。メモが増えない。
+- 手順: 録音のボタン → Action → memo feature → AudioPort::record_start → mic_open → I2S read →
+  ファイル保存、の各段に ESP_LOGI を入れる。書き込んだあと、モニタをバックグラウンドで
+  10分ほどファイルに取り続け、ユーザーに「メモ → 録音開始 → 5秒 → 停止」を頼んで、ログで
+  どの段が止まっているかを確定する。
+  疑わしい点: ボタンの CLICKED が Action になっていない、can_record の分岐、
+  録音タスクのスタック/SRAM、/storage の littlefs が未マウント (audio init 内でマウントしていた →
+  MIC だけ有効のときに通っているか)。
+- 直したら診断ログは消す。
+
+状態: 未着手
+
+## T19. アプリを本体改変なしで追加できる仕組み + 開発ガイド — 難度 M
+
+- 現状: `apps/<id>/` があるが、`enabled.txt`、`SAS_APP_*` の `#if`、
+  `core/features/registry.cpp` の `kBuiltin[]`、applist の行などを手で編集する必要がある。
+- 方針: **CMake で apps を自動発見して、登録表を生成する**。
+  - 各アプリに `apps/<id>/app.cmake` を置く。中身は id・表示名・アイコン (font_icon の
+    コードポイントまたはテーマ画像 id)・ソース一覧・有効/無効。
+  - CMake が `apps/*/app.cmake` と、外部ディレクトリ `WATCH_EXTRA_APP_DIRS` (; 区切り) を走査し、
+    `generated/app_registry.cpp` を生成する。中身は Feature の表・画面生成関数の表・applist の表。
+  - core / firmware / sim の 3 つのビルドが同じ生成物を使う。`kBuiltin[]` と
+    applist のハードコードはこれに置き換える。
+  - 既存アプリを全部この形式に移す (挙動は変えない)。
+- `apps/_template/` (最小アプリ: カウンタ相当) と `docs/app-guide.md` を作る。
+  ガイドには、Feature の書き方、画面の書き方 (ui::c 部品)、keep_screen_on・LongPress、
+  設定・保存 (kv キーは 15 文字以内)、テスト、外部リポジトリからの追加方法を書く。
+- 受け入れ条件: `apps/_template` をコピーして名前を変えるだけで、applist に出て動く
+  (sim スクショ)。外部ディレクトリのアプリも CI で 1 つビルドする。
+
+状態: 未着手
+
+## T20. テーマ画像を id で自由に増やせる — 難度 M
+
+- 現状: images 4 枠・icons 12 件が固定長。
+- 方針: manifest v5 の `assets` を「id → ファイル」の自由な map にする
+  (上限は zip のエントリ数 32 に従う。id は `[a-z0-9_.-]{1,31}`)。
+  - 既存の images/icons キーは assets の別名として読む (互換を保つ)。
+  - アプリやテーマ設定からは `theme_image("<id>")` で引く。
+    applist のアイコンは `icon.<app_id>` を引く。T19 のアプリも同じ仕組みを使う。
+  - 遅延ロードにして、使われる画面でだけ読む (グローバル常駐はスキン・アイコンのみ)。
+- テーマスタジオ: 画像の枠を「+ 追加」で増やし、id を入力できるようにする。
+  アプリ一覧のアイコン枠は、T19 の生成した app 一覧から作る。
+- docs/theme-format.md を更新する。
+
+状態: 未着手
+
+## T21. テーマスタジオの拡張 (kit.html とフォント) — 難度 M
+
+- 既存の HTML 機能: `themes/<id>/kit.html` を `tools/build_themes.py --kit` が
+  Playwright でスクショして 9-slice スキンを生成する (theme-format.md v3)。
+  スタジオからは今は触れない。
+- 方針:
+  - スタジオに「スキン」タブを作る。kit.html を読み込んで iframe でプレビューし、
+    CSS 変数 (色・角丸・影) をスタジオの tokens と連動させる。
+  - 書き出しの選択肢を2つ用意する。
+    (a) 編集済みの kit.html を保存し、`build_themes.py --kit` で zip 化する (高品質・推奨)。
+    (b) ブラウザだけで、SVG foreignObject → canvas → PNG で各 `data-part` を書き出す
+        (外部フォントが無ければ十分な品質)。
+  - **フォントはテーマで指定できる** (`fonts` キー: digits/digits_sm/title/body、
+    lv_binfont 形式)。スタジオでも .bin フォントを指定できるようにする。
+    TTF からの変換コマンド `tools/gen_fonts.py --binfont <ttf> --size N` をスタジオ内に表示する。
+    無ければ作る。
+
+状態: 未着手
+
+## T22. Home と文字盤の整理 — 難度 H (調査 → ユーザー確認)
+
+- ユーザーの疑問: 「Home と文字盤は何が違うのか」。
+- まず実装を調べる: Home Route の中身、face の選択、home_bg/stand 画像、face_layout の関係。
+  そのうえで「Home = 選択中の文字盤の表示」に一本化する案を出す。
+  home_bg/stand は standard 文字盤の素材として assets 化する。
+- 案をユーザーに見せてから実装する。
+
+状態: 未着手
+
+## 第2弾の実施順
+
+T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22。
 
 ## 対象外 / 判断済み
 
