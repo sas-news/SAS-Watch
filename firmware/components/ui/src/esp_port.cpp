@@ -189,7 +189,9 @@ bool theme_entry_stat(const char* id, const char* name, uint32_t* out_size) {
 // 実機観測)。DRAM の小さいバッファに刻んで読み、呼び出し側 dst へ
 // 転写すれば direct_read 経路になり一時バッファは確保されない。
 bool staged_fread(FILE* f, uint8_t* dst, uint32_t n) {
-  static uint8_t s_stage[16 * 1024];  // DRAM (.bss)
+  // 4KB は内蔵 DRAM の節約と読み込み効率の均衡点
+  // (これ以上大きい静的バッファは BLE_INIT の ~30KB 連続確保を破る)。
+  static uint8_t s_stage[4 * 1024];  // DRAM (.bss)
   uint32_t done = 0;
   while (done < n) {
     const uint32_t m =
