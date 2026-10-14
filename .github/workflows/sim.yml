@@ -31,6 +31,18 @@ jobs:
       - name: Generate screenshots
         run: ./sim/build/snapshot --out sim/screenshots
 
+      # T19: 外部ディレクトリのアプリが本体改変なしでビルドされることを検証
+      # (apps/_template を /tmp にコピーして外部アプリとして取り込む)。
+      - name: External app build (WATCH_EXTRA_APP_DIRS)
+        run: |
+          mkdir -p /tmp/ext_apps
+          cp -r apps/_template /tmp/ext_apps/tpl_ext
+          cmake -S sim -B sim/build-ext             -DWATCH_EXTRA_APP_DIRS=/tmp/ext_apps             -DCONFIG_LV_BUILD_DEMOS=OFF -DCONFIG_LV_BUILD_EXAMPLES=OFF
+          cmake --build sim/build-ext -j"$(nproc)"
+          grep -q "tpl_ext" sim/build-ext/sas_apps_gen/app_ui.cpp
+          ./sim/build-ext/snapshot --out /tmp/shots_ext --theme standard
+          test -f /tmp/shots_ext/03_applist.png
+
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots

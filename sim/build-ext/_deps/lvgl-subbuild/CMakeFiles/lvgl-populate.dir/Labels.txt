@@ -1,0 +1,14 @@
+# Target labels
+ lvgl-populate
+# Source files and their labels
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/CMakeFiles/lvgl-populate
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/CMakeFiles/lvgl-populate.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/CMakeFiles/lvgl-populate-complete.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-build.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-configure.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-download.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-install.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-mkdir.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-patch.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-test.rule
+/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/lvgl-populate-prefix/src/lvgl-populate-stamp/lvgl-populate-update.rule

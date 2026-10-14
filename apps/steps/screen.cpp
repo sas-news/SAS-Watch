@@ -6,7 +6,9 @@
 
 #include <cstdio>
 
+#include "faces/faces.hpp"
 #include "screens/screens.hpp"
+#include "ui/face_data.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/steps.hpp"
 #include "watch/settings.hpp"
@@ -103,4 +105,17 @@ void on_event(lv_obj_t*, const watch::Event& e) {
 
 namespace ui {
 extern const ScreenOps kStepsScreen = {watch::Route::Steps, build, on_event};
+
+// applist のサブ行 (app.cmake の APP_SUB が指す)。
+const char* steps_applist_sub() {
+  static char buf[24];
+  buf[0] = '\0';
+  const face_data::Snapshot snap = face_data::get();
+  if (snap.steps >= 0) {
+    char nb[16];
+    face::fmt_steps(nb, sizeof(nb), snap.steps);
+    std::snprintf(buf, sizeof(buf), "%s 歩", nb);
+  }
+  return buf;
+}
 }

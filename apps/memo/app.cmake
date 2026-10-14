@@ -1,0 +1,11 @@
+# memo — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID memo)
+set(APP_NAME "メモ")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kMemo")
+set(APP_FEATURE_HDR "watch/features/memo.hpp")
+set(APP_ROUTE "watch::Route::Memo")
+set(APP_SCREEN_SYM "ui::kMemoScreen")
+set(APP_ICON_CP 0xE31D)
+set(APP_ICON_BG 0x64D6C2)
+set(APP_ORDER 40)

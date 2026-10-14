@@ -29,6 +29,8 @@ enum class Route : uint8_t {
   Ota,      // ファーム更新 (Settings から)
   Confirm,  // 承認モーダル用
   Alarm,
+  // 外部アプリ (WATCH_EXTRA_APP_DIRS) 用の動的 Route。自動採番。
+  App0 = 32, App1, App2, App3, App4, App5, App6, App7,
 };
 
 class Navigator {

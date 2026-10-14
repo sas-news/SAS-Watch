@@ -1,0 +1,11 @@
+# notify — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID notify)
+set(APP_NAME "通知")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kNotify")
+set(APP_FEATURE_HDR "watch/features/notify.hpp")
+set(APP_ROUTE "watch::Route::Notifications")
+set(APP_SCREEN_SYM "ui::kNotificationsScreen")
+set(APP_ICON_CP 0xE7F5)
+set(APP_ICON_BG 0x4CC9F0)
+set(APP_ORDER 60)

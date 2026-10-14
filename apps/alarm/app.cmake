@@ -1,0 +1,11 @@
+# alarm — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID alarm)
+set(APP_NAME "アラーム")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kAlarm")
+set(APP_FEATURE_HDR "watch/features/alarm.hpp")
+set(APP_ROUTE "watch::Route::Alarm")
+set(APP_SCREEN_SYM "ui::kAlarmScreen")
+set(APP_ICON_CP 0xE855)
+set(APP_ICON_BG 0xFF7AA2)
+set(APP_ORDER 50)

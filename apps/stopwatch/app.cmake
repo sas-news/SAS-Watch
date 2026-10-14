@@ -1,0 +1,11 @@
+# stopwatch — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID stopwatch)
+set(APP_NAME "ストップウォッチ")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kStopwatch")
+set(APP_FEATURE_HDR "watch/features/stopwatch.hpp")
+set(APP_ROUTE "watch::Route::Stopwatch")
+set(APP_SCREEN_SYM "ui::kStopwatchScreen")
+set(APP_ICON_CP 0xF4BA)
+set(APP_ICON_BG 0xFFD166)
+set(APP_ORDER 20)

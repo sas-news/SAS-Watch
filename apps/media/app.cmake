@@ -1,0 +1,11 @@
+# media — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID media)
+set(APP_NAME "音楽")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kMedia")
+set(APP_FEATURE_HDR "watch/features/media.hpp")
+set(APP_ROUTE "watch::Route::Media")
+set(APP_SCREEN_SYM "ui::kMediaScreen")
+set(APP_ICON_CP 0xE405)
+set(APP_ICON_BG 0xB388FF)
+set(APP_ORDER 70)

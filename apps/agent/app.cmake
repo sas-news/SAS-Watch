@@ -1,0 +1,11 @@
+# agent — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID agent)
+set(APP_NAME "AI")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kAgent")
+set(APP_FEATURE_HDR "watch/features/agent.hpp")
+set(APP_ROUTE "watch::Route::Agent")
+set(APP_SCREEN_SYM "ui::kAgentScreen")
+set(APP_ICON_CP 0xF06C)
+set(APP_ICON_BG 0xB388FF)
+set(APP_ORDER 80)

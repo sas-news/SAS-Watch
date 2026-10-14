@@ -1,0 +1,12 @@
+# steps — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID steps)
+set(APP_NAME "歩数")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kSteps")
+set(APP_FEATURE_HDR "watch/features/steps.hpp")
+set(APP_ROUTE "watch::Route::Steps")
+set(APP_SCREEN_SYM "ui::kStepsScreen")
+set(APP_ICON_CP 0xE536)
+set(APP_ICON_BG 0x3DDC97)
+set(APP_SUB "steps_applist_sub")
+set(APP_ORDER 75)

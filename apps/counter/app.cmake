@@ -1,0 +1,11 @@
+# counter — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID counter)
+set(APP_NAME "カウンター")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kCounter")
+set(APP_FEATURE_HDR "watch/features/counter.hpp")
+set(APP_ROUTE "watch::Route::Counter")
+set(APP_SCREEN_SYM "ui::kCounterScreen")
+set(APP_ICON_CP 0xE800)
+set(APP_ICON_BG 0xC0CA33)
+set(APP_ORDER 30)

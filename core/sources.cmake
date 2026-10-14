@@ -24,7 +24,6 @@ set(WATCH_CORE_SOURCES
     ${WATCH_CORE_DIR}/src/timeconv.cpp
     ${WATCH_CORE_DIR}/src/runtime.cpp
     ${WATCH_CORE_DIR}/features/clock/clock.cpp
-    ${WATCH_CORE_DIR}/features/registry.cpp
     ${WATCH_CORE_DIR}/protocol/crc16.cpp
     ${WATCH_CORE_DIR}/protocol/cbor.cpp
     ${WATCH_CORE_DIR}/protocol/frame.cpp

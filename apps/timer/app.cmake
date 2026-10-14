@@ -1,0 +1,11 @@
+# timer — アプリ定義 (apps/cmake/apps.cmake が走査する)。
+set(APP_ID timer)
+set(APP_NAME "タイマー")
+set(APP_ENABLED 1)
+set(APP_FEATURE_SYM "watch::features::kTimer")
+set(APP_FEATURE_HDR "watch/features/timer.hpp")
+set(APP_ROUTE "watch::Route::Timer")
+set(APP_SCREEN_SYM "ui::kTimerScreen")
+set(APP_ICON_CP 0xE425)
+set(APP_ICON_BG 0xFF8A3D)
+set(APP_ORDER 10)

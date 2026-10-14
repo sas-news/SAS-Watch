@@ -4,6 +4,7 @@
 #include "../components.hpp"
 #include "../faces/faces.hpp"
 #include "../theme.hpp"
+#include "app_ui.hpp"   // 生成: apps/*/app.cmake の行 (T19)
 #include "screens.hpp"
 #include "ui/face_data.hpp"
 #include "ui/ui.hpp"
@@ -35,17 +36,8 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_t* col = ui::c::content(scr);
   lv_obj_t* g = ui::c::group(col);
 
-  // 今日の歩数は補助データから (未配線なら sub なし)。
-  char steps_sub[24] = "";
-  const ui::face_data::Snapshot snap = ui::face_data::get();
-  if (snap.steps >= 0) {
-    char nb[16];
-    ui::face::fmt_steps(nb, sizeof(nb), snap.steps);
-    std::snprintf(steps_sub, sizeof(steps_sub), "%s 歩", nb);
-  }
-
-  lv_obj_t* rows[12];
-  watch::Route routes[12];
+  lv_obj_t* rows[16];
+  watch::Route routes[16];
   size_t rn = 0;
   const auto add = [&](const char* id, const char* icon, uint32_t bg,
                        const char* name, const char* sub, watch::Route r) {
@@ -54,36 +46,14 @@ lv_obj_t* build(lv_obj_t* scr) {
     rn++;
   };
 
-#if SAS_APP_TIMER
-  add("timer", "\xEE\x90\xA5", 0xFF8A3D, "タイマー", nullptr, watch::Route::Timer);
-#endif
-#if SAS_APP_STOPWATCH
-  add("stopwatch", "\xEF\x92\xBA", 0xFFD166, "ストップウォッチ", nullptr,
-      watch::Route::Stopwatch);
-#endif
-#if SAS_APP_COUNTER
-  add("counter", "\xEE\xA0\x80", 0xC0CA33, "カウンター", nullptr,
-      watch::Route::Counter);
-#endif
-#if SAS_APP_MEMO
-  add("memo", "\xEE\x8C\x9D", 0x64D6C2, "メモ", nullptr, watch::Route::Memo);
-#endif
-#if SAS_APP_ALARM
-  add("alarm", "\xEE\xA1\x95", 0xFF7AA2, "アラーム", nullptr, watch::Route::Alarm);
-#endif
-#if SAS_APP_NOTIFY
-  add("notifications", "\xEE\x9F\xB5", 0x4CC9F0, "通知", nullptr,
-      watch::Route::Notifications);
-#endif
-#if SAS_APP_MEDIA
-  add("media", "\xEE\x90\x85", 0xB388FF, "音楽", nullptr, watch::Route::Media);
-#endif
-#if SAS_APP_STEPS
-  add("steps", "\xEE\x94\xB6", 0x3DDC97, "歩数", steps_sub, watch::Route::Steps);
-#endif
-#if SAS_APP_AGENT
-  add("agent", "\xEF\x81\xAC", 0xB388FF, "AI", nullptr, watch::Route::Agent);
-#endif
+  // アプリ行は生成テーブル (apps/*/app.cmake → kSasAppRows、T19)。
+  // 追加は app.cmake を置くだけで本体は編集しない。
+  for (size_t i = 0; i < ui::kSasAppRowCount && rn < 16; ++i) {
+    const ui::SasAppRow& a = ui::kSasAppRows[i];
+    const char* sub = a.sub ? a.sub() : nullptr;
+    add(a.id, a.icon, a.icon_bg, a.name,
+        (sub && sub[0]) ? sub : nullptr, a.route);
+  }
   add("settings", "\xEE\xA2\xB8", 0x8A8F9C, "設定", nullptr, watch::Route::Settings);
 
   // 押しっぱスクロールの軽量化: 静的な行一覧を1枚の画像に焼き、
