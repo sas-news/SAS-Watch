@@ -213,6 +213,9 @@ v2 は zip 自体をそのまま配置するので上限 = パーティション
 
 - `.bin` は LVGL バイナリフォント (`lv_font_conv` 出力、lv_binfont 形式)。
   受信時の前置きなしで `lv_binfont_create_from_buffer` に直渡しされる。
+- 変換コマンド: `python3 tools/gen_fonts.py --binfont <ttf> --size <px>`
+  (ASCII + 記号 + かな + 全角の範囲で生成。出力は `<ttf名>_<px>px.bin`)。
+  テーマスタジオの「フォント (.bin)」節でスロットに割り当てられる。
 - 日本語グリフを含まないフォントを `body`/`title` に入れると
   日本語が欠けるので注意 (cosmos は digits 系のみ差替え)。
 - フォントデータはテーマ適用中ずっとアリーナに常駐する (遅延解放なし)。

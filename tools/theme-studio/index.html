@@ -40,6 +40,24 @@
   <div id="screens"></div>
   <h2>アプリアイコン (icons)</h2>
   <div id="icons"></div>
+  <h2>フォント (.bin)</h2>
+  <p class="hint">lv_binfont 形式。TTF→変換は
+    <code>tools/gen_fonts.py --binfont &lt;ttf&gt; --size N</code>。</p>
+  <div id="fonts"></div>
+  <h2>スキン (kit.html)</h2>
+  <p class="hint">テーマの kit.html を読み込むと iframe プレビューと
+    CSS 変数の編集ができる。書き出しは (a) 編集済み kit.html →
+    <code>tools/build_themes.py --kit</code>、または
+    (b) ブラウザだけで PNG 化。</p>
+  <div class="row">
+    <input id="kitfile" type="file" accept=".html" style="display:none">
+    <button id="kit-open" class="sec">kit.html を読み込む</button>
+    <button id="kit-save" class="sec">編集済み kit.html を保存</button>
+    <button id="kit-png" class="sec">各 data-part を PNG で書き出す</button>
+  </div>
+  <div id="kitvars"></div>
+  <iframe id="kitframe" style="width:100%;height:480px;border:1px solid #333;
+    background:#fff;border-radius:8px"></iframe>
   <h2>任意アセット (v5 assets)</h2>
   <p class="hint">id → ファイルの自由 map。id は a-z 0-9 _ . - 32字まで。
      時計側は theme_image("&lt;id&gt;") で遅延ロード。アプリのアイコンは
@@ -87,7 +105,11 @@ Studio.defaults = function () {
     images: {},   // slot -> {name, data(Uint8Array)}
     screens: {},  // screen -> {name, data}
     icons: {},    // app -> {name, data}
-    assets: {}    // v5: 自由 id -> {name, data}
+    assets: {},   // v5: 自由 id -> {name, data}
+    fontfiles: {},// fonts.<slot> -> {name, data} (lv_binfont .bin)
+    kitText: "",  // 読み込んだ kit.html (編集は :root の --var 上書き)
+    kitVars: {},  // kit の :root CSS 変数 {name: 現在値}
+    kitMap: {}    // var -> 連動する token キー (null = 手動)
   };
 };
 
@@ -144,6 +166,10 @@ Studio.encodeManifest = function (st) {
   const ico = Object.keys(st.icons);
   if (ico.length) {
     top.push(["icons", Studio.cMap(ico.map(k => [k, t(st.icons[k].name)]))]);
+  }
+  const fnt = Object.keys(st.fontfiles || {});
+  if (fnt.length) {
+    top.push(["fonts", Studio.cMap(fnt.map(k => [k, t(st.fontfiles[k].name)]))]);
   }
   const ast = Object.keys(st.assets || {});
   if (ast.length) {
@@ -294,6 +320,7 @@ Studio.decodeManifest = function (bytes) {
   }
   if (root.icons) for (const k in root.icons) st.icons[k] = { name: root.icons[k], data: null };
   if (root.assets) for (const k in root.assets) st.assets[k] = { name: root.assets[k], data: null };
+  if (root.fonts) for (const k in root.fonts) st.fontfiles[k] = { name: root.fonts[k], data: null };
   return st;
 };
 
@@ -320,7 +347,7 @@ function rebuild() {
     d.innerHTML = "<label>" + k + "</label>";
     const inp = document.createElement("input");
     inp.type = "color"; inp.value = hexToC(state.tokens[k] || "0x000000");
-    inp.oninput = () => { state.tokens[k] = cToHex(inp.value); preview(); };
+    inp.oninput = () => { state.tokens[k] = cToHex(inp.value); if (state.kitText) kitSyncAll(); preview(); };
     d.appendChild(inp); c.appendChild(d);
   }
   // 数値
@@ -332,14 +359,16 @@ function rebuild() {
     d.innerHTML = "<label>" + k + "</label>";
     const inp = document.createElement("input");
     inp.type = "number"; inp.value = state.tokens[k] || 0; inp.min = 0;
-    inp.oninput = () => { state.tokens[k] = parseInt(inp.value, 10) || 0; preview(); };
+    inp.oninput = () => { state.tokens[k] = parseInt(inp.value, 10) || 0; if (state.kitText) kitSyncAll(); preview(); };
     d.appendChild(inp); m.appendChild(d);
   }
   // 画像スロット
   fileGroup("images", Studio.IMAGE_KEYS, state.images);
   fileGroup("screens", Studio.SCREEN_KEYS, state.screens);
   fileGroup("icons", Studio.ICON_APPS, state.icons);
+  fileGroup("fonts", ["body","title","digits","digits_sm"], state.fontfiles);
   rebuildAssets();
+  rebuildKitVars();
   preview();
 }
 
@@ -479,6 +508,174 @@ function preview() {
 document.getElementById("tid").oninput = e => { state.id = e.target.value; };
 document.getElementById("tname").oninput = e => { state.name = e.target.value; };
 
+// ---- スキン (kit.html) ----
+const kitFrame = document.getElementById("kitframe");
+document.getElementById("kit-open").onclick = () =>
+  document.getElementById("kitfile").click();
+document.getElementById("kitfile").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    state.kitText = rd.result;
+    // :root の --var を拾う
+    state.kitVars = {};
+    const m = state.kitText.match(/:root\s*\{([^}]*)\}/);
+    if (m) {
+      const re = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
+      let v; while ((v = re.exec(m[1]))) state.kitVars[v[1]] = v[2].trim();
+    }
+    rebuildKitVars();
+    kitApplyVars();
+  };
+  rd.readAsText(f);
+};
+
+// kit 変数 → token の名寄せヒューリスティック
+const KIT_TOKEN_HINTS = {
+  bg:"bg", panel:"surface", panel2:"surface2", card:"surface",
+  tx:"text", text:"text", dim:"text_dim",
+  cy:"primary", acc:"primary", primary:"primary", main:"primary",
+  mg:"accent5", dg:"danger", danger:"danger", warn:"accent", ok:"ok",
+};
+
+function rebuildKitVars() {
+  const g = document.getElementById("kitvars");
+  g.innerHTML = "";
+  const names = Object.keys(state.kitVars);
+  if (!names.length) { g.innerHTML = "<span class=hint>kit.html 未読込</span>"; return; }
+  for (const k of names) {
+    const d = document.createElement("div");
+    d.className = "row";
+    const lab = document.createElement("label");
+    lab.textContent = "--" + k;
+    // token 連動の select
+    const sel = document.createElement("select");
+    const none = document.createElement("option");
+    none.value = ""; none.textContent = "(手動)";
+    sel.appendChild(none);
+    for (const tk of Studio.COLOR_KEYS.concat(Studio.METRIC_KEYS)) {
+      const o = document.createElement("option");
+      o.value = tk; o.textContent = tk;
+      sel.appendChild(o);
+    }
+    if (state.kitMap[k] === undefined)
+      state.kitMap[k] = KIT_TOKEN_HINTS[k] || "";
+    sel.value = state.kitMap[k] || "";
+    sel.onchange = () => {
+      state.kitMap[k] = sel.value || null;
+      kitSyncVar(k); kitApplyVars();
+    };
+    // 色なら color 入力、それ以外はテキスト
+    const cur = state.kitVars[k];
+    let inp;
+    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(cur)) {
+      inp = document.createElement("input");
+      inp.type = "color"; inp.value = cur.length === 7 ? cur : "#000000";
+    } else {
+      inp = document.createElement("input");
+      inp.type = "text"; inp.value = cur; inp.style.width = "90px";
+    }
+    inp.oninput = () => {
+      state.kitVars[k] = inp.value;
+      state.kitMap[k] = null; sel.value = "";
+      kitApplyVars();
+    };
+    d.appendChild(lab); d.appendChild(sel); d.appendChild(inp);
+    g.appendChild(d);
+  }
+}
+
+// token の値を kit 変数に反映 (0xRRGGBB → #RRGGBB / 数値はそのまま)
+function kitSyncVar(k) {
+  const tk = state.kitMap[k];
+  if (!tk) return;
+  let v = state.tokens[tk];
+  if (v === undefined) return;
+  if (typeof v === "string" && v.startsWith("0x"))
+    v = "#" + v.slice(2);
+  else if (typeof v === "number" && tk.startsWith("radius"))
+    v = v + "px";
+  state.kitVars[k] = String(v);
+}
+
+// 全 var を kitText の :root に書き戻して iframe を更新
+function kitApplyVars() {
+  let t = state.kitText;
+  for (const k in state.kitVars)
+    t = t.replace(
+      new RegExp("(--" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+                 "\\s*:\\s*)[^;]+;", "g"),
+      "$1" + state.kitVars[k] + ";");
+  kitFrame.srcdoc = t;
+}
+
+// tokens → kit vars 一括適用 (kitSyncVar は手入力済み var を上書きしない
+// よう select で明示されたものだけ)
+function kitSyncAll() {
+  for (const k in state.kitVars) kitSyncVar(k);
+  kitApplyVars(); rebuildKitVars();
+}
+
+// (a) 編集済み kit.html を保存
+document.getElementById("kit-save").onclick = () => {
+  if (!state.kitText) return;
+  let t = state.kitText;
+  for (const k in state.kitVars)
+    t = t.replace(new RegExp("(--" + k + "\\s*:\\s*)[^;]+;", "g"),
+                  "$1" + state.kitVars[k] + ";");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([t], { type: "text/html" }));
+  a.download = "kit.html"; a.click();
+};
+
+// (b) SVG foreignObject → canvas → PNG (data-part ごと)
+document.getElementById("kit-png").onclick = async () => {
+  const doc = kitFrame.contentDocument;
+  if (!doc) { document.getElementById("status").textContent =
+    "kit.html を読み込んでください"; return; }
+  // 計算済みスタイルを inline に焼く (SVG 内では外部 CSS が効かない)
+  function bake(el) {
+    const c = el.cloneNode(false);
+    if (el.nodeType === 1) {
+      c.style.cssText = kitFrame.contentWindow.getComputedStyle(el).cssText;
+      for (const ch of el.childNodes) c.appendChild(bake(ch));
+    } else { c.textContent = el.textContent; }
+    return c;
+  }
+  const shots = doc.querySelectorAll("[data-part]");
+  for (const el of shots) {
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const clone = bake(el);
+    const part = el.getAttribute("data-part");
+    const st2 = el.getAttribute("data-state");
+    const name = "skin_" + part + (st2 ? "_" + st2 : "") + ".png";
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">' +
+      '<foreignObject width="100%" height="100%">' +
+      '<div xmlns="http://www.w3.org/1999/xhtml">' + clone.outerHTML +
+      "</div></foreignObject></svg>";
+    const img = new Image();
+    await new Promise(res => {
+      img.onload = () => {
+        const cv = document.createElement("canvas");
+        cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0);
+        cv.toBlob(b => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(b); a.download = name; a.click();
+          res();
+        });
+      };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    });
+  }
+  document.getElementById("status").textContent =
+    "PNG 書き出し: " + shots.length + " パーツ";
+};
+// tokens 変更時に連動している kit var も更新
+const _origPreview = preview;
+
 document.getElementById("export").onclick = () => {
   const files = [{ name: "manifest.cbor", data: Studio.encodeManifest(state) }];
   const push = (store) => {
@@ -487,7 +684,7 @@ document.getElementById("export").onclick = () => {
     }
   };
   push(state.images); push(state.screens); push(state.icons);
-  push(state.assets);
+  push(state.assets); push(state.fontfiles);
   const zip = Studio.buildZip(files);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
@@ -529,6 +726,8 @@ document.getElementById("zipfile").onchange = e => {
           if (state.icons[k].name === file.name) state.icons[k].data = file.data;
         for (const k in state.assets)
           if (state.assets[k].name === file.name) state.assets[k].data = file.data;
+        for (const k in state.fontfiles)
+          if (state.fontfiles[k].name === file.name) state.fontfiles[k].data = file.data;
       }
       rebuild();
       document.getElementById("status").textContent =

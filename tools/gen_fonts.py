@@ -203,6 +203,13 @@ def main() -> int:
                     help="等幅数字フォントを tools/fonts/num/ から生成する")
     ap.add_argument("--icons", action="store_true",
                     help="アプリアイコンフォント (Material Symbols Rounded 36px)")
+    ap.add_argument("--binfont", metavar="TTF",
+                    help="テーマ用の LVGL バイナリフォント (.bin, lv_binfont 形式)"
+                         " を生成する --size と一緒に使う")
+    ap.add_argument("--size", type=int, default=26,
+                    help="--binfont のサイズ px (既定 26)")
+    ap.add_argument("--binfont-out", metavar="PATH",
+                    help="--binfont の出力 .bin (既定: <ttf名>_<size>.bin)")
     ap.add_argument("--num-ttf", default=str(NUM_FONT_TTF),
                     help="等幅数字フォントの TTF (既定: JetBrains Mono Bold)")
     ap.add_argument("--face-ttf-dir", default=str(FACE_FONT_TTF_DIR),
@@ -210,6 +217,28 @@ def main() -> int:
     ap.add_argument("--out", default=str(FONT_OUT))
     ap.add_argument("--bpp", default="4")
     args = ap.parse_args()
+
+    # --binfont: 任意 TTF → テーマ用 lv_binfont (.bin)。
+    # 既定範囲は jp 系と同じ (ASCII + 記号 + かな + 全角)。テーマの fonts
+    # スロット (body/title/digits/digits_sm) で使う。
+    if args.binfont:
+        src = pathlib.Path(args.binfont)
+        if not src.exists():
+            sys.exit(f"missing TTF: {src}")
+        outp = (pathlib.Path(args.binfont_out) if args.binfont_out
+                else src.with_name(f"{src.stem}_{args.size}px.bin"))
+        run([
+            "lv_font_conv",
+            "--font", str(src),
+            "--size", str(args.size),
+            "--bpp", args.bpp,
+            "--format", "bin",
+            "--no-compress",
+            "-r", BASE_RANGES,
+            "-o", str(outp),
+        ])
+        print(f"binfont: {outp} ({outp.stat().st_size} B)")
+        return 0
 
     if not args.font and not args.faces and not args.num and not args.icons and not args.font_bold:
         ap.error("--font か --faces か --num か --icons のどれかを指定して")
