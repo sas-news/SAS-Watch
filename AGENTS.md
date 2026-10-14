@@ -12,3 +12,12 @@
 - ユーザー向けの文字列とドキュメントは日本語。コードの識別子は英語。
 - C++17、例外・RTTI は使わない（ESP-IDF 既定に合わせる）。動的確保は初期化時のみ。
 - CI（GitHub Actions）が通らない変更は出さない。
+
+## 同梱テーマ (assets パーティション)
+
+テーマ zip は BLE 転送のほか、USB で assets パーティションへ直接書き込める。
+`tools/mklfs_assets/make_assets_image.sh` が `android/app/src/main/assets/themes/*.zip`
+を `/themes/<id>.zip` に並べた littlefs イメージ `firmware/build/assets_littlefs.bin`
+を生成する (littlefs 設定は esp_littlefs と同一: block=4096, read/prog=128)。
+書き込みは `python3 -m esptool write-flash 0x820000 firmware/build/assets_littlefs.bin`
+(assets パーティションのみ。アプリ・NVS・storage には触れない)。

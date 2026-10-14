@@ -484,6 +484,40 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
 
 状態: 未着手
 
+## T25. BLE テーマ転送 (BULK) の安定化 — 難度 H (実機)
+
+- 経緯 (2026-10-14): mame.zip (918KB) の BLE 転送が連続して失敗したため先送り。
+  4 テーマは assets イメージ (`tools/mklfs_assets/make_assets_image.sh`) で
+  最初から時計に入れる運用に切り替えた。BULK 経路自体は残す。
+- 確定した事実:
+  a. NimBLE ホストタスク上での `theme_store::bulk_write` (littlefs fwrite =
+     フラッシュ書き込み+キャッシュ停止) が HCI 処理を滞らせ、受信 mbuf が枯渇 →
+     `assert failed: ble_att_tx_with_conn ble_att_cmd.c:91` で再起動する
+     (「画面が一瞬真っ白」の正体)。診断ログ (bulk START/END/rejected) は
+     ble_link に残してある。
+  b. PSRAM は転送開始時点で空きが ~38KB しかない (テーマアリーナ 4MiB +
+     LVGL 等)。918KB の staging を PSRAM に置く方針は破綻する
+     (01adcd4/f766dcd は revert 済み)。
+  c. bulk_rx ワーカータスク方式 (4a47742) は 6KB スタックで overflow
+     (fwrite→littlefs→install の深い呼び出し)。10KB 化 (7bce96e) 後も
+     ユーザー報告で接続直後に応答停止 → status=8 切断・白画面になった
+     (モニタ欠損で panic 行は未捕獲 — ハングかログ喪失かは未確定)。
+     この2つも revert 済み。
+  d. 転送中の queue full drop は ACK 巻き戻しで自己回復するが、
+     fwrite (~200B/chunk) が流入に追いつかないと大量の再送が起きる。
+- 次の方針候補:
+  - ワーカータスクのスタックを PSRAM に置く (xTaskCreateStaticPinnedToCore
+    に PSRAM バッファ — S3 ではスタックの PSRAM 配置は不可。内蔵必須 →
+    10KB+ を ble_link_start で早期確保する形は既に試した)
+  - 電話側の送信レートを抑える (N チャンク毎に ACK 待ちするよう
+    BulkSender を変更 — window 化)
+  - 書き込みをチャンク単位ではなくファイルへまとめて flush
+    (littlefs の 4KB block 単位で書き溜める)
+  - END 応答を commit 完了まで遅らせず ack → 別タスクで install
+    (phone 側 BULK_OP_TIMEOUT_MS=10s との兼ね合い)
+
+状態: 先送り
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。次は **T23 → T18 の完了 → T24 → T22 の実装 (ユーザー承認後)**。
