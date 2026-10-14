@@ -33,6 +33,8 @@ watch::Runtime& runtime();
 watch::Navigator& navigator();
 watch::EventBus& bus();
 const watch::Settings& settings();
+watch::Settings& settings_mut();
+watch::KeyValueStore* kv();
 // USB (VBUS) 接続の有無を PowerPolicy に通知する (settings.usb_keep_awake
 // に従って deep sleep / 画面OFF が抑制される)。電池ポーリング等から呼ぶ。
 // 内部で core 排他を取るのでどのタスクからでも呼べる。

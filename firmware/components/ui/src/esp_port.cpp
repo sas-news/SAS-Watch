@@ -182,6 +182,25 @@ bool theme_entry_stat(const char* id, const char* name, uint32_t* out_size) {
   return true;
 }
 
+// dst が PSRAM (テーマアリーナ) のまま fread すると、esp_flash_read が
+// 「cache 停止中に書けるのは DRAM だけ」という制約から内部 RAM の一時
+// バッファを都度確保/解放する。起動直後の細かく割れたヒープでこの
+// alloc が TLSF の空きリスト破壊を踏んでいた (mame 適用で boot loop を
+// 実機観測)。DRAM の小さいバッファに刻んで読み、呼び出し側 dst へ
+// 転写すれば direct_read 経路になり一時バッファは確保されない。
+bool staged_fread(FILE* f, uint8_t* dst, uint32_t n) {
+  static uint8_t s_stage[16 * 1024];  // DRAM (.bss)
+  uint32_t done = 0;
+  while (done < n) {
+    const uint32_t m =
+        (n - done) < sizeof(s_stage) ? (n - done) : sizeof(s_stage);
+    if (std::fread(s_stage, 1, m, f) != m) return false;
+    std::memcpy(dst + done, s_stage, m);
+    done += m;
+  }
+  return true;
+}
+
 bool theme_entry_read(const char* id, const char* name, uint8_t* dst,
                       uint32_t cap) {
   if (!id || !name || !dst) return false;
@@ -199,7 +218,7 @@ bool theme_entry_read(const char* id, const char* name, uint8_t* dst,
         uint32_t off = 0;
         ok = zip_entry_off(f, *e, &off) &&
              std::fseek(f, static_cast<long>(off), SEEK_SET) == 0 &&
-             std::fread(dst, 1, e->size, f) == e->size;
+             staged_fread(f, dst, e->size);
       }
       std::fclose(f);
       if (ok) return true;
@@ -221,8 +240,7 @@ dir_fallback: {
     return false;
   }
   std::fseek(f, 0, SEEK_SET);
-  const bool ok = std::fread(dst, 1, static_cast<size_t>(sz), f) ==
-                  static_cast<size_t>(sz);
+  const bool ok = staged_fread(f, dst, static_cast<uint32_t>(sz));
   std::fclose(f);
   return ok;
 }

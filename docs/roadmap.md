@@ -438,8 +438,14 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
     クラッシュループで設定を消す必要を無くすため。
 - 受け入れ条件: mame/cosmos/cute/cyber のどれを設定しても、再起動を 3 回繰り返して正常に起動する。
 - 診断ビルドは `/tmp/t18_elf` (85bedc2 + 計装 + heap poisoning) にあった。/tmp は消えうるので、必要なら作り直す。
+- 静的解析 + ASan/UBSan sim (mame.zip 実物) では自前コードの範囲外アクセスを発見できず。
+  fread(dst=PSRAM) → esp_flash_read が内部 RAM の一時バッファを経由する経路
+  (esp_flash_api.c direct_read=false) がクラッシュ面。対策として
+  `theme_entry_read` を DRAM 16KB ステージングに変更し、ui::create 中の
+  クラッシュを RTC ガードで検出して次回 standard フォールバックする。
+  真の破壊者は引き続き未確定 (heap integrity bisect は実機が要る)。
 
-状態: 未着手
+状態: 進行中 (対策実装済み・実機検証待ち)
 
 ## T24. flash の app 領域が残り 8% — 難度 M
 

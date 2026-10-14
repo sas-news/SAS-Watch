@@ -3,13 +3,17 @@
 // BLE は別セッションの ble_link コンポーネント。未導入でもビルドできるよう
 // weak スタブ + CONFIG_SAS_BLE_LINK ガードで呼び出す。
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 
 #include "board/board.hpp"
 #include "diag/diag.hpp"
@@ -29,6 +33,15 @@ static const char* TAG = "app";
 // platform 実体は静的確保。
 static platform_esp::EspClock s_clock;
 static platform_esp::NvsKv s_kv;
+
+// ui::create (theme_apply の資産読み込みを含む) 中にクラッシュすると、
+// 設定されたファイルテーマのまま起動ループになる (実機観測: mame で
+// 1112 回リセット)。RTC 不揮発領域のマーカーで検出し、次回はテーマを
+// standard に落として自己回復する。
+static RTC_NOINIT_ATTR uint32_t s_ui_guard;
+constexpr uint32_t kUiGuardMagic = 0x55494752u;  // "UIGR"
+
+static void clear_ui_guard(void*) { s_ui_guard = 0; }
 
 #if CONFIG_SAS_BLE_LINK
 #include "ble_link.h"
@@ -144,6 +157,26 @@ extern "C" void app_main(void)
     };
     ui::face_data::set_hooks(&kFaceData);
 
+    // 前回の起動が UI 構築中に死んでいたら、テーマを standard に落として
+    // 再試行 (クラッシュループを設定消去なしで抜けるためのガード)。
+    const esp_reset_reason_t rr = esp_reset_reason();
+    const bool ui_crashed =
+        s_ui_guard == kUiGuardMagic &&
+        (rr == ESP_RST_PANIC || rr == ESP_RST_INT_WDT ||
+         rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT || rr == ESP_RST_SW);
+    if (ui_crashed) {
+        watch::Settings& s = watch_app::settings_mut();
+        if (std::strcmp(s.theme, "standard") != 0) {
+            ESP_LOGW(TAG,
+                     "UI 構築中にクラッシュした起動を検出 (theme=%s) "
+                     "→ standard にフォールバック",
+                     s.theme);
+            watch::settings_set_str(s, watch_app::kv(), "theme",
+                                    "standard");
+        }
+    }
+    s_ui_guard = kUiGuardMagic;
+
     // UI 組み立て (LVGL を触るのでロック内)。
     if (lvgl_port_lock(2000)) {
         ui::create({&watch_app::bus(), &watch_app::navigator(),
@@ -151,6 +184,19 @@ extern "C" void app_main(void)
         lvgl_port_unlock();
     } else {
         ESP_LOGE(TAG, "lvgl lock timeout; UI not created");
+    }
+
+    // 初描画のクラッシュも拾えるよう、UI が 3 秒生きた時点でガードを消す。
+    const esp_timer_create_args_t guard_timer = {
+        .callback = &clear_ui_guard,
+        .arg = nullptr,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "ui_guard",
+        .skip_unhandled_events = true,
+    };
+    esp_timer_handle_t guard = nullptr;
+    if (esp_timer_create(&guard_timer, &guard) == ESP_OK) {
+        esp_timer_start_once(guard, 3000000);
     }
 
 #if CONFIG_SAS_BLE_LINK
