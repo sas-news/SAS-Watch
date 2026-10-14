@@ -5,6 +5,8 @@
 // 録音中・再生中は Res::Audio の Lease を取って Deep Sleep しない。
 #include "watch/features/memo.hpp"
 
+#include "watch/platform.hpp"
+
 #include <cstdio>
 #include <cstring>
 
@@ -317,9 +319,15 @@ int32_t memo_record_toggle(FeatureContext& ctx) {
     return static_cast<int32_t>(id);
   }
   if (s_playing) memo_stop_play(ctx);
+  watch::log_write(watch::LogLevel::Info, "memo",
+                   "rec toggle");  // T18診断
   if (!ctx.audio) return -1;
   const uint32_t id = g_next_id++;
-  if (!ctx.audio->record_begin(id, kMemoVoiceMaxSec)) return -1;
+  if (!ctx.audio->record_begin(id, kMemoVoiceMaxSec)) {
+    watch::log_write(watch::LogLevel::Warn, "memo",
+                     "record_begin refused");  // T18診断
+    return -1;
+  }
   s_recording = true;
   s_rec_id = id;
   if (ctx.power) s_rec_lease = ctx.power->acquire(Res::Audio, "memo");

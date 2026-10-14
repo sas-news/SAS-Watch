@@ -6,6 +6,7 @@
 #include "screens/screens.hpp"
 #include "ui/ui.hpp"
 #include "watch/features/memo.hpp"
+#include "watch/platform.hpp"
 
 #include <cstdio>
 
@@ -140,6 +141,9 @@ lv_obj_t* build(lv_obj_t* scr) {
     s.rec_card = ui::c::card(col);
     s.rec_btn = fit_btn(s.rec_card, "録音開始",
         [](lv_event_t*) {
+          // T18 診断: ボタン到達を確認
+          watch::log_write(watch::LogLevel::Info, "memo_ui",
+                           "rec button clicked");
           if (watch::features::memo_recording()) {
             ui::emit(watch::ActionType::MemoRecordStop);
           } else {

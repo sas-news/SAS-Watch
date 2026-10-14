@@ -189,6 +189,7 @@ esp_codec_dev_handle_t mic_open() {
     ESP_LOGE(TAG, "mic i2s data_if failed");
     return nullptr;
   }
+  ESP_LOGI(TAG, "mic i2s data_if ok");
   audio_codec_i2c_cfg_t i2c_cfg = {
       .port = BSP_I2C_NUM,
       .addr = 0x40,  // ES7210_CODEC_DEFAULT_ADDR (BSP の .c 内マクロのため直書き)
@@ -218,7 +219,9 @@ esp_codec_dev_handle_t mic_open() {
       .codec_if = es_dev,
       .data_if = data_if,
   };
-  return esp_codec_dev_new(&dev_cfg);
+  esp_codec_dev_handle_t dev = esp_codec_dev_new(&dev_cfg);
+  ESP_LOGI(TAG, "mic_open %s", dev ? "ok" : "dev_new failed");
+  return dev;
 }
 
 esp_codec_dev_handle_t mic() {
@@ -260,6 +263,8 @@ void rec_task(void*) {
 
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // ジョブ待ち
+    ESP_LOGI(TAG, "rec_task: job id=%u -> %s",
+             (unsigned)s_rec.memo_id, s_rec.path);
 
     FILE* f = std::fopen(s_rec.path, "w+b");
     if (!f) {
@@ -279,14 +284,19 @@ void rec_task(void*) {
     esp_codec_dev_sample_info_t fs;
     codec_fs(&fs);
     esp_codec_dev_handle_t m = mic();
-    if (m && esp_codec_dev_open(m, &fs) == ESP_CODEC_DEV_OK) {
+    const int open_rc = m ? esp_codec_dev_open(m, &fs) : -999;
+    ESP_LOGI(TAG, "rec_task: mic=%p open_rc=%d", (void*)m, open_rc);
+    if (m && open_rc == ESP_CODEC_DEV_OK) {
       esp_codec_dev_set_in_gain(m, 24.0f);  // TODO(hw): 実機で確認
+      int reads = 0;
       while (!s_rec.stop) {
         if (s_rec.samples >= s_rec.max_sec * watch::audio::kAdpcmSampleRate) {
           break;
         }
         const int rd = esp_codec_dev_read(m, pcm, sizeof(pcm));
         if (rd <= 0) {
+          if (++reads == 40)  // ~200ms 読めないと 1 回だけ出す
+            ESP_LOGW(TAG, "rec_task: still no data (rd=%d)", rd);
           vTaskDelay(pdMS_TO_TICKS(5));
           continue;
         }
@@ -492,6 +502,9 @@ class EspAudio : public watch::AudioPort {
   }
 
   bool record_begin(uint32_t memo_id, uint32_t max_sec) override {
+    // T18 診断: どこで弾かれたか分かるよう各段を出す
+    ESP_LOGI(TAG, "record_begin id=%u ready=%d mounted=%d mic=%p",
+             (unsigned)memo_id, s_ready, s_mounted, (void*)mic());
     if (!s_ready || !s_mounted || !mic()) return false;
     lock();
     if (s_rec.active || s_play.active) {
