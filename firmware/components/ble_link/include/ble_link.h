@@ -73,10 +73,15 @@ esp_err_t ble_link_stop(void);
 // BLE リンクが張っているか (ボンドの有無は問わない)。
 bool ble_link_is_connected(void);
 
+// NimBLE host が controller と sync 済みか (false のままだと広告も
+// 接続も成立しない。診断ログ用)。
+
 // 広告の出し入れ (画面OFFポリシー C案: 接続中のみ維持・新規広告停止)。
 // false → 広告停止 (既存接続は切らない)。true → 未接続なら広告再開。
 // 切断/再接続時の自動広告再開にもこのフラグが効く。
 // ble_link_start 前に呼んでもよい (フラグだけ保持される)。
+bool ble_link_synced(void);
+
 void ble_link_set_advertising(bool enable);
 // 広告間隔を低速 (~1.0–1.3s) と通常 (0.5–1.0s) で切り替える。
 // 広告中なら張り直し、接続中はフラグだけ記録して次の広告開始に反映。

@@ -14,6 +14,7 @@
 #include "esp_lvgl_port.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 
 #include "board/board.hpp"
 #include "diag/diag.hpp"
@@ -41,10 +42,20 @@ static platform_esp::NvsKv s_kv;
 static RTC_NOINIT_ATTR uint32_t s_ui_guard;
 constexpr uint32_t kUiGuardMagic = 0x55494752u;  // "UIGR"
 
-static void clear_ui_guard(void*) { s_ui_guard = 0; }
+static void clear_ui_guard(void*) {
+  s_ui_guard = 0;
+#if CONFIG_SAS_BLE_LINK
+  // nimble_host タスクが作れないと一生 unsynced のまま広告が出ない
+  // (BLE_HS_EDISABLED)。起動 3 秒後に1回だけ状態を出す。
+  ESP_LOGI(TAG, "ble synced=%d int_largest=%u", ble_link_synced(),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL |
+                                                    MALLOC_CAP_8BIT));
+#endif
+}
 
 #if CONFIG_SAS_BLE_LINK
 #include "ble_link.h"
+
 #endif
 
 // 電池ポーリング (AXP IRQ 線が無いので定期 — plan.md A-3)。
@@ -108,6 +119,21 @@ extern "C" void app_main(void)
     if (!theme_store::init()) {
         ESP_LOGW(TAG, "theme assets unavailable; builtin themes only");
     }
+
+#if CONFIG_SAS_BLE_LINK
+    // BLE は internal RAM を大きく使う (controller の連続ブロック +
+    // nimble_host タスク 8KB)。display/LVGL/アプリタスク/テーマ読込が
+    // ヒープを割る前に立てる。遅く起きると nimble_host タスクの生成が
+    // 静かに失敗し (esp_nimble_enable は xTaskCreate の失敗を返さない)、
+    // 広告が一生出ない (ble_gap_adv_start → EDISABLED=30 を実機観測)。
+    // ActionQueue は静的配列なので watch_app 起動前でもイベントの積み
+    // 込みは安全。
+    ui::set_passkey_confirm([](bool ok) { ble_link_confirm_passkey(ok); });
+    const esp_err_t ble_rc = ble_link_start(watch_app::ble_config());
+    if (ble_rc != ESP_OK) {
+        ESP_LOGE(TAG, "ble_link_start failed: %s", esp_err_to_name(ble_rc));
+    }
+#endif
 
     // 表示・LVGLタスク・タッチを起こす。
     if (ui::init_display() == nullptr) {
@@ -198,15 +224,6 @@ extern "C" void app_main(void)
     if (esp_timer_create(&guard_timer, &guard) == ESP_OK) {
         esp_timer_start_once(guard, 3000000);
     }
-
-#if CONFIG_SAS_BLE_LINK
-    // パスキー確認の「はい/いいえ」→ NimBLE へ
-    ui::set_passkey_confirm([](bool ok) { ble_link_confirm_passkey(ok); });
-    const esp_err_t ble_rc = ble_link_start(watch_app::ble_config());
-    if (ble_rc != ESP_OK) {
-        ESP_LOGE(TAG, "ble_link_start failed: %s", esp_err_to_name(ble_rc));
-    }
-#endif
 
     xTaskCreate(battery_poll, "batt", 2048, nullptr, 3, nullptr);
 

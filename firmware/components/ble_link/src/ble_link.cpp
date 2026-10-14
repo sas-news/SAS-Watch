@@ -699,6 +699,8 @@ extern "C" void ble_link_set_adv_rate(bool slow) {
   }
 }
 
+extern "C" bool ble_link_synced(void) { return ble_hs_synced() != 0; }
+
 extern "C" bool ble_link_is_connected(void) {
   return s_conn != BLE_HS_CONN_HANDLE_NONE;
 }
