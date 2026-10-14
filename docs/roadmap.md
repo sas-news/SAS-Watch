@@ -350,7 +350,33 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
   MIC だけ有効のときに通っているか)。
 - 直したら診断ログは消す。
 
-状態: 進行中 (診断ログ入りを 85bedc2 で書き込み済・実機操作待ち)
+調査の経過 (2026-10-14、/tmp/t18_rec.log + /tmp/t18_rec2.log):
+
+- **第1の原因 (確定・修正済み `5680d23`)**: `mic_open` が esp_codec_dev の I2C ctrl に
+  `.addr = 0x40` (7bit) を渡していた。codec_dev は 8bit 表記を要求するので
+  `0x40>>1 = 0x20` に書きに行き ES7210 への全書き込みが NACK に
+  (`I2C_If: Fail to write to dev 40` → `ES7210: Open fail`)。
+  `ES7210_CODEC_DEFAULT_ADDR` (0x80) に修正済み。
+- **副次的バグ (確定・修正済み `5680d23`)**: `mic_open` が `i2s_new_channel` 成功後に
+  失敗すると I2S チャネルと data_if/ctrl_if がリークし、以降の試行が
+  「i2s controller 1 has been occupied」で永久に失敗していた。
+  全失敗パスで `i2s_channel_disable` → `i2s_del_channel` → `audio_codec_delete_*` を
+  呼ぶ巻き戻しを入れた。
+- **現在の停止箇所 (未修正)**: 修正後のログはボタン → rec toggle → mic_open →
+  `i2s_new_channel` 成功 → `i2s_channel_init_std_mode` で
+  `i2s_alloc_dma_desc: allocate DMA buffer failed` → `mic i2s init/enable failed` →
+  `record_begin refused`。**DMA 可能な内蔵 RAM の連続ブロックが録音時には残っていない**
+  (この個体は BLE_INIT も直前に `Malloc failed` を出した履歴がある。内蔵 SRAM が
+  逼迫している)。
+  - 次に疑う/試す箇所: `chan.dma_desc_num=4, dma_frame_num=240` をさらに小さくする、
+    もしくは I2S チャネルを録音要求時ではなく `audio::init` で確保しておく
+    (起動時の方がヒープが残っている)。DMA 領域は PSRAM に逃がせないので
+    内蔵 RAM の予約しかない。
+- 診断ログは残したまま (次の検証で使う)。
+- 補足: `record_begin id=2147483648` (0x80000000) の id が一度出た — memo id の
+  カウンタ異常として要確認。
+
+状態: 保留 (下位モデルへ引き継ぎ)
 
 ## T19. アプリを本体改変なしで追加できる仕組み + 開発ガイド — 難度 M
 
