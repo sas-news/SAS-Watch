@@ -140,6 +140,16 @@ esp_codec_dev_handle_t speaker() {
 i2s_chan_handle_t s_i2s_rx = nullptr;
 
 esp_codec_dev_handle_t mic_open() {
+  // 途中失敗は全部ここで巻き戻す (チャネル/data_if/ctrl_if が残ると
+  // ポート占有のまま再試行が永久に失敗する → 実機で観測済み)。
+  auto abort = []() -> esp_codec_dev_handle_t {
+    if (s_i2s_rx) {
+      i2s_channel_disable(s_i2s_rx);  // 未enableでも戻り値を無視して良い
+      i2s_del_channel(s_i2s_rx);
+      s_i2s_rx = nullptr;
+    }
+    return nullptr;
+  };
   i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(
       static_cast<i2s_port_t>(CONFIG_BSP_I2S_NUM), I2S_ROLE_MASTER);
   chan.auto_clear = true;
@@ -148,7 +158,7 @@ esp_codec_dev_handle_t mic_open() {
   if (i2s_new_channel(&chan, nullptr, &s_i2s_rx) != ESP_OK ||
       !s_i2s_rx) {
     ESP_LOGE(TAG, "mic i2s channel alloc failed");
-    return nullptr;
+    return abort();
   }
   const i2s_std_config_t std_cfg = {
       .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(
@@ -173,9 +183,7 @@ esp_codec_dev_handle_t mic_open() {
   if (i2s_channel_init_std_mode(s_i2s_rx, &std_cfg) != ESP_OK ||
       i2s_channel_enable(s_i2s_rx) != ESP_OK) {
     ESP_LOGE(TAG, "mic i2s init/enable failed");
-    i2s_del_channel(s_i2s_rx);
-    s_i2s_rx = nullptr;
-    return nullptr;
+    return abort();
   }
   audio_codec_i2s_cfg_t i2s_cfg = {
       .port = static_cast<i2s_port_t>(CONFIG_BSP_I2S_NUM),
@@ -187,19 +195,23 @@ esp_codec_dev_handle_t mic_open() {
       audio_codec_new_i2s_data(&i2s_cfg);
   if (!data_if) {
     ESP_LOGE(TAG, "mic i2s data_if failed");
-    return nullptr;
+    return abort();
   }
   ESP_LOGI(TAG, "mic i2s data_if ok");
+  // 注意: addr は 8bit 表記。esp_codec_dev の I2C ctrl が内部で >>1 する
+  // (0x40 を渡すと 0x20 に書きに行き、起動時の 7bit probe は成功するのに
+  //  codec への全書き込みが NACK になる → 実機で観測済み)。
   audio_codec_i2c_cfg_t i2c_cfg = {
       .port = BSP_I2C_NUM,
-      .addr = 0x40,  // ES7210_CODEC_DEFAULT_ADDR (BSP の .c 内マクロのため直書き)
+      .addr = ES7210_CODEC_DEFAULT_ADDR,
       .bus_handle = bsp_i2c_get_handle(),
   };
   const audio_codec_ctrl_if_t* ctrl_if =
       audio_codec_new_i2c_ctrl(&i2c_cfg);
   if (!ctrl_if) {
     ESP_LOGE(TAG, "mic i2c ctrl_if failed");
-    return nullptr;
+    audio_codec_delete_data_if(data_if);
+    return abort();
   }
   // BSP と同じく ctrl_if だけ渡す (残りはドライバ既定)。
   es7210_codec_cfg_t es_cfg = {
@@ -212,7 +224,9 @@ esp_codec_dev_handle_t mic_open() {
   const audio_codec_if_t* es_dev = es7210_codec_new(&es_cfg);
   if (!es_dev) {
     ESP_LOGE(TAG, "es7210 codec_new failed");
-    return nullptr;
+    audio_codec_delete_ctrl_if(ctrl_if);
+    audio_codec_delete_data_if(data_if);
+    return abort();
   }
   esp_codec_dev_cfg_t dev_cfg = {
       .dev_type = ESP_CODEC_DEV_TYPE_IN,
@@ -220,7 +234,13 @@ esp_codec_dev_handle_t mic_open() {
       .data_if = data_if,
   };
   esp_codec_dev_handle_t dev = esp_codec_dev_new(&dev_cfg);
-  ESP_LOGI(TAG, "mic_open %s", dev ? "ok" : "dev_new failed");
+  if (!dev) {
+    audio_codec_delete_codec_if(es_dev);
+    audio_codec_delete_ctrl_if(ctrl_if);
+    audio_codec_delete_data_if(data_if);
+    return abort();
+  }
+  ESP_LOGI(TAG, "mic_open ok");
   return dev;
 }
 
