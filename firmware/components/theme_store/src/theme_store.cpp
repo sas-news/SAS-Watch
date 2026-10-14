@@ -5,6 +5,7 @@
 //   再インストール時にここで掃除する。
 #include "theme_store/theme_store.hpp"
 
+#include <dirent.h>
 #include <sys/stat.h>
 
 #include <cerrno>
@@ -133,6 +134,18 @@ bool init() {
     return false;
   }
   mkdir(kThemesDir, 0777);
+  // 同梱テーマの確認用に一覧を出す (assets イメージ書き込みの検証)。
+  DIR* d = opendir(kThemesDir);
+  if (d) {
+    struct dirent* e;
+    while ((e = readdir(d))) {
+      const char* dot = std::strrchr(e->d_name, '.');
+      if (dot && std::strcmp(dot, ".zip") == 0) {
+        ESP_LOGI(TAG, "pkg: %s", e->d_name);
+      }
+    }
+    closedir(d);
+  }
   ESP_LOGI(TAG, "mounted %s", kRoot);
   return true;
 }

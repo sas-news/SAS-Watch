@@ -9,6 +9,7 @@
 
 #if defined(ESP_PLATFORM)
 #include "esp_heap_caps.h"
+#include "esp_log.h"
 #define SAS_BIG_STATIC EXT_RAM_BSS_ATTR
 #else
 #define SAS_BIG_STATIC
@@ -221,6 +222,10 @@ bool theme_apply(const char* id) {
     theme_set_info("standard", "標準");
   }
   theme_replace_active(t);
+#if defined(ESP_PLATFORM)
+  ESP_LOGI("theme", "apply '%s' -> %s", id ? id : "(null)",
+           ok ? theme_id() : "standard(fallback)");
+#endif
   return ok;
 }
 
