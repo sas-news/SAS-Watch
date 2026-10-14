@@ -193,6 +193,74 @@ TEST(Theme, ManifestFull) {
   EXPECT_FALSE(out.image_set & 4);
 }
 
+TEST(Theme, ManifestAssetsV5) {
+  // v5: assets は自由な id→file map。images/icons キーは別名として
+  // 同じ表に集約される (theme_image("<id>") で引く)。
+  uint8_t ast[256];
+  cbor::Writer aw(ast, sizeof(ast));
+  aw.map(3)
+      .text("deco.star").text("star.png")
+      .text("icon.myapp").text("mi.png")
+      .text("long-id").text("l.bin");
+  ASSERT_TRUE(aw.ok());
+  uint8_t img[96];
+  cbor::Writer iw(img, sizeof(img));
+  iw.map(1).text("home_bg").text("bg.png");
+  ASSERT_TRUE(iw.ok());
+  uint8_t ico[96];
+  cbor::Writer cw(ico, sizeof(ico));
+  cw.map(1).text("timer").text("t.png");
+  ASSERT_TRUE(cw.ok());
+
+  uint8_t buf[512];
+  cbor::Writer w(buf, sizeof(buf));
+  w.map(4)
+      .text("id").text("test")
+      .text("api").uint_v(1)
+      .text("assets").raw(ast, aw.size())
+      .text("images").raw(img, iw.size());
+  ASSERT_TRUE(w.ok());
+  cbor::Writer w2(nullptr, 0);
+  (void)w2;
+
+  ThemeManifest out;
+  EXPECT_EQ(theme_manifest_parse(buf, w.size(), &out),
+            ThemeManifestError::kOk);
+  // images.home_bg は assets["home_bg"] にも入る
+  auto find = [&](const char* id) -> const char* {
+    for (int i = 0; i < out.asset_count; ++i)
+      if (std::strcmp(out.assets[i].id, id) == 0) return out.assets[i].file;
+    return nullptr;
+  };
+  EXPECT_STREQ(find("deco.star"), "star.png");
+  EXPECT_STREQ(find("icon.myapp"), "mi.png");
+  EXPECT_STREQ(find("home_bg"), "bg.png");
+  EXPECT_EQ(out.image_set & 1, 1u);  // legacy 側も生きている
+}
+
+TEST(Theme, ManifestAssetsCompat) {
+  // icons.<app> は assets["icon.<app>"] にも入る
+  uint8_t ico[96];
+  cbor::Writer cw(ico, sizeof(ico));
+  cw.map(1).text("memo").text("m.png");
+  ASSERT_TRUE(cw.ok());
+  uint8_t buf[256];
+  cbor::Writer w(buf, sizeof(buf));
+  w.map(3).text("id").text("t").text("api").uint_v(1)
+      .text("icons").raw(ico, cw.size());
+  ASSERT_TRUE(w.ok());
+  ThemeManifest out;
+  EXPECT_EQ(theme_manifest_parse(buf, w.size(), &out),
+            ThemeManifestError::kOk);
+  bool found = false;
+  for (int i = 0; i < out.asset_count; ++i)
+    if (std::strcmp(out.assets[i].id, "icon.memo") == 0) {
+      found = true;
+      EXPECT_STREQ(out.assets[i].file, "m.png");
+    }
+  EXPECT_TRUE(found);
+}
+
 TEST(Theme, ManifestErrors) {
   ThemeManifest out;
   // id 欠落

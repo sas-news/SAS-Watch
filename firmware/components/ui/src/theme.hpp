@@ -65,6 +65,11 @@ struct Theme {
   watch::ThemeIcon icons[watch::kThemeMaxIcons] = {};
   const lv_image_dsc_t* icon_dsc[watch::kThemeMaxIcons] = {};
   uint8_t icon_count = 0;
+
+  // v5: 汎用アセット (id→ファイル)。dsc は使われた画面で遅延ロード。
+  watch::ThemeAsset assets[watch::kThemeMaxAssets] = {};
+  const lv_image_dsc_t* asset_dsc[watch::kThemeMaxAssets] = {};
+  uint8_t asset_count = 0;
   // マスコット (used + expr 画像)。
   watch::ThemeMascot mascot = {};
   const lv_image_dsc_t* mascot_dsc[watch::kThemeMascotExprMax] = {};
@@ -102,6 +107,9 @@ const Theme* builtin_theme(const char* id);
 const watch::ThemeScreenSkin* theme_screen_skin(int screen_index);
 // アプリ id → アイコン画像 (無ければ nullptr → 文字タイル)。
 const lv_image_dsc_t* theme_icon(const char* app_id);
+// テーマ assets の id → 画像 (遅延ロード。icons.<app> は "icon.<id>"、
+// images.<slot> はスロット名で引ける)。失敗 nullptr。
+const lv_image_dsc_t* theme_image(const char* asset_id);
 // マスコットがその画面で有効か (manifest.screens マスク)。
 bool theme_mascot_on(int screen_index);
 // part のロード済みスキン画像セット (無ければ nullptr → ベクタ描画)。

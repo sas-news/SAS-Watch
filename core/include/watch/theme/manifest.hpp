@@ -93,6 +93,17 @@ struct ThemeIcon {
   char file[kThemeImageNameMax];
 };
 
+// v5: "assets" — 自由な id → zip 内ファイルの map。
+// 上限は zip のエントリ数 32。id は [a-z0-9_.-]{1,31}。
+// 既存の images.<slot> ("home_bg" 等) と icons.<app> ("icon.<app>" に
+// 展開) もここに集約される。theme_image("<id>") で遅延ロードして引く。
+constexpr int kThemeMaxAssets = 32;
+constexpr size_t kThemeAssetIdMax = 32;
+struct ThemeAsset {
+  char id[kThemeAssetIdMax];
+  char file[kThemeImageNameMax];
+};
+
 // "fonts": スロット → LVGL バイナリフォント (.bin、lv_binfont 形式)。
 constexpr int kThemeFontSlotCount = 4;
 constexpr const char* const kThemeFontKeys[kThemeFontSlotCount] = {
@@ -227,6 +238,11 @@ struct ThemeManifest {
   // skin[part] が埋まった (img 指定済み) = skin_set bit i。
   ThemeSkinPart skin_part[kThemeSkinPartCount];
   uint32_t skin_set = 0;
+
+  // v5: assets (id→file の自由 map)。images/icons キーもここに入る
+  // (images.<slot> は id=<slot名>、icons.<app> は id="icon.<app>")。
+  ThemeAsset assets[kThemeMaxAssets];
+  uint8_t asset_count = 0;
 };
 
 enum class ThemeManifestError : uint8_t {

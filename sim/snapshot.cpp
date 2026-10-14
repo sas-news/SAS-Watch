@@ -891,6 +891,10 @@ int main(int argc, char** argv) {
     ok &= save(out, "18_theme_mame_timer");
     tap(205, 387);  // 止める
     pump(200);
+    // T20: assets 経由の遅延ロードを確認 (mame は home_bg を持つ)。
+    std::printf("mame theme_image(home_bg): %s\n",
+                ui::theme_image("home_bg") ? "ok" : "FAILED");
+    if (!ui::theme_image("home_bg")) ok = false;
   }
 
   // 元に戻しておく。
@@ -1158,6 +1162,9 @@ int main(int argc, char** argv) {
 
     std::printf("%s skin bytes: %u\n", theme_id,
                 static_cast<unsigned>(ui::theme_skin_bytes()));
+    // T20: assets/theme_image の疎通 ("home_bg" は images スロットの別名)。
+    std::printf("%s theme_image(home_bg): %s\n", theme_id,
+                ui::theme_image("home_bg") ? "ok" : "-");
   }
 
   // ---- 任意テーマ (tools/theme-studio の書き出し等) ----

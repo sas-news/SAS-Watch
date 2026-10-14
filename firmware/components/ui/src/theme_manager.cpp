@@ -159,6 +159,11 @@ bool load_file_theme(const char* id, Theme* out) {
                             410, 502);
   }
 
+  // ---- v5: assets (id→file)。dsc は遅延ロード (theme_image) ----
+  t.asset_count = m.asset_count;
+  std::memcpy(t.assets, m.assets, sizeof(t.assets));
+  for (int i = 0; i < watch::kThemeMaxAssets; ++i) t.asset_dsc[i] = nullptr;
+
   // ---- v3: skin (9-slice 画像スキン) ----
   t.skin_set = m.skin_set;
   std::memcpy(t.skin_part, m.skin_part, sizeof(t.skin_part));
@@ -226,11 +231,33 @@ const watch::ThemeScreenSkin* theme_screen_skin(int screen_index) {
   return nullptr;
 }
 
+const lv_image_dsc_t* theme_image(const char* asset_id) {
+  if (!asset_id) return nullptr;
+  Theme& t = const_cast<Theme&>(theme());
+  for (int i = 0; i < t.asset_count; ++i) {
+    if (std::strcmp(t.assets[i].id, asset_id) == 0) {
+      if (!t.asset_dsc[i]) {
+        // 上限は LVGL の描画サイズに合わせて広め (装飾用途)。
+        t.asset_dsc[i] =
+            theme_res::img_load(theme_id(), t.assets[i].file, 410, 502);
+      }
+      return t.asset_dsc[i];
+    }
+  }
+  return nullptr;
+}
+
 const lv_image_dsc_t* theme_icon(const char* app_id) {
   if (!app_id) return nullptr;
   const Theme& t = theme();
   for (int i = 0; i < t.icon_count; ++i) {
     if (std::strcmp(t.icons[i].app, app_id) == 0) return t.icon_dsc[i];
+  }
+  // v5: assets の "icon.<app>" も引く (icons キー省略でも可)
+  char aid[48];
+  const int n = std::snprintf(aid, sizeof(aid), "icon.%s", app_id);
+  if (n > 0 && n < static_cast<int>(sizeof(aid))) {
+    return theme_image(aid);
   }
   return nullptr;
 }

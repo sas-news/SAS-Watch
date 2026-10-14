@@ -2,6 +2,7 @@
 // 未知キーは読み飛ばす (将来互換)。既知キーで型が違えば kBadValue。
 #include "watch/theme/manifest.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 #include "watch/protocol/cbor.hpp"
@@ -24,6 +25,10 @@ constexpr const char* kMetricKeys[4] = {"radius_sm", "radius_lg", "space",
                                         "anim_ms"};
 constexpr const char* kFontKeys[4] = {"font_body", "font_title", "font_digits",
                                       "font_digits_sm"};
+void asset_set(ThemeManifest* o, const char* id, size_t idn,
+               const char* file, size_t fn);
+bool asset_id_ok(const char* s, size_t n);
+
 constexpr const char* kImageKeys[kThemeImageSlots] = {
     "home_bg", "stand", "timer_done", "face_chara"};
 
@@ -203,6 +208,8 @@ bool images_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
     std::memcpy(o->image[i], p, n);
     o->image[i][n] = '\0';
     o->image_set |= static_cast<uint8_t>(1u << i);
+    // v5: assets でも引ける (id = スロット名)
+    asset_set(o, kImageKeys[i], std::strlen(kImageKeys[i]), p, n);
     return true;
   }
   return true;  // 未知キーは無視
@@ -245,6 +252,38 @@ bool app_id_ok(const char* s, size_t n) {
     if (!ok) return false;
   }
   return true;
+}
+
+// v5 asset id: [a-z0-9_.-]{1,31}
+bool asset_id_ok(const char* s, size_t n) {
+  if (n == 0 || n >= kThemeAssetIdMax) return false;
+  for (size_t i = 0; i < n; ++i) {
+    const char c = s[i];
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                    c == '_' || c == '.' || c == '-';
+    if (!ok) return false;
+  }
+  return true;
+}
+
+// assets への登録。同じ id は後勝ち (上書き)。溢れた分は無視する
+// (受け入れ側が多いのは壊れでなく「容量不足」なので静かに捨てる)。
+void asset_set(ThemeManifest* o, const char* id, size_t idn,
+               const char* file, size_t fn) {
+  for (int i = 0; i < o->asset_count; ++i) {
+    if (std::strlen(o->assets[i].id) == idn &&
+        std::memcmp(o->assets[i].id, id, idn) == 0) {
+      std::memcpy(o->assets[i].file, file, fn);
+      o->assets[i].file[fn] = '\0';
+      return;
+    }
+  }
+  if (o->asset_count >= kThemeMaxAssets) return;
+  ThemeAsset& a = o->assets[o->asset_count++];
+  std::memcpy(a.id, id, idn);
+  a.id[idn] = '\0';
+  std::memcpy(a.file, file, fn);
+  a.file[fn] = '\0';
 }
 
 // uint を取り、範囲外なら kBadValue。
@@ -475,6 +514,27 @@ bool icons_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   ic.app[an] = '\0';
   std::memcpy(ic.file, p, n);
   ic.file[n] = '\0';
+  // v5: assets にも "icon.<app>" で登録
+  char aid[64];
+  const int alen = std::snprintf(aid, sizeof(aid), "icon.%.*s",
+                                 static_cast<int>(an), ap);
+  asset_set(o, aid, static_cast<size_t>(alen), p, n);
+  return true;
+}
+
+// v5: assets.<id> = "file.png|bin" (id: [a-z0-9_.-]{1,31})
+bool assets_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
+  Ctx* c = static_cast<Ctx*>(c_);
+  const char* ap = nullptr;
+  size_t an = 0;
+  const char* p = nullptr;
+  size_t n = 0;
+  if (!cbor::as_text(k, &ap, &an) || !asset_id_ok(ap, an)) return true;
+  if (!cbor::as_text(v, &p, &n) || !file_name_ok(p, n)) {
+    c->err = ThemeManifestError::kBadImageName;
+    return false;
+  }
+  asset_set(c->out, ap, an, p, n);
   return true;
 }
 
@@ -911,6 +971,11 @@ ThemeManifestError theme_manifest_parse(const uint8_t* buf, size_t n,
   if (cbor::map_find(root, "face_layout", &v)) {
     if (cbor::type(v) != cbor::Type::Map) return ThemeManifestError::kBadValue;
     if (!cbor::map_foreach(v, face_layout_cb, &c)) return c.err;
+  }
+
+  if (cbor::map_find(root, "assets", &v)) {
+    if (cbor::type(v) != cbor::Type::Map) return ThemeManifestError::kBadValue;
+    if (!cbor::map_foreach(v, assets_cb, &c)) return c.err;
   }
 
   if (cbor::map_find(root, "skin", &v)) {

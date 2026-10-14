@@ -20,6 +20,7 @@
   input[type=number] { background:#0d0f14; color:var(--fg); border:1px solid #333; }
   button { background:var(--acc); color:#000; border:none; border-radius:8px; padding:8px 16px; font-weight:bold; cursor:pointer; margin:4px 4px 4px 0; }
   button.sec { background:#2a2e3a; color:var(--fg); }
+  .hint { color:var(--dim,#8a8f9c); font-size:12px; }
   /* 410x502・角 R100 の時計マスク */
   .watch { width:410px; height:502px; border-radius:100px; overflow:hidden; position:relative; flex:none; box-shadow:0 0 0 2px #333; }
   .watch > .wbg { position:absolute; inset:0; }
@@ -39,6 +40,12 @@
   <div id="screens"></div>
   <h2>アプリアイコン (icons)</h2>
   <div id="icons"></div>
+  <h2>任意アセット (v5 assets)</h2>
+  <p class="hint">id → ファイルの自由 map。id は a-z 0-9 _ . - 32字まで。
+     時計側は theme_image("&lt;id&gt;") で遅延ロード。アプリのアイコンは
+     "icon.&lt;アプリid&gt;"、deco/face_layout の画像は任意の id。</p>
+  <div id="assets"></div>
+  <button id="asset-add" class="sec">＋ アセット追加</button>
   <h2>入出力</h2>
   <button id="export">テーマ .zip を書き出す</button>
   <button id="import" class="sec">zip を読み込む</button>
@@ -79,7 +86,8 @@ Studio.defaults = function () {
     },
     images: {},   // slot -> {name, data(Uint8Array)}
     screens: {},  // screen -> {name, data}
-    icons: {}     // app -> {name, data}
+    icons: {},    // app -> {name, data}
+    assets: {}    // v5: 自由 id -> {name, data}
   };
 };
 
@@ -136,6 +144,10 @@ Studio.encodeManifest = function (st) {
   const ico = Object.keys(st.icons);
   if (ico.length) {
     top.push(["icons", Studio.cMap(ico.map(k => [k, t(st.icons[k].name)]))]);
+  }
+  const ast = Object.keys(st.assets || {});
+  if (ast.length) {
+    top.push(["assets", Studio.cMap(ast.map(k => [k, t(st.assets[k].name)]))]);
   }
   return new Uint8Array(Studio.cMap(top));
 };
@@ -281,6 +293,7 @@ Studio.decodeManifest = function (bytes) {
     if (root.screens[k] && root.screens[k].bg) st.screens[k] = { name: root.screens[k].bg, data: null };
   }
   if (root.icons) for (const k in root.icons) st.icons[k] = { name: root.icons[k], data: null };
+  if (root.assets) for (const k in root.assets) st.assets[k] = { name: root.assets[k], data: null };
   return st;
 };
 
@@ -326,7 +339,52 @@ function rebuild() {
   fileGroup("images", Studio.IMAGE_KEYS, state.images);
   fileGroup("screens", Studio.SCREEN_KEYS, state.screens);
   fileGroup("icons", Studio.ICON_APPS, state.icons);
+  rebuildAssets();
   preview();
+}
+
+// v5 assets: id (手入力) → ファイル の自由行。
+function rebuildAssets() {
+  const g = document.getElementById("assets");
+  g.innerHTML = "";
+  for (const k of Object.keys(state.assets)) {
+    const d = document.createElement("div");
+    d.className = "row";
+    const idinp = document.createElement("input");
+    idinp.type = "text"; idinp.value = k; idinp.placeholder = "id";
+    idinp.onchange = () => {
+      const nk = idinp.value.trim();
+      if (nk && nk !== k && /^[a-z0-9_.-]{1,32}$/.test(nk) &&
+          state.assets[nk] === undefined) {
+        state.assets[nk] = state.assets[k];
+        delete state.assets[k];
+        rebuildAssets();
+      } else { idinp.value = k; }
+    };
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".png,.bin";
+    inp.onchange = () => {
+      const f = inp.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => { state.assets[k].name = f.name;
+                          state.assets[k].data = new Uint8Array(rd.result); };
+      rd.readAsArrayBuffer(f);
+    };
+    const del = document.createElement("button");
+    del.className = "sec"; del.textContent = "削除";
+    del.onclick = () => { delete state.assets[k]; rebuildAssets(); };
+    const nm = document.createElement("span");
+    nm.className = "hint"; nm.textContent = state.assets[k].name || "(未選択)";
+    d.appendChild(idinp); d.appendChild(inp); d.appendChild(nm);
+    d.appendChild(del); g.appendChild(d);
+  }
+}
+document.getElementById("asset-add").onclick = () => {
+  let i = 0;
+  let id = "asset" + i;
+  while (state.assets[id] !== undefined) id = "asset" + (++i);
+  state.assets[id] = { name: "", data: null };
+  rebuildAssets();
 }
 
 function fileGroup(id, keys, store) {
@@ -429,6 +487,7 @@ document.getElementById("export").onclick = () => {
     }
   };
   push(state.images); push(state.screens); push(state.icons);
+  push(state.assets);
   const zip = Studio.buildZip(files);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
@@ -468,6 +527,8 @@ document.getElementById("zipfile").onchange = e => {
           if (state.screens[k].name === file.name) state.screens[k].data = file.data;
         for (const k in state.icons)
           if (state.icons[k].name === file.name) state.icons[k].data = file.data;
+        for (const k in state.assets)
+          if (state.assets[k].name === file.name) state.assets[k].data = file.data;
       }
       rebuild();
       document.getElementById("status").textContent =

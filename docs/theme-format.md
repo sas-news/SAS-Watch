@@ -181,6 +181,25 @@ v2 は zip 自体をそのまま配置するので上限 = パーティション
 - 画像は 36x36 前後の透過 PNG 推奨。無いアプリは従来の色タイル+
   頭文字にフォールバック。
 
+
+### `assets` (v5) — 自由な id → ファイルの map
+
+```cbor
+"assets": {
+  "deco.star": "star.png",   // 任意の装飾画像 (deco.img / face_layout img)
+  "icon.myapp": "mi.png",    // アプリアイコン (icons.<app> と同じ意味)
+  "home_bg": "bg.png"        // images.<slot> と同じ id でも引ける
+}
+```
+
+- id は `[a-z0-9_.-]{1,31}`。zip のエントリ数上限 (32) がそのまま上限。
+- `images.<slot>` は id=スロット名、`icons.<app>` は id=`icon.<app>` として
+  同じ表に集約される。明示の `assets` キーがあればそちらが優先 (後勝ち)。
+- コードからは `ui::theme_image("<id>")` で引く (遅延ロード — 使う画面でだけ
+  メモリに乗る。skin と icons は従来どおりテーマ適用時に常駐)。
+- アプリのアイコン: applist は `icon.<app_id>` を引くので、T19 の外部
+  アプリにも `assets."icon.<id>"` でアイコン画像を渡せる。
+
 ### `fonts` — binfont フォント差替え
 
 ```jsonc
