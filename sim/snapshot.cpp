@@ -3,7 +3,10 @@
 //   LVGL のメモリ上ディスプレイ 410x502 に ui コンポーネントを描画し、
 //   各画面を PNG に書き出す。実機と同じ ui::create + EventBus + Action の
 //   パイプラインを通す (タップも lv_indev 経由で本物のイベントとして打つ)。
+#include <cstdarg>
 #include <cstdio>
+#include <string>
+#include <vector>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -91,6 +94,16 @@ void pump(int ms) {
 
 FILE* s_report = nullptr;
 const char* s_audit_screen = nullptr;
+int s_report_lines = 0;  // 違反があれば exit code にも出す
+
+void report_line(const char* fmt, ...) {
+  if (!s_report) return;
+  ++s_report_lines;
+  va_list ap;
+  va_start(ap, fmt);
+  std::vfprintf(s_report, fmt, ap);
+  va_end(ap);
+}
 
 void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
   if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
@@ -154,9 +167,9 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
             for (char* q = head; *q; ++q)
               if (*q == '\n') *q = ' ';
           }
-          std::fprintf(s_report, "%s / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
-                       s_audit_screen, kind, (int)a.x1, (int)a.y1,
-                       (int)a.x2, (int)a.y2, head);
+          report_line("%s / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
+                      s_audit_screen, kind, (int)a.x1, (int)a.y1,
+                      (int)a.x2, (int)a.y2, head);
         }
         // 左右余白: テキスト bbox がコンテンツ余白 kPad(32) を越えたら警告。
         // スクロール領域の内側 (clip が画面全体でない) は行幅に制限済み
@@ -170,10 +183,9 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
           std::snprintf(head, sizeof(head), "%.30s", text);
           for (char* q = head; *q; ++q)
             if (*q == '\n') *q = ' ';
-          std::fprintf(s_report,
-                       "%s / margin / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
-                       s_audit_screen, kind, (int)a.x1, (int)a.y1,
-                       (int)a.x2, (int)a.y2, head);
+          report_line("%s / margin / %s / (%d,%d)-(%d,%d) / \"%s\"\n",
+                      s_audit_screen, kind, (int)a.x1, (int)a.y1,
+                      (int)a.x2, (int)a.y2, head);
         }
       }
     }
@@ -194,12 +206,183 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
   for (uint32_t i = 0; i < n; ++i) audit_walk(lv_obj_get_child(o, i), child_clip);
 }
 
+// ---- T16: テキスト重なり / 欠けグリフ監査 -------------------------------
+// 可視ラベル (clip 済みの見えている部分) を集めて、
+//   1) ラベルどうしの bbox 交差 → "overlap"
+//   2) フォント (フォールバック含む) に無いコードポイント → "glyph"
+// を報告する。親子・同一オブジェクトは交差判定から除外。
+
+struct LblInfo {
+  lv_area_t ink;   // グリフの実描画 (ink) 範囲 — 行高パディングを除く
+  lv_area_t vis;   // clip 済みのオブジェクト外接
+  std::string text;
+  lv_obj_t* obj;
+};
+std::vector<LblInfo> s_lbls;
+
+// lv_area_intersect は private ヘッダ (lv_area_private.h) なので同名の
+// 自前版を使う。
+bool area_intersect(lv_area_t* r, const lv_area_t& a, const lv_area_t& b) {
+  r->x1 = LV_MAX(a.x1, b.x1);
+  r->y1 = LV_MAX(a.y1, b.y1);
+  r->x2 = LV_MIN(a.x2, b.x2);
+  r->y2 = LV_MIN(a.y2, b.y2);
+  return r->x1 <= r->x2 && r->y1 <= r->y2;
+}
+
+uint32_t utf8_next(const char*& p) {
+  const auto c = static_cast<unsigned char>(*p++);
+  if (c < 0x80) return c;
+  if ((c & 0xE0) == 0xC0) return ((c & 0x1F) << 6) | (*p++ & 0x3F);
+  if ((c & 0xF0) == 0xE0) {
+    const uint32_t v = ((c & 0x0F) << 12) |
+                       ((*p++ & 0x3F) << 6) | (*p++ & 0x3F);
+    return v;
+  }
+  if ((c & 0xF8) == 0xF0) {
+    const uint32_t v = ((c & 0x07) << 18) | ((*p++ & 0x3F) << 12) |
+                       ((*p++ & 0x3F) << 6) | (*p++ & 0x3F);
+    return v;
+  }
+  return c;
+}
+
+void audit_label_check(lv_obj_t* o, const lv_area_t& clip) {
+  if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
+  lv_area_t a;
+  lv_obj_get_coords(o, &a);
+  if (lv_obj_check_type(o, &lv_label_class)) {
+    const char* t = lv_label_get_text(o);
+    lv_area_t vis;
+    const bool has_vis =
+        area_intersect(&vis, a, clip) && (t && t[0]);
+    if (has_vis) {
+      // ink 範囲 (各グリフの letter_pos + glyph box の和)。
+      // ラベル外接より狭いので、行高パディングの重なりを拾わない。
+      const lv_font_t* f =
+          lv_obj_get_style_text_font(o, LV_PART_MAIN);
+      lv_area_t content;
+      lv_obj_get_content_coords(o, &content);
+      lv_area_t ink{0, 0, -1, -1};
+      bool any = false;
+      {
+        const char* q = t;
+        uint32_t ci = 0;
+        while (*q && ci < 64) {
+          const uint32_t cp = utf8_next(q);
+          lv_point_t lp;
+          lv_label_get_letter_pos(o, ci, &lp);
+          lv_font_glyph_dsc_t d;
+          if (f && lv_font_get_glyph_dsc(f, &d, cp, 0)) {
+            lv_area_t g{
+                static_cast<lv_coord_t>(content.x1 + lp.x + d.ofs_x),
+                static_cast<lv_coord_t>(content.y1 + lp.y + d.ofs_y),
+                static_cast<lv_coord_t>(content.x1 + lp.x + d.ofs_x +
+                                        d.box_w - 1),
+                static_cast<lv_coord_t>(content.y1 + lp.y + d.ofs_y +
+                                        d.box_h - 1)};
+            if (!any) { ink = g; any = true; }
+            else {
+              ink.x1 = LV_MIN(ink.x1, g.x1);
+              ink.y1 = LV_MIN(ink.y1, g.y1);
+              ink.x2 = LV_MAX(ink.x2, g.x2);
+              ink.y2 = LV_MAX(ink.y2, g.y2);
+            }
+          }
+          ++ci;
+        }
+      }
+      lv_area_t ink_vis;
+      if (any && area_intersect(&ink_vis, ink, clip)) {
+        s_lbls.push_back({ink_vis, vis, t, o});
+      }
+      // 欠けグリフ検査 (フォールバックも lv_font_get_glyph_dsc が辿る。
+      // 実グリフ無しで placeholder が返ると is_placeholder=1。
+      // 制御文字 (\n 等) はグリフ不要なので除外)。
+      if (f) {
+        const char* q = t;
+        while (*q) {
+          const uint32_t cp = utf8_next(q);
+          if (cp < 0x20) continue;
+          lv_font_glyph_dsc_t d;
+          const bool okd = lv_font_get_glyph_dsc(
+              f, &d, cp, 0);
+          if (!okd || d.is_placeholder) {
+            char head[40] = "";
+            std::snprintf(head, sizeof(head), "%.30s", t);
+            report_line(
+                "%s / glyph / U+%04X / \"%s\"\n",
+                s_audit_screen, (unsigned)cp, head);
+            break;  // 1 ラベル 1 報告で十分
+          }
+        }
+      }
+    }
+  }
+  // 子に渡す clip は audit_walk と同じ規則。
+  lv_area_t child_clip;
+  if (lv_obj_has_flag(o, LV_OBJ_FLAG_SCROLLABLE)) {
+    lv_obj_get_content_coords(o, &child_clip);
+  } else {
+    child_clip = a;
+  }
+  child_clip.x1 = LV_MAX(child_clip.x1, clip.x1);
+  child_clip.y1 = LV_MAX(child_clip.y1, clip.y1);
+  child_clip.x2 = LV_MIN(child_clip.x2, clip.x2);
+  child_clip.y2 = LV_MIN(child_clip.y2, clip.y2);
+  const uint32_t n = lv_obj_get_child_count(o);
+  for (uint32_t i = 0; i < n; ++i) {
+    audit_label_check(lv_obj_get_child(o, i), child_clip);
+  }
+}
+
+void audit_overlap() {
+  for (size_t i = 0; i < s_lbls.size(); ++i) {
+    for (size_t j = i + 1; j < s_lbls.size(); ++j) {
+      // 片方がもう一方の祖先/子孫なら除外 (行内ラベル等の重なりは
+      // レイアウト由来でなく実際に食い違っているものだけ拾う)。
+      lv_obj_t* a = s_lbls[i].obj;
+      lv_obj_t* b = s_lbls[j].obj;
+      bool related = false;
+      for (lv_obj_t* p = lv_obj_get_parent(a); p;
+           p = lv_obj_get_parent(p)) {
+        if (p == b) { related = true; break; }
+      }
+      for (lv_obj_t* p = lv_obj_get_parent(b); p && !related;
+           p = lv_obj_get_parent(p)) {
+        if (p == a) { related = true; break; }
+      }
+      if (related) continue;
+      lv_area_t x;
+      if (area_intersect(&x, s_lbls[i].ink, s_lbls[j].ink)) {
+        report_line(
+            "%s / overlap / (%d,%d)-(%d,%d) x (%d,%d)-(%d,%d) / "
+            "\"%.24s\" vs \"%.24s\"\n",
+            s_audit_screen,
+            (int)s_lbls[i].ink.x1, (int)s_lbls[i].ink.y1,
+            (int)s_lbls[i].ink.x2, (int)s_lbls[i].ink.y2,
+            (int)s_lbls[j].ink.x1, (int)s_lbls[j].ink.y1,
+            (int)s_lbls[j].ink.x2, (int)s_lbls[j].ink.y2,
+            s_lbls[i].text.c_str(), s_lbls[j].text.c_str());
+      }
+    }
+  }
+}
+
 void audit_screen(const char* name) {
   if (!s_report) return;
   s_audit_screen = name;
   const lv_area_t scr_clip{0, 0, kW - 1, kH - 1};
   audit_walk(lv_screen_active(), scr_clip);
   audit_walk(lv_layer_top(), scr_clip);  // トースト/アラートは layer_top に載る
+  // 層ごとに別々に (layer_top のモーダルと背後画面の重なりは当然なので
+  // 別レイヤ同士は比較しない)。
+  s_lbls.clear();
+  audit_label_check(lv_screen_active(), scr_clip);
+  audit_overlap();
+  s_lbls.clear();
+  audit_label_check(lv_layer_top(), scr_clip);
+  audit_overlap();
 }
 
 bool save(const char* dir, const char* name) {
@@ -1006,6 +1189,9 @@ int main(int argc, char** argv) {
     std::fclose(s_report);
     s_report = nullptr;
   }
-  std::printf("done -> %s (%s)\n", out, ok ? "ok" : "some failed");
-  return ok ? 0 : 1;
+  // T16: 監査違反も失敗にする (重なり/欠けグリフ/safe_area/margin 全て)。
+  const bool clean = ok && s_report_lines == 0;
+  std::printf("done -> %s (%s, audit %d lines)\n", out,
+              clean ? "ok" : "some failed", s_report_lines);
+  return clean ? 0 : 1;
 }

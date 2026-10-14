@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 36 px
  * Bpp: 4
- * Opts: --font tools/fonts/icons/MaterialSymbolsRounded.ttf --size 36 --bpp 4 --format lvgl --lv-include lvgl.h -r 0xE31D,0xE405,0xE425,0xE536,0xE800,0xE855,0xE7F5,0xE8B8,0xE5C3,0xF4BA,0xF06C,0xF159 --lv-font-name font_icon_36 -o firmware/components/ui/src/fonts/font_icon_36.c
+ * Opts: --font /home/sasnews/Desktop/ai-space/SAS-Watch/tools/fonts/icons/MaterialSymbolsRounded.ttf --size 36 --bpp 4 --format lvgl --lv-include lvgl.h -r 0xE31D,0xE405,0xE425,0xE536,0xE800,0xE855,0xE7F5,0xE8B8,0xE5C3,0xF4BA,0xF06C,0xF159 --lv-font-name font_icon_36 -o /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/components/ui/src/fonts/font_icon_36.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

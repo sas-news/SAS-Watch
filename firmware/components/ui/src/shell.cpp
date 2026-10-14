@@ -520,12 +520,12 @@ void show_timer_alert() {
     lv_obj_add_flag(hero, LV_OBJ_FLAG_EVENT_BUBBLE);
   }
 
-  // "TIMER" 見出し (primary2, 字送り広め)。画像があるときは重なるので省略。
+  // "TIMER" 見出し (字送り広め)。画像があるときは重なるので省略。
   if (!hero) {
     lv_obj_t* tag = lv_label_create(s_alert);
     lv_label_set_text(tag, "TIMER");
     lv_obj_set_style_text_font(tag, t.font_body, 0);
-    lv_obj_set_style_text_color(tag, t.primary2, 0);
+    lv_obj_set_style_text_color(tag, t.text_dim, 0);
     lv_obj_set_style_text_letter_space(tag, 8, 0);
     lv_obj_align(tag, LV_ALIGN_CENTER, 0, -108);
   }
@@ -616,7 +616,7 @@ void show_alarm_alert(uint32_t id) {
   lv_obj_t* l = lv_label_create(s_alert);
   lv_label_set_text(l, "アラーム");
   lv_obj_set_style_text_font(l, t.font_title, 0);
-  lv_obj_set_style_text_color(l, t.accent, 0);
+  lv_obj_set_style_text_color(l, t.text, 0);
   lv_obj_align(l, LV_ALIGN_CENTER, 0, -170);
 
   // 鳴っているアラームの時刻 (id が見つからなければ時刻は出さない)。

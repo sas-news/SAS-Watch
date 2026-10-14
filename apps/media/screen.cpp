@@ -73,9 +73,9 @@ lv_obj_t* build(lv_obj_t* scr) {
   // 子ラベルにする。
   s.note = lv_label_create(s.art);
   lv_obj_set_style_text_font(s.note, &font_icon_36, 0);
-  lv_obj_set_style_text_color(s.note, t.primary, 0);
+  lv_obj_set_style_text_color(s.note, t.text_dim, 0);
   lv_obj_set_style_text_opa(s.note, LV_OPA_60, 0);
-  lv_label_set_text(s.note, "\xee\xa4\x85");
+  lv_label_set_text(s.note, "\xee\x90\x85");
   lv_obj_center(s.note);
   lv_obj_set_style_radius(s.art, 12, 0);
   lv_obj_set_style_bg_color(s.art, t.surface2, 0);
@@ -83,7 +83,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   lv_obj_set_style_clip_corner(s.art, true, 0);
   s.state = lv_label_create(info);
   lv_obj_set_style_text_font(s.state, t.font_body, 0);
-  lv_obj_set_style_text_color(s.state, t.accent, 0);
+  lv_obj_set_style_text_color(s.state, t.text_dim, 0);
   s.title = lv_label_create(info);
   lv_obj_set_width(s.title, LV_PCT(100));
   lv_obj_set_style_text_font(s.title, t.font_body, 0);

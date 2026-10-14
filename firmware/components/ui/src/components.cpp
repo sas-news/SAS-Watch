@@ -426,7 +426,7 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   // パネルの丸角 (R≈100) の安全域に収まるよう上から少し下げた。
   lv_obj_set_style_pad_top(h, 26, 0);
   lv_obj_set_style_pad_bottom(h, 8, 0);
-  lv_obj_set_style_pad_column(h, 12, 0);
+  lv_obj_set_style_pad_column(h, 8, 0);
   lv_obj_set_flex_flow(h, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(h, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
@@ -445,13 +445,13 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
     lv_obj_set_style_bg_color(b, t.surface2, 0);
     if (flat_hdr) lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
-    lv_obj_set_style_pad_left(b, 12, 0);
+    lv_obj_set_style_pad_left(b, 8, 0);
     lv_obj_set_style_pad_right(b, 16, 0);
-    lv_obj_set_style_pad_column(b, 4, 0);
+    lv_obj_set_style_pad_column(b, 8, 0);
     lv_obj_set_flex_flow(b, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(b, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    mk_label(b, "‹", &font_chev_22, t.primary);
+    mk_label(b, "‹", &font_chev_22, t.text_dim);
     mk_label(b, "戻る", t.font_body, t.text_dim);
     lv_obj_add_event_cb(
         b, [](lv_event_t*) { ui::emit(watch::ActionType::Back); },
@@ -477,7 +477,7 @@ lv_obj_t* content(lv_obj_t* scr) {
   // 画面下端の角で欠けないよう、スクロール領域をそこで止める。
   lv_obj_set_size(c, kW - 2 * kPad, 502 - kHeaderH - (kPad + 6));
   lv_obj_set_pos(c, kPad, kHeaderH);
-  lv_obj_set_style_pad_row(c, 12, 0);
+  lv_obj_set_style_pad_row(c, 8, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_START);
@@ -614,7 +614,7 @@ lv_obj_t* card(lv_obj_t* parent) {
   bubble(c);
   lv_obj_set_size(c, LV_PCT(100), LV_SIZE_CONTENT);
   skin_card(c);
-  lv_obj_set_style_pad_all(c, 12, 0);
+  lv_obj_set_style_pad_all(c, 16, 0);
   lv_obj_set_style_pad_row(c, t.space, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
@@ -647,9 +647,9 @@ lv_obj_t* row_text(lv_obj_t* row, const char* text, const char* sub,
   lv_obj_t* cell = flat(row);
   lv_obj_set_size(cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_min_width(cell, 60, 0);  // flex_grow と組で右要素を右端へ
-  // font_jp_20 は line_height 38 でグリフ (20px) より箱が大きいので、
-  // 負の行間でサブ行をタイトル直下に寄せる (視覚的に ~2-4px)。
-  lv_obj_set_style_pad_row(cell, -14, 0);
+  // タイトルとサブは各行の行高 (フォントの leading 含む) で自然に
+  // 間が空く。負の pad で重ねるとグリフの ink がぶつかる (T16)。
+  lv_obj_set_style_pad_row(cell, 0, 0);
   // 行が SIZE_CONTENT だと LVGL は track_place を START に固定し、
   // 子が行の上寄りに張り付く。セルに行の最低高さを持たせて、セル内で
   // タイトル (+サブ) ブロックを垂直中央揃えにする。
@@ -702,7 +702,7 @@ lv_obj_t* row(lv_obj_t* grp, const char* text, const char* sub,
 lv_obj_t* back_row(lv_obj_t* grp, lv_event_cb_t cb) {
   const Theme& t = theme();
   lv_obj_t* r = row_box(grp, cb, nullptr);
-  mk_label(r, "‹", &font_chev_22, t.primary);
+  mk_label(r, "‹", &font_chev_22, t.text_dim);
   row_text(r, "戻る", nullptr, text_budget(false, false, false));
   return r;
 }
@@ -872,7 +872,7 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN,
                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   mk_label(top, label, t.font_body, t.text);
-  lv_obj_t* vl = mk_label(top, "", t.font_body, t.primary);
+  lv_obj_t* vl = mk_label(top, "", t.font_body, t.text);
 
   lv_obj_t* s = lv_slider_create(inner);
   clickable(s);

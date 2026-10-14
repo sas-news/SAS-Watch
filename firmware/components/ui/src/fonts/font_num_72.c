@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 72 px
  * Bpp: 4
- * Opts: --font tools/fonts/num/JetBrainsMono-Bold.ttf --size 72 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:.,-/%  --lv-font-name font_num_72 -o firmware/components/ui/src/fonts/font_num_72.c
+ * Opts: --font /home/sasnews/Desktop/ai-space/SAS-Watch/tools/fonts/num/JetBrainsMono-Bold.ttf --size 72 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789:.,-/%  --lv-font-name font_num_72 -o /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/components/ui/src/fonts/font_num_72.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
