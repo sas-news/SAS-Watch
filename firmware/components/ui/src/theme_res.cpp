@@ -3,13 +3,6 @@
 // フォントは lv_binfont_create_from_buffer (バッファはアリーナで保持)。
 #include "theme_res.hpp"
 
-#if defined(ESP_PLATFORM)
-#include "esp_heap_caps.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#endif
-
 #include <cstring>
 
 // lodepng.h は extern "C" の内側で <vector>/<string> を include するため
@@ -204,12 +197,6 @@ lv_image_dsc_t* copy_region(const lv_image_dsc_t* src, uint16_t rx,
   d->header.stride = static_cast<uint16_t>(rw * 2);
   d->data_size = need;
   d->data = dst;
-#if defined(ESP_PLATFORM)
-  ESP_LOGI("theme", "ckpt copy_region %ux%u@%u,%u heap=%s hwm=%u", rw, rh, rx,
-           ry,
-           heap_caps_check_integrity_all(true) ? "ok" : "CORRUPT",
-           (unsigned)uxTaskGetStackHighWaterMark(nullptr));
-#endif
   return d;
 }
 

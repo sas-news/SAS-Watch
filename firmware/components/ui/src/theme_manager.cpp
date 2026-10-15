@@ -10,8 +10,6 @@
 #if defined(ESP_PLATFORM)
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #define SAS_BIG_STATIC EXT_RAM_BSS_ATTR
 #else
 #define SAS_BIG_STATIC
@@ -33,20 +31,6 @@ LV_FONT_DECLARE(font_digits_56);
 
 namespace ui {
 namespace {
-
-#if defined(ESP_PLATFORM)
-// theme_apply 各段の診断: ヒープ健全性 + 呼び出し中タスクのスタック残量。
-// T23 (mame 適用で main タスク overflow/TLSF 破壊) の切り分け用。
-void tm_ckpt(const char* stage) {
-  const bool ok = heap_caps_check_integrity_all(true);
-  ESP_LOGI("theme", "ckpt %s task=%s heap=%s hwm=%u", stage,
-           pcTaskGetName(nullptr), ok ? "ok" : "CORRUPT",
-           (unsigned)uxTaskGetStackHighWaterMark(nullptr));
-}
-#define TM_CKPT(s) tm_ckpt(s)
-#else
-#define TM_CKPT(s) ((void)0)
-#endif
 
 
 // スロットごとの画像サイズ上限 (docs/theme-format.md)。
@@ -112,7 +96,6 @@ bool load_file_theme(const char* id, Theme* out) {
       std::strcmp(m.id, id) != 0) {
     return false;
   }
-  TM_CKPT("manifest");
 
   // 欠けた Token は standard で補完する。
   // Theme は ~5KB あり main タスクスタック(3584B)に乗らないため、
@@ -142,7 +125,6 @@ bool load_file_theme(const char* id, Theme* out) {
     if (!(m.font_file_set & (1u << i))) continue;
     const lv_font_t* f = theme_res::font_load(id, m.font_file[i]);
     if (f) *font_slot(&t, i) = f;  // 失敗したスロットだけ内蔵のまま
-    TM_CKPT("font");
   }
 
   // ---- v1 画像スロット (.bin/.png) ----
@@ -151,7 +133,6 @@ bool load_file_theme(const char* id, Theme* out) {
     const lv_image_dsc_t* d =
         theme_res::img_load(id, m.image[s], kMaxDim[s][0], kMaxDim[s][1]);
     if (d) *img_slot(&t, s) = d;  // そのスロットだけ画像なしでも適用
-    TM_CKPT("img");
   }
 
   // ---- v2: screens / style ----
@@ -166,7 +147,6 @@ bool load_file_theme(const char* id, Theme* out) {
   for (int i = 0; i < m.icon_count; ++i) {
     t.icon_dsc[i] =
         theme_res::img_load(id, m.icons[i].file, kIconMaxDim, kIconMaxDim);
-    TM_CKPT("icon");
   }
 
   // ---- v2: mascot ----
@@ -174,7 +154,6 @@ bool load_file_theme(const char* id, Theme* out) {
   for (int i = 0; i < m.mascot.expr_count; ++i) {
     t.mascot_dsc[i] = theme_res::img_load(id, m.mascot.expr_file[i],
                                         kMascotMaxDim, kMascotMaxDim);
-    TM_CKPT("mascot");
   }
   if (t.mascot.expr_count && !t.mascot_dsc[0]) {
     t.mascot.used = 0;  // 先頭の表情が読めなければマスコット自体を無効
@@ -201,7 +180,6 @@ bool load_file_theme(const char* id, Theme* out) {
   for (int i = 0; i < watch::kThemeSkinPartCount; ++i) {
     if (!(m.skin_set & (1u << i))) continue;
     t.skin[i] = theme_res::skin_load(id, m.skin_part[i]);
-    TM_CKPT("skin");
     // 読めない part は nullptr のまま → ベクタ描画フォールバック。
 #ifndef ESP_PLATFORM
     std::fprintf(stderr, "skin[%s] %s -> %s\n", watch::kThemeSkinPartNames[i],
@@ -217,7 +195,6 @@ bool load_file_theme(const char* id, Theme* out) {
     s_bubble[i][sizeof(s_bubble[i]) - 1] = '\0';
     t.bubble[i] = s_bubble[i];
   }
-  TM_CKPT("done");
   *out = t;
   theme_set_info(m.id, m.name);
   return true;

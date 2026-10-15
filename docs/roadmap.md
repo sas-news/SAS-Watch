@@ -469,9 +469,19 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
   (esp_flash_api.c direct_read=false) がクラッシュ面。対策として
   `theme_entry_read` を DRAM 16KB ステージングに変更し、ui::create 中の
   クラッシュを RTC ガードで検出して次回 standard フォールバックする。
-  真の破壊者は引き続き未確定 (heap integrity bisect は実機が要る)。
+- **真因 (2026-10-14 確定)**: `core/theme/manifest.cpp` の
+  `theme_manifest_parse` が `ThemeManifest o;` (~11.7KB) をスタックに
+  取っていた。LVGL タスク (7168B)・main (3584B)・NimBLE ホストの
+  どれでも overflow → 隣接メモリ破壊が IntWDT/TLSF assert/
+  LoadProhibited など場所不定の panic として出ていた。
+  診断 ckpt で `taskLVGL hwm=104` (manifest 段) を直接観測。
+  修正 033a704: `new (out) ThemeManifest()` で out 直書き。
+  併せて main タスクを 8192B に拡大 (997bb28)。
+  実機検証: mame のランタイム適用 + 再起動 3 回で panic/fallback なし。
+- 残置: RTC ガードの standard フォールバック、DRAM staged_fread、
+  `theme: apply` / `pkg:` の起動ログ。
 
-状態: 進行中 (対策実装済み・実機検証待ち)
+状態: 完了 033a704 (+997bb28)
 
 ## T24. flash の app 領域が残り 8% — 難度 M
 
@@ -503,6 +513,8 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
      ユーザー報告で接続直後に応答停止 → status=8 切断・白画面になった
      (モニタ欠損で panic 行は未捕獲 — ハングかログ喪失かは未確定)。
      この2つも revert 済み。
+     注: theme_store::install の検証 parse は static だったため
+     ThemeManifest のスタック問題 (T23 真因) とは別因の可能性がある。
   d. 転送中の queue full drop は ACK 巻き戻しで自己回復するが、
      fwrite (~200B/chunk) が流入に追いつかないと大量の再送が起きる。
 - 次の方針候補:
