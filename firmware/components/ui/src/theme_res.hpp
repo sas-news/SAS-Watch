@@ -55,6 +55,11 @@ const SkinSet* skin_load(const char* id, const watch::ThemeSkinPart& part);
 // 今のテーマで skin 用に確保したアリーナ領域の合計バイト数。
 uint32_t skin_bytes();
 
+// manifest の参照資産がアリーナに要する量の見積もり (適用前の
+// サイズ確保用)。画面スキン (screens/bg/deco) は画面ブロック側なので
+// 含めない。読めないファイルは 0 として数える (ロード時にも失敗する)。
+uint32_t assets_estimate(const char* id, const watch::ThemeManifest* m);
+
 // ロード済みフォントと画像 dsc プールを全て解放する
 // (port::theme_assets_reset の直前に必須)。
 void reset();

@@ -64,15 +64,21 @@ void brightness_apply(int percent) {
 
 constexpr uint32_t kScreenBlocks = 2;
 constexpr uint32_t kGlobalOff = kScreenBlocks * kThemeScreenBlockSize;
-constexpr uint32_t kThemeArenaSize = 4 * 1024 * 1024;
+constexpr uint32_t kAssetCap = 3 * 1024 * 1024;
 uint8_t* s_arena = nullptr;
+uint32_t s_arena_size = 0;
 uint32_t s_arena_used = kGlobalOff;
 bool s_blk_used[kScreenBlocks] = {};
 
 const char* theme_assets_root() { return "sim/themes"; }
 
-void theme_assets_reset() {
-  if (!s_arena) s_arena = static_cast<uint8_t*>(std::malloc(kThemeArenaSize));
+// 構成は esp_port と同じ: アリーナ = 画面ブロック + テーマ見積もり。
+void theme_assets_reset(uint32_t asset_bytes) {
+  std::free(s_arena);
+  if (asset_bytes > kAssetCap) asset_bytes = kAssetCap;
+  s_arena_size = kGlobalOff + asset_bytes;
+  s_arena = static_cast<uint8_t*>(std::malloc(s_arena_size));
+  if (!s_arena) s_arena_size = 0;
   s_arena_used = kGlobalOff;
   for (auto& u : s_blk_used) u = false;
 }
@@ -198,12 +204,50 @@ dir_fallback: {
 }
 }
 
+// 先頭 n バイトのみ (PNG IHDR 見積もり用)。esp_port と同じ構成。
+bool theme_entry_head(const char* id, const char* name, uint8_t* dst,
+                      uint32_t n) {
+  if (!id || !name || !dst) return false;
+  {
+    static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
+    FILE* f = nullptr;
+    const int cnt = zip_open_list(id, &f, list,
+                                  watch::kThemePackageMaxEntries);
+    if (cnt >= 0) {
+      const watch::ThemePackageEntry* e =
+          watch::theme_package_find(list, cnt, name);
+      bool ok = false;
+      if (e) {
+        uint32_t off = 0;
+        const uint32_t rn = n < e->size ? n : e->size;
+        ok = zip_entry_off(f, *e, &off) &&
+             std::fseek(f, static_cast<long>(off), SEEK_SET) == 0 &&
+             std::fread(dst, 1, rn, f) == rn;
+      }
+      std::fclose(f);
+      if (ok) return true;
+      if (!e) goto dir_fallback;
+      return false;
+    }
+  }
+dir_fallback: {
+  char path[160];
+  std::snprintf(path, sizeof(path), "%s/%s/%s", theme_assets_root(), id,
+                name);
+  FILE* f = std::fopen(path, "rb");
+  if (!f) return false;
+  const bool ok = std::fread(dst, 1, n, f) == n;
+  std::fclose(f);
+  return ok;
+}
+}
+
 bool theme_asset_load(const char* id, const char* name, const uint8_t** out,
                       uint32_t* out_len) {
   if (!s_arena || !out || !out_len) return false;
   uint32_t sz = 0;
   if (!theme_entry_stat(id, name, &sz) || sz == 0) return false;
-  if (static_cast<uint64_t>(s_arena_used) + sz + 8 > kThemeArenaSize) {
+  if (static_cast<uint64_t>(s_arena_used) + sz + 8 > s_arena_size) {
     return false;
   }
   uint8_t* dst = s_arena + s_arena_used;
@@ -216,7 +260,7 @@ bool theme_asset_load(const char* id, const char* name, const uint8_t** out,
 
 uint8_t* theme_asset_alloc(uint32_t n) {
   if (!s_arena || static_cast<uint64_t>(s_arena_used) + n + 8 >
-                      kThemeArenaSize) {
+                      s_arena_size) {
     return nullptr;
   }
   uint8_t* p = s_arena + s_arena_used;

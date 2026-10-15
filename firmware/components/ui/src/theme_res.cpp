@@ -287,6 +287,75 @@ const SkinSet* skin_load(const char* id, const watch::ThemeSkinPart& part) {
 
 uint32_t skin_bytes() { return s_skin_bytes; }
 
+namespace {
+
+// ファイルがアリーナで占める量の上限: .bin はファイルサイズそのまま、
+// .png は IHDR の w*h*3 + dsc ヘッダ。読めなければ 0 (ロード側でも失敗)。
+uint32_t entry_bound(const char* id, const char* file) {
+  uint32_t sz = 0;
+  if (!file || !file[0] ||
+      !ui::port::theme_entry_stat(id, file, &sz) || sz == 0) {
+    return 0;
+  }
+  if (!ends_png(file)) return sz;
+  uint8_t hdr[26];
+  if (!ui::port::theme_entry_head(id, file, hdr, sizeof(hdr)) ||
+      hdr[1] != 'P' || hdr[2] != 'N' || hdr[3] != 'G') {
+    return sz * 16;  // IHDR が読めない異常 PNG → 保守的に
+  }
+  const uint32_t w = (static_cast<uint32_t>(hdr[16]) << 24) |
+                     (static_cast<uint32_t>(hdr[17]) << 16) |
+                     (static_cast<uint32_t>(hdr[18]) << 8) | hdr[19];
+  const uint32_t h = (static_cast<uint32_t>(hdr[20]) << 24) |
+                     (static_cast<uint32_t>(hdr[21]) << 16) |
+                     (static_cast<uint32_t>(hdr[22]) << 8) | hdr[23];
+  return 16 + w * h * 3;
+}
+
+}  // namespace
+
+// アリーナ占有: 画像スロット/icons/mascot/face/img/skin(9-slice は
+// 実ピクセル+dsc×9+SkinImg)/font/assets (theme_image の遅延ロード)。
+// 画面スキン (screens の bg/deco) は画面ブロック側なので含めない。
+uint32_t assets_estimate(const char* id, const watch::ThemeManifest* m) {
+  if (!id || !m) return 0;
+  uint64_t total = 0;
+  for (int i = 0; i < watch::kThemeImageSlots; ++i) {
+    if (m->image_set & (1u << i)) total += entry_bound(id, m->image[i]);
+  }
+  for (int i = 0; i < m->icon_count; ++i) {
+    total += entry_bound(id, m->icons[i].file);
+  }
+  for (int i = 0; i < m->mascot.expr_count; ++i) {
+    total += entry_bound(id, m->mascot.expr_file[i]);
+  }
+  if ((m->face_layout_set & (1u << watch::kThemeFaceElemChara)) &&
+      m->face_elem[watch::kThemeFaceElemChara].img[0]) {
+    total += entry_bound(id, m->face_elem[watch::kThemeFaceElemChara].img);
+  }
+  for (int i = 0; i < watch::kThemeSkinPartCount; ++i) {
+    if (!(m->skin_set & (1u << i))) continue;
+    // 9-slice: 実ピクセル + region dsc×9 + SkinImg 本体分の余裕。
+    total += entry_bound(id, m->skin_part[i].img) + 1024;
+    for (int s = 0; s < watch::kThemeSkinStateCount; ++s) {
+      if (m->skin_part[i].state_set & (1u << s)) {
+        total += entry_bound(id, m->skin_part[i].state_img[s]) + 1024;
+      }
+    }
+  }
+  for (int i = 0; i < watch::kThemeFontSlotCount; ++i) {
+    if (m->font_file_set & (1u << i)) {
+      total += entry_bound(id, m->font_file[i]);
+    }
+  }
+  for (int i = 0; i < m->asset_count; ++i) {
+    total += entry_bound(id, m->assets[i].file);
+  }
+  // dsc/alignment/SkinImg の固定余裕。
+  total += 8192;
+  return total > 0xFFFFFFFFull ? 0xFFFFFFFFu : static_cast<uint32_t>(total);
+}
+
 uint32_t img_decode(const char* id, const char* file, uint8_t* dst,
                     uint32_t cap, uint16_t max_w, uint16_t max_h,
                     lv_image_dsc_t* dsc) {

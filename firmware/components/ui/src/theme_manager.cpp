@@ -82,20 +82,30 @@ const lv_font_t** font_slot(Theme* t, int i) {
 }
 
 bool load_file_theme(const char* id, Theme* out) {
-  const uint8_t* data = nullptr;
-  uint32_t len = 0;
-  if (!port::theme_asset_load(id, "manifest.cbor", &data, &len) ||
-      len > kManifestMax) {
+  // manifest はアリーナをまだ確保していないので tmp (PSRAM) に読んで
+  // parse → 参照資産の必要量を見積もってからアリーナをその分だけ確保。
+  // (常時 4MiB 握ると PSRAM の残りが ~40KB になり、描画レイヤーや
+  // fopen のロック確保が内蔵 RAM に溢れて abort する。cute で実機観測)
+  uint32_t mlen = 0;
+  if (!port::theme_entry_stat(id, "manifest.cbor", &mlen) || mlen == 0 ||
+      mlen > kManifestMax) {
     return false;
   }
+  uint8_t* mtmp = port::theme_tmp_alloc(mlen);
+  if (!mtmp) return false;
+  bool ok = port::theme_entry_read(id, "manifest.cbor", mtmp, mlen);
   // LVGL コンテキスト内のみから呼ばれるので static でスタックを節約。
   // ThemeManifest は約 11.7KB。スタックに置かない。
   SAS_BIG_STATIC static watch::ThemeManifest m;
-  if (watch::theme_manifest_parse(data, len, &m) !=
-          watch::ThemeManifestError::kOk ||
-      std::strcmp(m.id, id) != 0) {
-    return false;
+  if (ok) {
+    ok = watch::theme_manifest_parse(mtmp, mlen, &m) ==
+             watch::ThemeManifestError::kOk &&
+         std::strcmp(m.id, id) == 0;
   }
+  port::theme_tmp_free(mtmp);
+  if (!ok) return false;
+
+  port::theme_assets_reset(theme_res::assets_estimate(id, &m));
 
   // 欠けた Token は standard で補完する。
   // Theme は ~5KB あり main タスクスタック(3584B)に乗らないため、
@@ -206,16 +216,18 @@ bool theme_apply(const char* id) {
   // ロード済みフォントを解放してからアリーナを全リセット
   // (binfont がアリーナ内バッファを参照しているため順序厳守)。
   theme_res::reset();
-  port::theme_assets_reset();
   const Theme* b = builtin_theme(id);
   // sizeof(Theme) ~5KB > main タスクスタック(3584B) → static。
   SAS_BIG_STATIC static Theme t;
   bool ok;
   if (b) {
+    // 内蔵テーマは資産を使わない → アリーナは画面ブロック分だけに縮める。
+    port::theme_assets_reset(0);
     t = *b;
     ok = true;
     theme_set_info(id, std::strcmp(id, "standard") == 0 ? "標準" : id);
   } else {
+    // file テーマは load_file_theme 内で見積もり→reset(need) する。
     ok = watch::theme_id_ok(id) && load_file_theme(id, &t);
     // file テーマは load_file_theme 内で manifest の name を記録済み。
   }

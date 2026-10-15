@@ -59,6 +59,9 @@ const char* theme_assets_root();
 
 // テーマ id 内の 1 エントリのサイズを返す。無ければ false。
 bool theme_entry_stat(const char* id, const char* name, uint32_t* out_size);
+// 先頭 n バイトだけ読む (PNG IHDR 等の見積もり用)。n バイト読めたら true。
+bool theme_entry_head(const char* id, const char* name, uint8_t* dst,
+                      uint32_t n);
 // dst[cap] にエントリ全体を読む。cap 不足/読み失敗なら false。
 bool theme_entry_read(const char* id, const char* name, uint8_t* dst,
                       uint32_t cap);
@@ -66,12 +69,17 @@ bool theme_entry_read(const char* id, const char* name, uint8_t* dst,
 // エントリをグローバル領域 (アリーナ) に読み込んで確保する。
 // 成功: *out=バッファ (アリーナ内), *out_len=バイト数。失敗: false。
 // アリーナはテーマ適用ごとに theme_assets_reset() で全解放。
+// asset_bytes = このテーマが使う資産領域の見積もり
+// (theme_res::assets_estimate)。アリーナ全体 =
+// 画面ブロック + asset_bytes で、その都度 PSRAM から確保し直す
+// (常時 4MiB 握ると残り ~40KB しか無く、描画レイヤーや fopen が
+// 内蔵 RAM に溢れて abort する。実機の cute 適用で観測)。
 bool theme_asset_load(const char* id, const char* name, const uint8_t** out,
                       uint32_t* out_len);
 // アリーナに n バイトだけ確保する (デコード済データの置き場所)。
 // 満杯なら nullptr。確保した領域は theme_assets_reset() まで有効。
 uint8_t* theme_asset_alloc(uint32_t n);
-void theme_assets_reset();
+void theme_assets_reset(uint32_t asset_bytes);
 
 // 画面背景用ブロック (PSRAM アリーナ先頭の固定 2 ブロック)。
 // 画面オープン時に theme_screen_block() で1枚取り、画面 DELETE で
