@@ -530,6 +530,39 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
 
 状態: 先送り
 
+## T26. テーマ適用時の PSRAM 枯渇 → 内蔵 RAM 崩壊で abort — 難度 M (修正済み)
+
+- 症状: cute (PNG スキン系テーマ) を適用後、アプリ一覧を開くと
+  `lv_realloc: couldn't reallocate memory` → `lv_draw_buf_create_ex:
+  No memory` (366x61/300x65/346x611=422KB のレイヤー) → `BLE_INIT:
+  Malloc failed` → abort。再起動しても同じループで `int_largest=20`。
+- デコードした backtrace: abort → newlib `lock_init_generic` (locks.c:77)
+  ← `__sfp` ← `fopen` ← `zip_open_list` ← `theme_entry_stat` ←
+  `decode_png` ← `img_decode` ← `skin_img` ← `skin_base`。
+  画面生成時のスキン PNG デコードが fopen し、その FILE のロック確保
+  (内蔵 malloc) が失敗して abort。
+- 原因: テーマアリーナを PSRAM に**常時 4MiB**確保していたため
+  残りが ~38KB しかなく、LVGL のレイヤーバッファ・lodepng 一時領域・
+  FILE 構造体が内蔵 RAM (空き ~130KB) に集中して枯渇。
+- 修正 (393ed97): アリーナを**manifest 見積もり分だけ**確保し直す方式に。
+  `theme_res::assets_estimate` が画像スロット/icons/mascot/face/skin/
+  font/assets の decode 後サイズを計算 (.bin=ファイルサイズ、.png=IHDR
+  の w*h*3)。アリーナ = 画面ブロック 640KiB×2 + 見積もり (上限 3MiB)。
+  manifest はアリーナ外の tmp に読んでから parse。
+  内蔵テーマは資産不要なのでアリーナは 1.25MiB のみ。
+- 実機検証 (393ed97 書き込み後): cyber で `apply -> cyber`・Home 35ms・
+  `ble synced=1`・`int_largest=8704`・lv_realloc/No memory ゼロ、
+  リセット再起動でも再発なし。単発の `BLE_INIT: Malloc failed` が
+  apply 直後に 1 回出るが回復 (観察継続)。
+- 補足: LVGL の malloc は IDF 既定 (内部優先→PSRAM フォールバック)。
+  PSRAM に余裕ができたので大きな確保は自然に PSRAM に行く。
+  LVGL プールを PSRAM 優先に変える変更は現時点では不要と判断。
+- 残件: `theme_tmp_alloc` の lodepng 一時領域 (大画面 PNG で ~800KB)
+  も PSRAM を使う — 見積もり済みでも極端に大きいテーマは要観察。
+  T24 (app 領域 8%)・T25 (BULK) と合わせてメモリ予算の見直し余地。
+
+状態: 完了 393ed97
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。次は **T23 → T18 の完了 → T24 → T22 の実装 (ユーザー承認後)**。
