@@ -163,3 +163,8 @@ CONFIG_LV_DRAW_THREAD_PRIO=4
 # 実機写真から角R≈100px・safe-area 32–36px を確定済みのため既定off。
 # 再計測したいときは =y にする。
 CONFIG_WATCH_DIAG_CORNERS=n
+
+# main タスク: theme_apply の資産読み込み (fread→littlefs→flash) が深い。
+# 3584 では mame 適用で overflow したため 8K に (app_main 完了で解放される)。
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_MAIN_TASK_STACK_SIZE=8192

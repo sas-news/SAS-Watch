@@ -230,4 +230,8 @@ extern "C" void app_main(void)
     // OTA 直後の初回起動なら、ここまで初期化が全部通った = 自己診断 OK として
     // 新イメージを mark valid にする (次回リセットで旧イメージに戻されない)。
     ota::mark_valid_if_pending();
+
+    // main スタックの余裕度 (ui::create の asset 読み込みを含む最大使用)。
+    ESP_LOGI(TAG, "main stack hwm=%u",
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr));
 }
