@@ -1,5 +1,19 @@
 # 引き継ぎ文書 (Opus 向け)
 
+> **最新の状況は `docs/roadmap.md` を見ること。**
+>
+> 2026-10-15 セッションの要点:
+> - 4 テーマ (mame/cosmos/cute/cyber) は `tools/mklfs_assets` で作った
+>   LittleFS イメージを assets パーティション (0x820000) に書き込んで同梱済み。
+>   BLE でのテーマ転送は T25 として先送り。
+> - シリアルはクラッシュや再列挙で `/dev/ttyACM0` ↔ `/dev/ttyACM1` に変わる。
+>   書き込み・モニタの前に必ず `ls /dev/ttyACM*` で確認。
+> - ThemeManifest (~11.7KB) をスタックに置くな — T23 のクラッシュループの真因。
+>   巨大構造体は `SAS_BIG_STATIC` (PSRAM) か `new (out) T()` で out 直書き。
+> - T26: テーマアリーナは常時 4MiB → manifest 見積もり分に変更済み。
+>   PSRAM を食い尽くす確保は LVGL/ファイルI/O を内蔵 RAM に追いやって
+>   崩壊させるので、大きな常駐確保は需要見積もり制にする。
+
 機械系タスクの確定値と、残りのデザイン系タスク・未解決技術課題のまとめ。
 対象個体: Waveshare ESP32-S3-Touch-AMOLED-2.06 (スピーカー/コーデック非搭載個体、
 `CONFIG_WATCH_DISABLE_AUDIO=y`)。
