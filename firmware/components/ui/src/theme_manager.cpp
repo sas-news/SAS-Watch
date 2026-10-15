@@ -105,6 +105,7 @@ bool load_file_theme(const char* id, Theme* out) {
     return false;
   }
   // LVGL コンテキスト内のみから呼ばれるので static でスタックを節約。
+  // ThemeManifest は約 11.7KB。スタックに置かない。
   SAS_BIG_STATIC static watch::ThemeManifest m;
   if (watch::theme_manifest_parse(data, len, &m) !=
           watch::ThemeManifestError::kOk ||

@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "watch/protocol/cbor.hpp"
 
@@ -875,8 +876,11 @@ ThemeManifestError theme_manifest_parse(const uint8_t* buf, size_t n,
     return ThemeManifestError::kBadCbor;
   }
 
-  ThemeManifest o;
-  Ctx c{&o};
+  // ThemeManifest は約 11.7KB。スタックに置かない (置くと 7168B の
+  // LVGL タスク等で overflow する)。直接 out を初期化して書く。
+  new (out) ThemeManifest();
+  ThemeManifest& o = *out;
+  Ctx c{out};
 
   cbor::Value v;
   if (!cbor::map_find(root, "id", &v)) return ThemeManifestError::kMissingId;
@@ -983,7 +987,6 @@ ThemeManifestError theme_manifest_parse(const uint8_t* buf, size_t n,
     if (!cbor::map_foreach(v, skin_cb, &c)) return c.err;
   }
 
-  *out = o;
   return ThemeManifestError::kOk;
 }
 
