@@ -131,9 +131,12 @@ namespace sleep {
     void disarm_light_sleep_imu();
     // 直近の light sleep 起床原因が IMU INT1(GPIO21) なら true。
     bool woke_by_imu();
-    // deep sleep wake: BOOT=ext0(GPIO0 LOW), PWR/IMU=ext1(GPIO10|GPIO21 ANY_HIGH),
-    // wake_after_us > 0 なら timer wake も有効化。戻らない。
-    void enter_deep_sleep(uint64_t wake_after_us) __attribute__((noreturn));
+    // deep sleep wake: PWR=ext1(GPIO10 HIGH), timer (wake_after_us > 0),
+    // imu_wake=true なら IMU INT1(GPIO21) も ext1 に含める。
+    // BOOT(GPIO0) は strapping pin で、押下起床が download mode に落ちる
+    // ため使わない。戻らない。
+    void enter_deep_sleep(uint64_t wake_after_us, bool imu_wake)
+        __attribute__((noreturn));
 }
 
 }  // namespace board

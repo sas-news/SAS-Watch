@@ -21,7 +21,7 @@
 ## GPIO
 | GPIO | 用途 | RTC GPIO | 備考 |
 |---|---|---|---|
-| 0 | BOOT ボタン (押下 LOW) | yes | ext0 wake |
+| 0 | BOOT ボタン (押下 LOW) | yes | light sleep のみ。strapping pin のため deep sleep の ext0 では使わない (押下起床=download mode 起動) |
 | 1/2/3/17 | SD CMD/CLK/D0/CS | | |
 | 4,5,6,7 | QSPI SIO0-3 | | |
 | 8 | LCD RESET | | |

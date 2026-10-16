@@ -61,14 +61,14 @@ void enter_deep_sleep() {
   const int64_t dl = s_rt.next_deadline_ms();
   const int64_t now = s_clock->now_ms();
   const uint64_t us = dl > now ? static_cast<uint64_t>(dl - now) * 1000 : 0;
-  // 起床: BOOT(ext0) / PWR+IMU(ext1) / 次の期限でタイマー。
-  // raise_to_wake が OFF なら WoM はかけない (INT1 は出ないので
-  // ext1 側はそのままでよい)。
+  // 起床: PWR(ext1) / 次の期限でタイマー / raise_to_wake なら IMU INT1。
+  // BOOT(GPIO0) は strapping pin なので deep sleep 復帰には使えない
+  // (押下で LOW がサンプルされ download mode に落ちる → enter_deep_sleep 参照)。
   if (s_settings.raise_to_wake) {
     board::imu::arm_wake_on_motion();
   }
   board::pmic::panel_power(false);  // ALDO2 OFF // TODO(hw): 復帰時間
-  board::sleep::enter_deep_sleep(us);
+  board::sleep::enter_deep_sleep(us, s_settings.raise_to_wake);
 }
 
 // core が計算した次回アラーム発火時刻を PCF85063 のアラームに反映する。

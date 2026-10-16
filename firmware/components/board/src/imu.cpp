@@ -136,7 +136,11 @@ esp_err_t arm_wake_on_motion()
     ret = ctrl9_exec(kCtrl9CmdWriteWom);
     if (ret != ESP_OK) return ret;
     ret = qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL);
-    return ret;
+    if (ret != ESP_OK) return ret;
+    // arm 前にラッチされていた WoM イベントを捨てて INT1 を初期値に戻す。
+    // HIGH のまま残ると ext1 (ANY_HIGH) が入眠直後に即発火して
+    // deep sleep 起床/入眠を往復するループになる。
+    return wom_clear();
 }
 
 esp_err_t wom_clear()

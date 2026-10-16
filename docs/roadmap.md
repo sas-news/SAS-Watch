@@ -587,7 +587,39 @@ I2S DMA は内蔵 RAM 不足のまま見込み)
 受け入れ条件: 各項目、実機または sim snapshot で再現→修正→消えたことを
 確認 (a/b/d は sim の parts 画面でも見られる可能性あり)。
 
-状態: 未着手
+調査・修正メモ (全件 sim snapshot で再現→修正→消滅を確認):
+- a. 原因は `bake_scroll` の `lv_snapshot_take` が RGB565 (アルファ無し)
+  で、top_obj あり時はバッファ未クリア → カード角の透過部が未初期化
+  メモリ (実質黒) として焼き付いていた。→ ARGB8888 + 明示クリアに変更
+  (components.cpp)。
+- b. `content()` が下端を y=464 (502-76-38) で打ち止めていた →
+  下端までスクロール領域を延ばし、`pad_bottom=38` で末尾要素を安全域に
+  収める形に変更。sim 監査はスクロールコンテナ内の途中位置を角判定から
+  除外するよう調整 (snapshot.cpp)。
+- c. `stopwatch` の空 `laps_col` グループが 0 ラップ時にカード枠だけの
+  細い帯として描かれていた → lap_count==0 で LV_OBJ_FLAG_HIDDEN
+  (apps/stopwatch/screen.cpp)。
+- d. `slider_knob.png` が kit.html の `--m` (キャプチャ余白) 未指定で
+  外側 3px リングが撮影範囲外に切れた不良アセットだった → shot 30x30 +
+  --m:3px に修正し再生成 (themes/cute/kit.html → build_themes.py --kit)。
+  あわせてスライダーのノブ描画領域を 24→30px に (kSliderKnob)。
+- ついでに powermenu の警告文が重なっていた件も修正
+  (`line_space=-12` → -4。font_jp_20 の実行高は 24px)。
+
+関連修正 (ユーザー追加報告「deep sleep から復帰できない」):
+- 入眠時の `pmic::panel_power(false)` が AXP2101 レジスタに保持されたまま
+  復帰後もパネル無電源だった → `pmic::init()` で `panel_power(true)`。
+- BOOT(GPIO0) の ext0 起床は strapping pin のため押下起床が download
+  mode に落ちる → ext0 を廃止 (PWR/IMU/timer のみ)。docs/board.md,
+  docs/plan.md も更新。
+- `arm_wake_on_motion` 末尾で `wom_clear()` し、未クリア WoM ラッチによる
+  入眠直後の即起床ループを防止。
+- raise_to_wake OFF 時は ext1 マスクから GPIO21 を除外
+  (`enter_deep_sleep(us, imu_wake)` にシグネチャ変更)。
+
+残件: 実機での確認 (a のパネル物理角・d の見え・deep sleep 復帰)。
+
+状態: 修正済み (sim + ファームウェアビルド確認。実機確認待ち)
 
 ## T28. 時計の設定画面からファイルテーマを選べるようにする — 難度 S
 

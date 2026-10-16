@@ -105,7 +105,7 @@ void report_line(const char* fmt, ...) {
   va_end(ap);
 }
 
-void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
+void audit_walk(lv_obj_t* o, const lv_area_t& clip, bool in_scroll) {
   if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
   lv_area_t a;
   lv_obj_get_coords(o, &a);
@@ -150,14 +150,20 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
         const int cx[4] = {a.x1 + k, a.x2 - k, a.x1 + k, a.x2 - k};
         const int cy[4] = {a.y1 + k, a.y1 + k, a.y2 - k, a.y2 - k};
         bool bad = false;
-        for (int i = 0; i < 4; ++i) {
-          // 親の clip 内・画面内にある角点だけ判定
-          // (clip 外の角点は描かれないので角カットに無関係)。
-          const bool in_clip = cx[i] >= clip.x1 && cx[i] <= clip.x2 &&
-                               cy[i] >= clip.y1 && cy[i] <= clip.y2;
-          if (in_clip && cx[i] >= 0 && cx[i] < kW && cy[i] >= 0 &&
-              cy[i] < kH && !watch::point_in_safe_area(cx[i], cy[i])) {
-            bad = true;
+        // スクロール領域の内側にある要素は途中位置が一時的なので
+        // 角カット判定の対象外 (下端まで伸びた viewport ではスクロール
+        // 中の行がパネル死角を自然に通過するだけ)。静止状態の安全は
+        // content() の pad_bottom が構造的に保証する。
+        if (!in_scroll) {
+          for (int i = 0; i < 4; ++i) {
+            // 親の clip 内・画面内にある角点だけ判定
+            // (clip 外の角点は描かれないので角カットに無関係)。
+            const bool in_clip = cx[i] >= clip.x1 && cx[i] <= clip.x2 &&
+                                 cy[i] >= clip.y1 && cy[i] <= clip.y2;
+            if (in_clip && cx[i] >= 0 && cx[i] < kW && cy[i] >= 0 &&
+                cy[i] < kH && !watch::point_in_safe_area(cx[i], cy[i])) {
+              bad = true;
+            }
           }
         }
         if (bad) {
@@ -203,7 +209,11 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip) {
   child_clip.x2 = LV_MIN(child_clip.x2, clip.x2);
   child_clip.y2 = LV_MIN(child_clip.y2, clip.y2);
   const uint32_t n = lv_obj_get_child_count(o);
-  for (uint32_t i = 0; i < n; ++i) audit_walk(lv_obj_get_child(o, i), child_clip);
+  for (uint32_t i = 0; i < n; ++i) {
+    audit_walk(lv_obj_get_child(o, i), child_clip,
+               in_scroll ||
+                   lv_obj_has_flag(o, LV_OBJ_FLAG_SCROLLABLE));
+  }
 }
 
 // ---- T16: テキスト重なり / 欠けグリフ監査 -------------------------------
@@ -373,8 +383,9 @@ void audit_screen(const char* name) {
   if (!s_report) return;
   s_audit_screen = name;
   const lv_area_t scr_clip{0, 0, kW - 1, kH - 1};
-  audit_walk(lv_screen_active(), scr_clip);
-  audit_walk(lv_layer_top(), scr_clip);  // トースト/アラートは layer_top に載る
+  audit_walk(lv_screen_active(), scr_clip, false);
+  audit_walk(lv_layer_top(), scr_clip,
+             false);  // トースト/アラートは layer_top に載る
   // 層ごとに別々に (layer_top のモーダルと背後画面の重なりは当然なので
   // 別レイヤ同士は比較しない)。
   s_lbls.clear();

@@ -48,9 +48,16 @@ void tick_cb(lv_timer_t*) {
 
 void rebuild_laps(lv_obj_t* col) {
   if (!s.laps_col) return;
-  lv_obj_clean(s.laps_col);
   const watch::features::StopwatchState& st =
       watch::features::stopwatch_state();
+  // 0 ラップの空グループは下端にカード枠だけの細い帯として見える
+  // (T27-c) ので非表示にする。
+  if (st.lap_count == 0) {
+    lv_obj_add_flag(s.laps_col, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_remove_flag(s.laps_col, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clean(s.laps_col);
   char buf[48];
   char name[24];
   for (size_t i = 0; i < st.lap_count; ++i) {

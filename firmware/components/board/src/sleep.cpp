@@ -7,9 +7,13 @@
 #include "driver/gpio.h"
 
 // docs/board.md / plan.md A-3:
-// - deep sleep から復帰できるのは BOOT(GPIO0), PWR(GPIO10), IMU(GPIO21), timer だけ
+// - deep sleep から復帰できるのは PWR(GPIO10), IMU(GPIO21), timer だけ
 //   (GPIO38 タッチ, GPIO39 RTC は RTC GPIO ではないので deep sleep では使えない)
-// - light sleep なら GPIO38 タッチでも復帰できる
+// - BOOT(GPIO0) は RTC GPIO だが strapping pin でもある: deep sleep 起床は
+//   チップリセットなので、起床のために押した BOOT の LOW がそのまま
+//   ストラップサンプルに残り、UART download mode で起動してしまう
+//   (= 復帰不能に見える)。そのため ext0 (BOOT) は deep sleep では張らない。
+// - light sleep なら GPIO38 タッチや BOOT でも復帰できる
 
 namespace board::sleep {
 
@@ -52,22 +56,22 @@ bool woke_by_imu()
            gpio_get_level(pins::kImuInt1) == 1;
 }
 
-void enter_deep_sleep(uint64_t wake_after_us)
+void enter_deep_sleep(uint64_t wake_after_us, bool imu_wake)
 {
     // light sleep 用に貼り付けた歩数同期タイマー (imu_service が set) を
     // deep sleep に持ち込まない。以降は wake_after_us だけが timer になる。
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 
-    // BOOT(GPIO0, LOW) — ext0 (単一 RTC GPIO)
-    esp_err_t ret = esp_sleep_enable_ext0_wakeup(pins::kButtonBoot, 0);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "ext0 wake failed: %s", esp_err_to_name(ret));
-    }
-
     // PWR(GPIO10) / IMU INT1(GPIO21) — ext1, どれかが HIGH で復帰
     // INT1 の極性は未確認 // TODO(hw): 実機で確認 (逆なら ANY_LOW/レベル変更)
-    const uint64_t ext1_mask = (1ULL << pins::kButtonPwr) | (1ULL << pins::kImuInt1);
-    ret = esp_sleep_enable_ext1_wakeup(ext1_mask, ESP_EXT1_WAKEUP_ANY_HIGH);
+    // imu_wake=false (raise_to_wake OFF) の時に INT1 を入れると、未クリアの
+    // WoM ラッチや浮いたピンの HIGH で入眠直後に即起床するので外す。
+    uint64_t ext1_mask = (1ULL << pins::kButtonPwr);
+    if (imu_wake) {
+        ext1_mask |= (1ULL << pins::kImuInt1);
+    }
+    esp_err_t ret =
+        esp_sleep_enable_ext1_wakeup(ext1_mask, ESP_EXT1_WAKEUP_ANY_HIGH);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "ext1 wake failed: %s", esp_err_to_name(ret));
     }
@@ -76,8 +80,8 @@ void enter_deep_sleep(uint64_t wake_after_us)
         esp_sleep_enable_timer_wakeup(wake_after_us);
     }
 
-    ESP_LOGI(TAG, "entering deep sleep (timer wake %s)",
-             wake_after_us > 0 ? "on" : "off");
+    ESP_LOGI(TAG, "entering deep sleep (pwr ext1, imu=%s, timer=%s)",
+             imu_wake ? "on" : "off", wake_after_us > 0 ? "on" : "off");
     esp_deep_sleep_start();
     // ここには戻らない
     for (;;) {

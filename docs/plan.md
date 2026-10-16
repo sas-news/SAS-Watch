@@ -44,7 +44,7 @@
 
 | GPIO | 用途 | RTC GPIO? | 意味 |
 |---|---|---|---|
-| 0 | BOOTボタン（押すとLOW） | ○ | Deep Sleep復帰に使える |
+| 0 | BOOTボタン（押すとLOW） | ○ | Deep Sleep復帰には**使えない** (strapping pin。押下で起きると download mode に入る)。Light Sleep 復帰のみ |
 | 1/2/3/17 | SD (CMD/CLK/D0/CS) | | |
 | 4–7, 11, 12 | QSPI画面 (SIO0-3, SCL, CS) | | |
 | 8 | 画面リセット | | |
@@ -69,7 +69,7 @@
    - 公式の「PWRは拡張I/O」という説明は他機種の情報が混ざっている可能性がある。**この基板ではGPIO10**。
 2. **AXP2101のIRQ線はESP32につながっていない。**（回路図でEXIO5/AXP_IRQに×、BSPも`PMU_INTERRUPT_PIN=-1`）→ 充電の検出や電池残量は**I2Cで定期的に読む**（例：Activeのとき5秒ごと、Sleep中は起きたときだけ）。
 3. **画面のパネル電源`DSI_PWR_EN`はAXP2101のALDO2から来ている。** → 長く消すときはALDO2を切ってパネルの電源ごと落とせる【要実機：再初期化にかかる時間】。
-4. **Deep Sleepから復帰できるのはBOOT(GPIO0)、PWR(GPIO10)、IMU(GPIO21)、タイマーだけ。** タッチで画面を起こすにはLight Sleepである必要がある。
+4. **Deep Sleepから復帰できるのはPWR(GPIO10)、IMU(GPIO21)、タイマーだけ。** BOOT(GPIO0) は strapping pin のため deep sleep 起床に使うと download mode で起動してしまうので外す。タッチで画面を起こすにはLight Sleepである必要がある。
    → 「画面OFF中もタッチで起きる」のがLight Sleep、「PWRボタンか手首を上げないと起きない」のがDeep Sleep、と2段階にする。
 5. ~~**Flash 32MB問題。**~~ 実機で GD25Q256=32MB を確認（flash_id）。ESP32-S3 は `SOC_SPI_MEM_SUPPORT_CACHE_32BIT_ADDR_MAP=1` なので 16MB 超も実験的オプションなしで使える（実験的オプションが要るのは旧ESP32系）。公式サンプルの16MB設定は単なる保守設定だった。
    → **32MBとして使う**（partitions.csv 参照）。
@@ -527,7 +527,7 @@ stateDiagram-v2
   ScreenOff --> LightSleep: 毎ループ（作業がなければ自動）
   LightSleep --> ScreenOff: 何かの割り込み
   ScreenOff --> DeepSleep: 無操作 30分 かつ BLE未接続 かつ Lease無し
-  DeepSleep --> Active: PWR(GPIO10) / BOOT(GPIO0) / 腕上げ(GPIO21) / Timer期限(RTCタイマー)
+  DeepSleep --> Active: PWR(GPIO10) / 腕上げ(GPIO21) / Timer期限(RTCタイマー)
   Active --> Session: Lease取得 (Wi-Fi / Audio / OTA)
   Session --> Active: Lease解放
 ```
@@ -673,7 +673,7 @@ esp_err_t imu_arm_wake() {
   ESP_ERROR_CHECK(qmi8658_enable_wake_on_motion(&s_imu, /*threshold*/ 0x40));  // 値は要実機
   return esp_sleep_enable_ext1_wakeup((1ULL << GPIO_NUM_21) | (1ULL << GPIO_NUM_10),
                                       ESP_EXT1_WAKEUP_ANY_HIGH);
-  // BOOT(GPIO0, LOW active)は別途 esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0)
+  // BOOT(GPIO0) は strapping pin なので deep sleep では使わない (押下起床で download mode 化)
 }
 ```
 

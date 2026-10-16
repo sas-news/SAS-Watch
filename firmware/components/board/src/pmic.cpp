@@ -109,6 +109,11 @@ esp_err_t init()
     s_pmu.clearIrqStatus();
 
     s_ready = true;
+    // deep sleep 中も AXP2101 は動き続けレジスタを保持する。入眠時に
+    // panel_power(false) で切った ALDO2 (パネル電源) がそのまま残るので、
+    // 起動時に必ず ON に戻す — 戻さないと deep sleep 復帰 (=リセット起動)
+    // 後にパネル無電源のまま画面が点灯しない「復帰できない」状態になる。
+    panel_power(true);
     ESP_LOGI(TAG, "AXP2101 ok: batt=%d%% charging=%d vbus=%d",
              s_pmu.getBatteryPercent(), (int)s_pmu.isCharging(), (int)s_pmu.isVbusIn());
     // reg 0x24 (Vsys power-off 閾値) は既定値の確認のみで変更はしない。

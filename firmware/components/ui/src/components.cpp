@@ -30,6 +30,9 @@ constexpr lv_coord_t kSwitchW = 52;
 constexpr lv_coord_t kSwitchH = 30;
 constexpr lv_coord_t kTrackH = 10;
 constexpr lv_coord_t kKnob = 24;
+// スライダーのノブ外径。テーマの knob 画像は「24px の円 + 3px の外周
+// リング」(=30px) を描きたいので領域も 30 に合わせる (T27-d)。
+constexpr lv_coord_t kSliderKnob = 30;
 
 // group() で作ったオブジェクトを区別するマーカー (slider_row が
 // 「グループ内のブロック」か「自分のグループ」かを決めるのに使う)。
@@ -473,10 +476,13 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
 lv_obj_t* content(lv_obj_t* scr) {
   const Theme& t = theme();
   lv_obj_t* c = flat(scr);
-  // 下端はパネルの丸角 (R≈100) の安全域 (kPad+6) まで。カード/行が
-  // 画面下端の角で欠けないよう、スクロール領域をそこで止める。
-  lv_obj_set_size(c, kW - 2 * kPad, 502 - kHeaderH - (kPad + 6));
+  // スクロール領域は画面下端 (y=502) まで。丸角の角で削られるのは
+  // パネル側の自然な見え方 (T27-b: 途中で切れる帯を残さない)。
+  // 代わりに pad_bottom を入れて、末尾までスクロールしたとき最後の
+  // 要素の下端が安全域 (502-(kPad+6)) に収まるようにする。
+  lv_obj_set_size(c, kW - 2 * kPad, 502 - kHeaderH);
   lv_obj_set_pos(c, kPad, kHeaderH);
+  lv_obj_set_style_pad_bottom(c, kPad + 6, 0);
   lv_obj_set_style_pad_row(c, 8, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
@@ -517,8 +523,18 @@ bool bake_scroll(lv_obj_t* col, lv_obj_t* inner, const BakeZone* zones,
   lv_obj_get_content_coords(col, &ca);
   lv_obj_get_coords(inner, &ia);
 
-  lv_draw_buf_t* buf = lv_snapshot_take(inner, LV_COLOR_FORMAT_RGB565);
+  // ARGB8888 + 全面クリア: RGB565 だとアルファが無く、カードの角丸の
+  // 外側が未描画メモリ (=不透明黒) として焼き付いて角が黒く見える
+  // (T27-a)。ARGB8888 なら角は透明のまま残る。
+  lv_draw_buf_t* buf = lv_snapshot_create_draw_buf(inner,
+                                                   LV_COLOR_FORMAT_ARGB8888);
   if (!buf) return false;
+  lv_draw_buf_clear(buf, nullptr);
+  if (lv_snapshot_take_to_draw_buf(inner, LV_COLOR_FORMAT_ARGB8888, buf) !=
+      LV_RESULT_OK) {
+    lv_draw_buf_destroy(buf);
+    return false;
+  }
 
   lv_obj_clean(col);
 
@@ -882,8 +898,8 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   // MAIN pad は LVGL がトラック (indic_area) と値マッピングの両方を
   // 内側にずらすのに使う (lv_bar.c)。ノブ半径分を左右に入れて、
   // 最小/最大でノブがトラック端より外に切れるのを防ぐ。
-  lv_obj_set_style_pad_left(s, kKnob / 2, LV_PART_MAIN);
-  lv_obj_set_style_pad_right(s, kKnob / 2, LV_PART_MAIN);
+  lv_obj_set_style_pad_left(s, kSliderKnob / 2, LV_PART_MAIN);
+  lv_obj_set_style_pad_right(s, kSliderKnob / 2, LV_PART_MAIN);
   lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_MAIN);
   lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(s, t.line, LV_PART_MAIN);
@@ -892,7 +908,7 @@ lv_obj_t* slider_inner(lv_obj_t* grp, const char* label, const char* suffix,
   lv_obj_set_style_bg_color(s, t.primary, LV_PART_INDICATOR);
   // 白いノブ + primary の外周リング (モックの box-shadow 相当)。
   lv_obj_set_style_bg_color(s, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
-  lv_obj_set_style_pad_all(s, (kKnob - kTrackH) / 2, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(s, (kSliderKnob - kTrackH) / 2, LV_PART_KNOB);
   // ノブの外周リング (outline 4) は小さいサイズで潰れるので廃止。
   // ノブの影も付けない (ON/OFF・値は色だけで表す)。
   lv_obj_set_style_outline_width(s, 0, LV_PART_KNOB);
