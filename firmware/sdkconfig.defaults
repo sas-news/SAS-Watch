@@ -139,15 +139,13 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
-# 描画ベンチ: FPS/CPU% を計測する。overlay は 300ms 固定周期の
-# 自己再描画で部分 flush を起こす = 待機中の「チラチラ」の原因と
-# 実機確認済みなので、LOG_MODE (UART に "sysmon:" で出力・overlay 無し)
-# を既定にする。画面上に見たい時は LOG_MODE=n + ALIGN_* を選ぶ。
-CONFIG_LV_USE_SYSMON=y
-CONFIG_LV_USE_PERF_MONITOR=y
-CONFIG_LV_USE_PERF_MONITOR_LOG_MODE=y
-CONFIG_LV_PERF_MONITOR_ALIGN_TOP_MID=y
-# LOG_MODE の出力に必要 (LV_LOG → printf)
+# 描画ベンチ (LVGL sysmon/perf_monitor): 300ms 固定周期の計測タイマーが
+# 待機中も走り続けるため、試験用として完全に切る (T27 後の棚卸しで
+# 「テスト用オーバーレイ残り」と指摘された名残)。再計測したいときは
+# SYSMON=y + PERF_MONITOR=y (+LOG_MODE=y で UART 出力・overlay 無し)。
+CONFIG_LV_USE_SYSMON=n
+CONFIG_LV_USE_PERF_MONITOR=n
+# LV_LOG → printf (perf_render_cb 等の ESP_LOGI とは別。障害解析用に残す)
 CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_PRINTF=y
 

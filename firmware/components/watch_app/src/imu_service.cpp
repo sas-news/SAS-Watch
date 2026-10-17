@@ -11,6 +11,8 @@
 //   ImuSample を食う) に自動フォールバック。
 #include "internal.hpp"
 
+#include <cstdio>
+
 #include "board/board.hpp"
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -31,8 +33,11 @@ constexpr const char* TAG = "imu_svc";
 // TODO(hw): 各周期は実機で歩数/腕上げの取りこぼしを見て調整。
 constexpr uint32_t kPollMs = 50;      // 画面ONの加速度取得間隔 (~20Hz)
 constexpr uint32_t kIdleCheckMs = 300;  // 画面OFF時の起床原因チェック間隔
-constexpr uint32_t kBurstN = 8;       // GPIO起床直後の連続サンプル数
-constexpr uint32_t kBurstMs = 35;     // バースト内の間隔 (hold_ms 200 を満たす)
+// WoM は動作開始時点で発火するので直後の ~300ms は全サンプルが
+// 動的 (|a| が 0.6-1.7g 範囲外) で RaiseDetector に棄却される。
+// 「上げて静止」した姿勢を取り込むには ~1.2s の窓が必要。
+constexpr uint32_t kBurstN = 24;      // GPIO起床後の連続サンプル数
+constexpr uint32_t kBurstMs = 50;     // 24 × 50ms = 1.2s 窓
 constexpr uint32_t kHwSyncPollMs = 2000;    // 画面ON中の歩数同期間隔
 constexpr uint64_t kHwRtcSyncUs = 5ull * 60 * 1000000;  // 画面OFF中5分周期
 
@@ -99,13 +104,17 @@ bool screen_on() {
 // ---- 画面OFF中の起床検出 ---------------------------------------------------
 // light sleep には入っていない (esp_pm 設定で無効) ので、WoM の INT1
 // (GPIO21) を通常の GPIO 割り込みで受けて burst を起こす。
-// WoM INT は STATUS1 読取まで保持されるレベル出力なので、ISR は
-// POSEDGE のみで、フラグを立ててタスクへ通知するだけにする。
+// WoM INT (INT1) は STATUS1 読取まで保持されるレベル出力。ISR は
+// フラグを立ててタスクへ通知するだけにし、タスク側で STATUS1 を
+// 読んでラッチ解除 + イベント有無を判定する。
 
 enum class ImuMode : uint8_t { Poll, IdleArmed, IdleDisarmed };
 ImuMode s_mode = ImuMode::Poll;
 
 volatile bool s_wom_seen = false;
+// deep sleep 移行中は true — app 側が入眠用に arm した WoM 設定を
+// このタスクが通常 arm へ上書きするのを防ぐ (init_high 診断で実害あり)。
+volatile bool s_ds_freeze = false;
 
 void IRAM_ATTR wom_isr(void*) {
   s_wom_seen = true;
@@ -116,11 +125,31 @@ void IRAM_ATTR wom_isr(void*) {
 }
 
 void burst() {
+  // WoM arm 中は加速度データが WoM コンパレータ専用になり出力レジスタが
+  // 凍結する (実機観測: 全サンプル同一値・range も WoM 用に残る)。
+  // 起床ジェスチャの姿勢は通常ストリーミングに戻してから取る。
+  board::imu::disarm_wake_on_motion();
   // 起床直後の向きを core の RaiseDetector に流す。
-  int16_t x, y, z;
+  int16_t x = 0, y = 0, z = 0;
+  // TEMP(hw-test): 検出可否の切り分け用に全サンプルを1行に出す。
+  // RaiseDetector 確定後に削って良い。
+  char line[8 + kBurstN * 24];
+  int n = snprintf(line, sizeof(line), "burst:");
   for (uint32_t i = 0; i < kBurstN; ++i) {
-    if (read_sample(&x, &y, &z)) push_sample(x, y, z);
+    if (read_sample(&x, &y, &z)) {
+      push_sample(x, y, z);
+      if (n + 22 < (int)sizeof(line)) {
+        n += snprintf(line + n, sizeof(line) - n, " %d,%d,%d", x, y, z);
+      }
+    }
     if (i + 1 < kBurstN) vTaskDelay(pdMS_TO_TICKS(kBurstMs));
+  }
+  ESP_LOGI(TAG, "%s", line);
+  // まだ消灯中なら再 arm (点灯していたら apply_poll_mode 側で管理)。
+  // ds_freeze 中は入眠用 arm を上書きしない。
+  if (!screen_on() && !s_ds_freeze) {
+    board::imu::arm_wake_on_motion();
+    s_wom_seen = false;  // arm 直後の残留イベントは捨てる
   }
 }
 
@@ -129,7 +158,10 @@ void apply_idle_mode() {
     if (s_mode != ImuMode::IdleArmed) {
       board::imu::arm_wake_on_motion();
       s_wom_seen = false;
-      gpio_intr_enable(GPIO_NUM_21);  // WoM INT (POSEDGE)
+      gpio_intr_enable(GPIO_NUM_21);  // WoM INT (ANYEDGE)
+      // arm 中に既に HIGH まで上がっている (割り込み有効化前に発火した
+      // イベントがラッチ済み) ケースをエッジ待ちせず拾う。
+      if (gpio_get_level(GPIO_NUM_21)) s_wom_seen = true;
       s_mode = ImuMode::IdleArmed;
     }
   } else {
@@ -175,30 +207,44 @@ void imu_task(void*) {
   for (;;) {
     if (screen_on()) {
       apply_poll_mode();
-      // 画面ON中の ImuSample は HW 歩数計が生きている間は不要:
-      // 消費するのは StepsHwSync 経路の代替ソフト検出と RaiseDetector
-      // だが、前者は hw_ped 時に止まり、後者の RaiseDetected → Wake
-      // 変換は画面OFF時しか通らない (raise_cb)。無駄な 20Hz の queue
-      // 占有は app タスクが詰まった時に実入力の drop を招くので止める。
-      // SW フォールバック時 (s_hw_ped=false) は歩数計数に必要なので継続。
-      if (!s_hw_ped) {
+      // hw_ped 時はソフト歩数は不要だが、RaiseDetector の基準ベクトル
+      // (普段の向き) は ImuSample を流さないと学習されない — 画面OFF中の
+      // burst だけだと「1サンプル目が基準=上げた向き」になり角度差が
+      // 出ず検出が死ぬ。2Hz の trickle で基準を追従させる
+      // (SW フォールバック時は歩数計数用に 20Hz 継続)。
+      static int s_poll_div = 0;
+      const int div = s_hw_ped ? 10 : 1;  // 50ms × 10 = 500ms
+      if (++s_poll_div >= div) {
+        s_poll_div = 0;
         int16_t x, y, z;
         if (read_sample(&x, &y, &z)) push_sample(x, y, z);
       }
       maybe_sync_hw();
       ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kPollMs));
     } else {
+      // deep sleep 移行中は IMU への一切の書き込みを止める — app 側が
+      // arm した WoM (init_high 等) を apply_idle_mode/burst/STATUS1
+      // 読取で上書き・解除すると入眠直前の INT1 極性が反転する。
+      if (s_ds_freeze) {
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kIdleCheckMs));
+        continue;
+      }
       apply_idle_mode();
       ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kIdleCheckMs));
       // ループが回った時に歩数同期判定 (kHwRtcSyncUs 相当の間隔で届く)。
       maybe_sync_hw();
-      // WoM 割り込み (ISR → s_wom_seen)。画面OFF中のみ burst する。
-      if (s_mode == ImuMode::IdleArmed && s_wom_seen) {
+      // WoM 割り込み (ISR → s_wom_seen)。INT1 は STATUS1 読取まで
+      // ラッチされるので、エッジを取りこぼした (=arm 直前/直後に
+      // 発火して既に HIGH) ケースもレベル読みで拾う。
+      if (s_mode == ImuMode::IdleArmed) {
+        const bool pending = s_wom_seen || gpio_get_level(GPIO_NUM_21);
         s_wom_seen = false;
-        if (!screen_on()) {
-          ESP_LOGI(TAG, "wom int");
-          burst();
-          board::imu::wom_clear();
+        if (pending && !screen_on()) {
+          uint8_t s1 = 0;
+          if (board::imu::wom_status(&s1) == ESP_OK && s1 != 0) {
+            ESP_LOGI(TAG, "imu int s1=%02x", s1);
+            burst();
+          }
         }
       }
     }
@@ -206,6 +252,10 @@ void imu_task(void*) {
 }
 
 }  // namespace
+
+void imu_service_freeze_for_deep_sleep() {
+  s_ds_freeze = true;
+}
 
 void imu_service_start() {
   // ハード歩数計を主経路にする。失敗時はソフト検出 (core StepDetector)
@@ -238,9 +288,17 @@ void imu_service_start() {
   }
 
   // WoM INT (GPIO21) を GPIO 割り込みで受ける。INT1 は STATUS1 読取まで
-  // 保持されるので POSEDGE のみ (LEVEL だと割り込み嵐になる)。
+  // ラッチされる (実機確認済み)。ANYEDGE + タスク側のレベル読みで
+  // 「割り込み有効化前に既に HIGH」の取りこぼしも拾う
+  // (POSEDGE だけだと既発火イベントを永久に逃す)。
   // 有効化/無効化自体は IdleArmed/Poll のモード遷移側で行う。
+  // ISR サービスは touch/button ドライバが先に入れることが多い。
+  // 二重インストール時に gpio ドライバ内部が E ログを出すので、
+  // 呼び出し中だけ "gpio" タグを黙らせる (INVALID_STATE は正常)。
+  const esp_log_level_t gpio_lvl = esp_log_level_get("gpio");
+  esp_log_level_set("gpio", ESP_LOG_NONE);
   const esp_err_t isr_ret = gpio_install_isr_service(0);
+  esp_log_level_set("gpio", gpio_lvl);
   if (isr_ret != ESP_OK && isr_ret != ESP_ERR_INVALID_STATE) {
     ESP_LOGW(TAG, "isr service: %s", esp_err_to_name(isr_ret));
   }
@@ -249,7 +307,7 @@ void imu_service_start() {
   icfg.mode = GPIO_MODE_INPUT;
   icfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
   icfg.pull_up_en = GPIO_PULLUP_DISABLE;
-  icfg.intr_type = GPIO_INTR_POSEDGE;  // INT1 は HIGH アクティブ想定 // TODO(hw): 実機で確認
+  icfg.intr_type = GPIO_INTR_ANYEDGE;  // INT1 はイベント毎に反転/ラッチされる
   gpio_config(&icfg);
   gpio_intr_disable(GPIO_NUM_21);
   const esp_err_t add_ret = gpio_isr_handler_add(GPIO_NUM_21, wom_isr, nullptr);

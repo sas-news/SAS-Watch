@@ -21,6 +21,7 @@ static const char* TAG = "board.imu";
 static qmi8658_dev_t s_imu;
 static bool s_ready = false;
 static bool s_hw_ped = false;  // ハード歩数計が有効か
+static uint8_t s_boot_status1 = 0xFF;  // ブート直後の STATUS1 (起床診断用)
 
 // 通常時の加速度計設定。常時動かすので low-power ODR にする
 // (歩数/腕上げには ~20Hz で十分)。TODO(hw): 実機で検出精度を確認、
@@ -42,12 +43,25 @@ esp_err_t init()
     uint8_t who = 0;
     qmi8658_get_who_am_i(&s_imu, &who);
 
+    // deep sleep 中に WoM が発火していたかの診断 — STATUS1 は
+    // 読取でラッチ解除されるため、ブート時の一度だけ生の値を見る。
+    // bit2=WoM (QST リファレンス)。誰よりも先に読むこと。
+    uint8_t boot_s1 = 0;
+    qmi8658_read_register(&s_imu, 0x2F /* STATUS1 */, &boot_s1, 1);
+    s_boot_status1 = boot_s1;
+    ESP_LOGI(TAG, "boot status1=0x%02X", boot_s1);
+
     // 時計用途: 加速度計だけ有効化 (ジャイロは使うときに開く)
     apply_normal_config();
 
     s_ready = true;
     ESP_LOGI(TAG, "QMI8658 ok (who_am_i=0x%02X)", who);
     return ESP_OK;
+}
+
+uint8_t boot_status1_raw()
+{
+    return s_boot_status1;
 }
 
 esp_err_t read_accel_mg(float* x, float* y, float* z)
@@ -63,6 +77,7 @@ namespace {
 
 // レジスタ (QMI8658A DS Table 22/28/38)
 constexpr uint8_t kRegCtrl7    = 0x08;
+constexpr uint8_t kRegCtrl1    = 0x02;  // INT1_EN=bit3, INT2_EN=bit4
 constexpr uint8_t kRegCtrl8    = 0x09;
 constexpr uint8_t kRegCtrl9    = 0x0A;
 constexpr uint8_t kRegCal1L    = 0x0B;
@@ -111,7 +126,7 @@ esp_err_t ctrl9_exec(uint8_t cmd)
 
 }  // namespace
 
-esp_err_t arm_wake_on_motion()
+esp_err_t arm_wake_on_motion(bool init_high)
 {
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
@@ -127,12 +142,18 @@ esp_err_t arm_wake_on_motion()
     // TODO(hw): 実機で閾値と極性を確認
     esp_err_t ret = qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL);
     if (ret != ESP_OK) return ret;
+    // INT1_EN (CTRL1.bit3) を立てる — init の CTRL1=0x60 だと INT ピンが
+    // 駆動されず STATUS1 にだけイベントが残る (deep sleep 中に WoM が
+    // 発火しても INT1 がトグルしない根本原因)。
+    // 0x68 = init と同じ 0x60 (ADDR_AI+BE) | 0x08 (INT1_EN)。
+    wreg(kRegCtrl1, 0x68);
     ret = qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_2G);
     if (ret != ESP_OK) return ret;
     ret = qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_LOWPOWER_21HZ);
     if (ret != ESP_OK) return ret;
     wreg(kRegCal1L, 0x40);  // threshold 64mg (plan.md Q章の例値)
-    wreg(kRegCal1H, 0x04);  // INT1 初期値0 (7:6=00) + blanking 4 samples
+    // CAL1_H[7:6]: 00=INT1/init0, 10=INT1/init1
+    wreg(kRegCal1H, init_high ? 0x84 : 0x04);
     ret = ctrl9_exec(kCtrl9CmdWriteWom);
     if (ret != ESP_OK) return ret;
     ret = qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL);
@@ -143,15 +164,22 @@ esp_err_t arm_wake_on_motion()
     return wom_clear();
 }
 
-esp_err_t wom_clear()
+esp_err_t wom_status(uint8_t* status)
 {
-    if (!s_ready) {
+    if (!s_ready || !status) {
         return ESP_ERR_INVALID_STATE;
     }
-    // WoM イベントと INT は STATUS1 (0x2F) 読取で初期値に戻る (§9.3)。
+    // イベントと INT1 は STATUS1 (0x2F) 読取で初期値に戻る (DS §9.3)。
+    // STATUS1: bit7=SigMotion bit6=NoMotion bit5=AnyMotion bit4=Pedometer
+    //          bit2=WoM bit1=Tap (QSTリファレンス SensorQMI8658.hpp)
+    return qmi8658_read_register(&s_imu, kRegStatus1, status, 1);
+}
+
+esp_err_t wom_clear()
+{
     // クリアしないと次のイベントが 1→0 (NEGEDGE) になり取りこぼす。
     uint8_t s1 = 0;
-    return qmi8658_read_register(&s_imu, kRegStatus1, &s1, 1);
+    return wom_status(&s1);
 }
 
 esp_err_t disarm_wake_on_motion()

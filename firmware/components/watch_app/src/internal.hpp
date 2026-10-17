@@ -34,5 +34,8 @@ void ble_glue_poll();
 
 // imu_service.cpp: QMI8658 の常時サービス (raise-to-wake + 歩数入力)。
 void imu_service_start();
+// deep sleep 移行中は imu_task が WoM arm を上書きするのを止める
+// (app 側の init_high arm が眠る直前に通常 arm へ戻されるのを防ぐ)。
+void imu_service_freeze_for_deep_sleep();
 
 }  // namespace watch_app

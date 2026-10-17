@@ -99,11 +99,19 @@ namespace imu {
     esp_err_t read_accel_mg(float* x, float* y, float* z);
     // wake-on-motion を ARM して GPIO21 (INT1) で復帰可能にする準備。
     // 実際の deep sleep wake 設定は sleep::arm_deep_sleep_wake() で行う。
-    esp_err_t arm_wake_on_motion();
+    // init_high=true で INT1 初期値=1 (deep sleep 時の ext1 疎通診断用。
+    // その場合イベント発火で INT1 は 1→0 に倒れる)。
+    esp_err_t arm_wake_on_motion(bool init_high = false);
     // WoM を解除し、加速度計を通常設定 (init 時と同じ range/ODR) に戻す。
     esp_err_t disarm_wake_on_motion();
     // WoM のイベントラッチ/INT1 を解除 (STATUS1 読取)。
     esp_err_t wom_clear();
+    // STATUS1 (0x2F) を読む。INT1 ラッチ解除と同じ効果。
+    // bit2=WoM, bit4=Pedometer 等のイベント種別が取れる。
+    esp_err_t wom_status(uint8_t* status);
+    // TEMP(hw-test): init() 直後に読んだ STATUS1 の生値 (深眠中に WoM が
+    // 発火していたかの切り分け用。init 時の一度だけ有効)。
+    uint8_t boot_status1_raw();
 
     // --- ハードウェア歩数計 (QMI8658A DS §11; C rev0.9 も CTRL8.bit4 あり) ---
     // 未設定なら CTRL9 でパラメータ書込み → CTRL8.bit4 で有効化。
@@ -131,11 +139,18 @@ namespace sleep {
     void disarm_light_sleep_imu();
     // 直近の light sleep 起床原因が IMU INT1(GPIO21) なら true。
     bool woke_by_imu();
+    // 起床直後/入眠直前の GPIO 実レベルを出す (wake ピン切り分け用)。
+    void log_pin_levels(const char* tag);
     // deep sleep wake: PWR=ext1(GPIO10 HIGH), timer (wake_after_us > 0),
     // imu_wake=true なら IMU INT1(GPIO21) も ext1 に含める。
     // BOOT(GPIO0) は strapping pin で、押下起床が download mode に落ちる
     // ため使わない。戻らない。
-    void enter_deep_sleep(uint64_t wake_after_us, bool imu_wake)
+    // rtc_level_out: TEMP(hw-test) RTC 側から見た GPIO21 レベルを格納
+    // (nullptr 可)。regs_out[4]: TEMP(hw-test) {PAD21,PAD10,HOLD,IN} の
+    // 生レジスタ値を格納 (nullptr 可)。
+    void enter_deep_sleep(uint64_t wake_after_us, bool imu_wake,
+                          int32_t* rtc_level_out = nullptr,
+                          uint32_t* regs_out = nullptr)
         __attribute__((noreturn));
 }
 

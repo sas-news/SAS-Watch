@@ -17,7 +17,7 @@ struct Settings {
   uint32_t brightness = 50;          // 0-100
   uint32_t dim_after_s = 8;          // Active→Dim (plan.md L章)
   uint32_t screen_off_after_s = 12;  // Active→ScreenOff (8+4)
-  uint32_t deep_sleep_after_s = 1800;
+  uint32_t deep_sleep_after_s = 1800;  // 無操作で deep sleep までの秒数
   int32_t tz_offset_min = 0;         // time.set で記憶
   char theme[32] = "standard";
   // ボタン割り当て (Action 名)。既定は plan.md G章。
@@ -45,7 +45,7 @@ struct Settings {
   char agent_q3[64] = "";
   // USB (VBUS) 接続中のスリープ抑制: 0=なし / 1=Deep Sleep 抑制 /
   // 2=Deep Sleep + 画面OFF 抑制 (Dim までは許可)。
-  uint32_t usb_keep_awake = 1;
+  uint32_t usb_keep_awake = 1;  // USB接続中は deep sleep しない (0/1)
 };
 
 struct SettingKey {

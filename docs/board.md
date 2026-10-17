@@ -34,7 +34,7 @@
 | 16 | I2S MCLK | | |
 | 18 | Motor | | |
 | 19/20 | USB D-/D+ | | |
-| 21 | QMI8658 INT1 | yes | ext1 wake (wake-on-motion)。極性【要実機】 |
+| 21 | QMI8658 INT1 | yes | ext0/ext1 wake (wake-on-motion)。極性確認済み: WoM イベントで HIGH ラッチ (init_low arm)。実機で ext0 起床確認。注意: vendored `qmi8658_init` の CTRL1=0x60 は INT1_EN(bit3)=0 で INT ピンが駆動されない — WoM arm 時に `CTRL1=0x68` で INT1_EN=1 にする必要あり |
 | 38 | TP INT | no | light sleep wake のみ |
 | 39 | RTC INT | no | light sleep wake のみ |
 | 40 | I2S DSDIN | | |
@@ -61,7 +61,7 @@ DCDC1=3.3V(VCC3V3, ESP32/パネルVCI) / ALDO2=3.3V → DSI_PWR_EN (パネル電
 - [ ] Flash ID (`esptool.py flash_id`)
 - [ ] I2C スキャン結果
 - [ ] PWR=GPIO10 で HIGH になるか
-- [ ] QMI8658 INT1 の極性
+- [x] QMI8658 INT1 の極性 → WoM イベントで HIGH ラッチ (deep sleep ext0 起床で実証)
 - [ ] モーターの有無
 - [ ] 画面向き・タッチ座標
 - [ ] 各状態の消費電流

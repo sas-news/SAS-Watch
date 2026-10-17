@@ -616,10 +616,21 @@ I2S DMA は内蔵 RAM 不足のまま見込み)
   入眠直後の即起床ループを防止。
 - raise_to_wake OFF 時は ext1 マスクから GPIO21 を除外
   (`enter_deep_sleep(us, imu_wake)` にシグネチャ変更)。
+- IMU 起床が効かない根本原因: vendored `qmi8658_init` が `CTRL1=0x60`
+  (INT1_EN=0) で INT1 ピンを一度も駆動していなかった — STATUS1 にだけ
+  WoM が記録され ext0/ext1 は構造的に発火不能。`arm_wake_on_motion` で
+  `CTRL1=0x68` にして解決 (実機で `wake reason: ext0 (IMU)` 確認)。
+- あわせて実機検証で潰したバグ: 入眠窓で imu_task が WoM arm を再呼出し
+  INT1 極性を上書き → `imu_service_freeze_for_deep_sleep()` で凍結。
+  プローブの `rtc_gpio_deinit` が ext0/ext1 のパッド設定と LP IO クロックを
+  落とす → deinit は GPIO0 のみに。I2C バスロック (リセット乱用でスレーブが
+  SDA 保持) へのブート時 SCL トグルリカバリも追加。
+- デバッグ経路: USB-Serial/JTAG の 's' 入力で強制 deep sleep
+  (serial_dbg_task)。自動深眠は `deep_sleep_after_s` (既定 1800s) で動作。
 
-残件: 実機での確認 (a のパネル物理角・d の見え・deep sleep 復帰)。
+残件: 実機での確認 (a のパネル物理角・d の見え)。
 
-状態: 修正済み (sim + ファームウェアビルド確認。実機確認待ち)
+状態: 完了 (deep sleep 復帰は実機確認済み: PWR/ext0-IMU/timer で起床)
 
 ## T28. 時計の設定画面からファイルテーマを選べるようにする — 難度 S
 
