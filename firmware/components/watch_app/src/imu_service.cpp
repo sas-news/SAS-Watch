@@ -175,11 +175,17 @@ void apply_idle_mode() {
 }
 
 void apply_poll_mode() {
-  if (s_mode == ImuMode::Poll) return;
+  // QMI8658 の WoM arm は ESP 側リセット (deep sleep 復帰含む) を跨いで
+  // チップ内に持続し、arm 中は出力レジスタが凍結する (実機観測)。
+  // s_mode はこのブートでは Poll 初期値だがチップ側は arm のままかも
+  // しれないので、起動後最初の Poll 移行では必ず disarm する。
+  static bool s_streamed = false;  // 本ブートで一度でも通常化したか
+  if (s_mode == ImuMode::Poll && s_streamed) return;
   gpio_intr_disable(GPIO_NUM_21);
   s_wom_seen = false;
   // WoM arm が 2G/LP 設定を残すので通常値へ戻す。
   board::imu::disarm_wake_on_motion();
+  s_streamed = true;
   s_mode = ImuMode::Poll;
 }
 

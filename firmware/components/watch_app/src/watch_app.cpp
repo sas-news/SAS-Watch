@@ -12,6 +12,7 @@
 #include "ota/ota.hpp"
 #include "wifi/wifi.hpp"
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_pm.h"
@@ -94,6 +95,18 @@ void enter_deep_sleep() {
     // imu_task がこの後の窓で WoM arm を上書きしないよう先に凍結する
     // (burst 末尾の通常 arm や STATUS1 読みで INT1 極性が反転するのを防ぐ)。
     imu_service_freeze_for_deep_sleep();
+    // 起床ゲート (maybe_fast_resleep) 用の基準姿勢を採る。WoM arm 中は
+    // 出力レジスタが凍結するので、一度解除して 1 サンプル取ってから
+    // arm する (LP 21Hz ≈ 48ms/サンプル)。
+    board::imu::disarm_wake_on_motion();
+    vTaskDelay(pdMS_TO_TICKS(80));
+    float rx = 0, ry = 0, rz = 0;
+    const esp_err_t rr = board::imu::read_accel_mg(&rx, &ry, &rz);
+    if (rr == ESP_OK) {
+      board::sleep::set_wake_reference(rx, ry, rz, us);
+    } else {
+      ESP_LOGW(TAG, "wake ref read failed: %s", esp_err_to_name(rr));
+    }
     const esp_err_t r = board::imu::arm_wake_on_motion(false);
     s_sleep_diag.wom_ret = r;
     // arm 中/直後に発火したイベントが INT1 を HIGH にラッチしたままだと
@@ -254,6 +267,18 @@ void log_wake_reason() {
              static_cast<unsigned long>(s_sleep_diag.rtc_regs[2]),
              static_cast<unsigned long>(s_sleep_diag.rtc_regs[3]));
   }
+  int32_t gate_n = 0;
+  float gate_deg = 0, gate_dir[3] = {0, 0, 0};
+  if (board::sleep::last_gate_debug(&gate_n, &gate_deg, gate_dir)) {
+    ESP_LOGI(TAG, "imu gate: n=%ld deg=%.1f dir=%.1f,%.1f,%.1f",
+             static_cast<long>(gate_n), gate_deg, gate_dir[0], gate_dir[1],
+             gate_dir[2]);
+  }
+  int ent_i = 0, ent_l = 0;
+  if (board::sleep::last_entry_debug(&ent_i, &ent_l)) {
+    // iters<20 なら LOW 確認して寝た、20 なら打切り (HIGH のまま入眠)。
+    ESP_LOGI(TAG, "sleep entry: still_iters=%d int1=%d", ent_i, ent_l);
+  }
 }
 
 // USB-Serial/JTAG からのデバッグ入力 + 起床診断の再出力。
@@ -299,6 +324,21 @@ void serial_dbg_task(void*) {
         core_unlock();
         ESP_LOGI(TAG, "serial: power settings reset to defaults ('d')");
         wake_task();
+      } else if (buf[i] == 'g' || buf[i] == 'G') {
+        // 直前の起床ゲート/入眠診断を再出 ('g'ate) — +6s ダンプを
+        // 逃しても読める。
+        int32_t gn = 0;
+        float gd = 0, gdir[3] = {0, 0, 0};
+        if (board::sleep::last_gate_debug(&gn, &gd, gdir)) {
+          ESP_LOGI(TAG, "serial: gate n=%ld deg=%.1f dir=%.1f,%.1f,%.1f",
+                   static_cast<long>(gn), gd, gdir[0], gdir[1], gdir[2]);
+        } else {
+          ESP_LOGI(TAG, "serial: gate (none)");
+        }
+        int ei = 0, el = 0;
+        if (board::sleep::last_entry_debug(&ei, &el)) {
+          ESP_LOGI(TAG, "serial: entry still_iters=%d int1=%d", ei, el);
+        }
       } else if (buf[i] == 'h' || buf[i] == 'H') {
         // app_task 心拍 + キュー状態を出す ('h'ealth)。
         ESP_LOGI(TAG, "serial: app_loops=%lu sleep_req=%d q_empty=%d heap=%lu",
@@ -306,6 +346,33 @@ void serial_dbg_task(void*) {
                  (int)s_serial_sleep_req,
                  (int)s_rt.queue().empty(),
                  static_cast<unsigned long>(esp_get_free_internal_heap_size()));
+      } else if (buf[i] == 'a' || buf[i] == 'A') {
+        // 生の加速度を出す ('a'ccel) — 起床ゲート/腕上げ判定の生値確認用。
+        float ax = 0, ay = 0, az = 0;
+        const esp_err_t r = board::imu::read_accel_mg(&ax, &ay, &az);
+        ESP_LOGI(TAG, "serial: accel %s x=%.0f y=%.0f z=%.0f mg",
+                 esp_err_to_name(r), ax, ay, az);
+        // PWR の実極性確認用 (待機 HIGH なら押下=LOW で ext1 ANY_HIGH は
+        // 構造的に発火しない)。INT1(GPIO21) も併記 — 静止時に HIGH の
+        // ままなら wom_clear が効いていない。
+        ESP_LOGI(TAG, "serial: pwr=%d int1=%d",
+                 (int)gpio_get_level(GPIO_NUM_10),
+                 (int)gpio_get_level(GPIO_NUM_21));
+      } else if (buf[i] == 'c' || buf[i] == 'C') {
+        // WoM ラッチをクリアして INT1 の応答を見る ('c'lear)。
+        // clear 後に LOW へ落ちれば clear は有効 (HIGH 継続なら再発火中か
+        // ピンがラッチ解除されない)。
+        const esp_err_t cr = board::imu::wom_clear();
+        vTaskDelay(pdMS_TO_TICKS(60));
+        ESP_LOGI(TAG, "serial: wom_clear=%s int1=%d",
+                 esp_err_to_name(cr), (int)gpio_get_level(GPIO_NUM_21));
+      } else if (buf[i] == 'w' || buf[i] == 'W') {
+        // WoM 再 arm — 初期値に強制できるかの切り分け ('w'om rearm)。
+        board::imu::disarm_wake_on_motion();
+        const esp_err_t ar = board::imu::arm_wake_on_motion(false);
+        vTaskDelay(pdMS_TO_TICKS(60));
+        ESP_LOGI(TAG, "serial: rearm=%s int1=%d",
+                 esp_err_to_name(ar), (int)gpio_get_level(GPIO_NUM_21));
       }
     }
     vTaskDelay(pdMS_TO_TICKS(150));

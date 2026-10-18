@@ -152,6 +152,21 @@ namespace sleep {
                           int32_t* rtc_level_out = nullptr,
                           uint32_t* regs_out = nullptr)
         __attribute__((noreturn));
+
+    // deep sleep 入眠時の基準姿勢 (重力ベクトル mg) と timer 残量を
+    // RTC RAM に保存する。WoM arm で出力レジスタが凍結する前に採ること。
+    void set_wake_reference(float x, float y, float z,
+                            uint64_t prior_wake_us);
+    // ext0/ext1(GPIO21) 起床時に app_main から board::init 直後に呼ぶ。
+    // 現在姿勢が基準から十分回転していなければ (= 腕上げでない) WoM を
+    // 張り直して即再入眠する — 表示/BLE/LVGL を立てないので誤起床でも
+    // 数100ms で寝直せる。通常起動を続けるべき時は false を返す。
+    bool maybe_fast_resleep();
+    // 直前の起床ゲート判定結果 (deep sleep を跨いだ RTC 保持値)。
+    // n=-1 は「基準無しで素通り」。未実施なら false。
+    bool last_gate_debug(int32_t* n, float* deg, float* dir = nullptr);
+    // 入眠直前の INT1 LOW 待ち結果 (iters=LOW 待ち反復数, lvl=入眠時実レベル)。
+    bool last_entry_debug(int* iters, int* lvl);
 }
 
 }  // namespace board

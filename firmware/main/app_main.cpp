@@ -106,6 +106,10 @@ extern "C" void app_main(void)
     diag::print_system_info();
 
     ESP_ERROR_CHECK(board::init());
+    // IMU (WoM) 起床はここで「腕上げか」を判定 — 違えば即再入眠する。
+    // この下にある BLE/LVGL/表示の初期化を全部飛ばせるので誤起床でも
+    // 数100ms で寝直せる (電池対策)。PWR/タイマー/その他の起床は素通り。
+    board::sleep::maybe_fast_resleep();
     diag::i2c_scan();
     // pmic は board::init() の中で初期化されるので、ダンプはこの位置でしか取れない
     diag::pmic_rail_dump();
