@@ -80,7 +80,10 @@ volatile bool s_serial_sleep_req = false;
 void enter_deep_sleep() {
   ESP_LOGI(TAG, "deep sleep");
   s_features.save_all(*s_fctx);
-  const int64_t dl = s_rt.next_deadline_ms();
+  // feature の期限だけを見る。s_rt.next_deadline_ms() は PowerPolicy の
+  // 画面遷移時刻 (Dim 8s 等) も min に入れるため、手動入眠では数秒で
+  // タイマー起床してしまう (実測: 's' → +2s timer wake)。
+  const int64_t dl = s_features.next_deadline_ms();
   const int64_t now = s_clock->now_ms();
   const uint64_t us = dl > now ? static_cast<uint64_t>(dl - now) * 1000 : 0;
   // 入眠側ログは USB-Serial/JTAG が先に死ぬと出ないので RTC データに残し、
@@ -267,12 +270,13 @@ void log_wake_reason() {
              static_cast<unsigned long>(s_sleep_diag.rtc_regs[2]),
              static_cast<unsigned long>(s_sleep_diag.rtc_regs[3]));
   }
-  int32_t gate_n = 0;
+  int32_t gate_n = 0, gate_pass = -1;
   float gate_deg = 0, gate_dir[3] = {0, 0, 0};
-  if (board::sleep::last_gate_debug(&gate_n, &gate_deg, gate_dir)) {
-    ESP_LOGI(TAG, "imu gate: n=%ld deg=%.1f dir=%.1f,%.1f,%.1f",
+  if (board::sleep::last_gate_debug(&gate_n, &gate_deg, gate_dir,
+                                    &gate_pass)) {
+    ESP_LOGI(TAG, "imu gate: n=%ld deg=%.1f dir=%.1f,%.1f,%.1f pass=%ld",
              static_cast<long>(gate_n), gate_deg, gate_dir[0], gate_dir[1],
-             gate_dir[2]);
+             gate_dir[2], static_cast<long>(gate_pass));
   }
   int ent_i = 0, ent_l = 0;
   if (board::sleep::last_entry_debug(&ent_i, &ent_l)) {
@@ -327,11 +331,12 @@ void serial_dbg_task(void*) {
       } else if (buf[i] == 'g' || buf[i] == 'G') {
         // 直前の起床ゲート/入眠診断を再出 ('g'ate) — +6s ダンプを
         // 逃しても読める。
-        int32_t gn = 0;
+        int32_t gn = 0, gpass = -1;
         float gd = 0, gdir[3] = {0, 0, 0};
-        if (board::sleep::last_gate_debug(&gn, &gd, gdir)) {
-          ESP_LOGI(TAG, "serial: gate n=%ld deg=%.1f dir=%.1f,%.1f,%.1f",
-                   static_cast<long>(gn), gd, gdir[0], gdir[1], gdir[2]);
+        if (board::sleep::last_gate_debug(&gn, &gd, gdir, &gpass)) {
+          ESP_LOGI(TAG, "serial: gate n=%ld deg=%.1f dir=%.1f,%.1f,%.1f pass=%ld",
+                   static_cast<long>(gn), gd, gdir[0], gdir[1], gdir[2],
+                   static_cast<long>(gpass));
         } else {
           ESP_LOGI(TAG, "serial: gate (none)");
         }
@@ -348,8 +353,20 @@ void serial_dbg_task(void*) {
                  static_cast<unsigned long>(esp_get_free_internal_heap_size()));
       } else if (buf[i] == 'a' || buf[i] == 'A') {
         // 生の加速度を出す ('a'ccel) — 起床ゲート/腕上げ判定の生値確認用。
+        // 画面OFF中は WoM arm で出力が凍結しているので、一瞬解除して
+        // 生値を採ってから戻す (LP 21Hz ≈ 48ms/サンプル)。
+        const watch::PowerState ps = s_power.state();
+        const bool armed = ps == watch::PowerState::ScreenOff ||
+                           ps == watch::PowerState::DeepSleepCandidate;
+        if (armed) {
+          board::imu::disarm_wake_on_motion();
+          vTaskDelay(pdMS_TO_TICKS(80));
+        }
         float ax = 0, ay = 0, az = 0;
         const esp_err_t r = board::imu::read_accel_mg(&ax, &ay, &az);
+        if (armed) {
+          board::imu::arm_wake_on_motion(false);
+        }
         ESP_LOGI(TAG, "serial: accel %s x=%.0f y=%.0f z=%.0f mg",
                  esp_err_to_name(r), ax, ay, az);
         // PWR の実極性確認用 (待機 HIGH なら押下=LOW で ext1 ANY_HIGH は

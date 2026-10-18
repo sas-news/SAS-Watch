@@ -40,50 +40,66 @@ Action hw_sync(uint32_t total) {
 }  // namespace
 
 // ---------- RaiseDetector ----------
+// ベクトルは実機の装着計測値 (mg): 腕下げ=(-410,-900,-160)、
+// 見る姿勢=(290,-150,-950) [80°]、前伸ばし=(-670,-120,-740) [60° だが x 違反]。
 
 TEST(RaiseDetect, FiresOnOrientationChange) {
   sensors::RaiseDetector d;
-  // 安静時: 重力 -Z (腕を下ろした状態の推定向き)。
+  // 安静時: 腕を下ろした姿勢。
   for (int i = 0; i < 20; ++i) {
-    EXPECT_FALSE(d.feed(0, 0, -1000, i * 50));
+    EXPECT_FALSE(d.feed(-410, -900, -160, i * 50));
   }
-  // 90° 向きが変わる (0,-1000,0)。hold 200ms 超で検出。
+  // 時計を見る姿勢へ (~80°)。hold 200ms 超で検出。
   bool fired = false;
   for (int i = 20; i < 40 && !fired; ++i) {
-    fired = d.feed(0, -1000, 0, i * 50);
+    fired = d.feed(290, -150, -950, i * 50);
   }
   EXPECT_TRUE(fired);
   // そのまま続けても再検出しない。
   for (int i = 40; i < 60; ++i) {
-    EXPECT_FALSE(d.feed(0, -1000, 0, i * 50));
+    EXPECT_FALSE(d.feed(290, -150, -950, i * 50));
   }
   // 元の向きに戻る → 再武装。次の変化でまた検出。
   for (int i = 60; i < 90; ++i) {
-    d.feed(0, 0, -1000, i * 50);
+    d.feed(-410, -900, -160, i * 50);
   }
   bool refired = false;
   for (int i = 90; i < 120 && !refired; ++i) {
-    refired = d.feed(0, -1000, 0, i * 50);
+    refired = d.feed(290, -150, -950, i * 50);
   }
   EXPECT_TRUE(refired);
 }
 
 TEST(RaiseDetect, TransientDoesNotFire) {
   sensors::RaiseDetector d;
-  for (int i = 0; i < 20; ++i) d.feed(0, 0, -1000, i * 50);
+  for (int i = 0; i < 20; ++i) d.feed(-410, -900, -160, i * 50);
   // 100ms だけ向きが変わる (hold 200ms 未満)。
-  EXPECT_FALSE(d.feed(0, -1000, 0, 1000));
-  EXPECT_FALSE(d.feed(0, -1000, 0, 1050));
-  EXPECT_FALSE(d.feed(0, 0, -1000, 1100));
+  EXPECT_FALSE(d.feed(290, -150, -950, 1000));
+  EXPECT_FALSE(d.feed(290, -150, -950, 1050));
+  EXPECT_FALSE(d.feed(-410, -900, -160, 1100));
   // 直後は未検出のまま。
   for (int i = 0; i < 10; ++i) {
-    EXPECT_FALSE(d.feed(0, 0, -1000, 1150 + i * 50));
+    EXPECT_FALSE(d.feed(-410, -900, -160, 1150 + i * 50));
+  }
+}
+
+TEST(RaiseDetect, NonRaiseDirectionDoesNotFire) {
+  sensors::RaiseDetector d;
+  for (int i = 0; i < 20; ++i) d.feed(-410, -900, -160, i * 50);
+  // 腕を前に伸ばす: 角度 ~60° と大きいが「見る」方向ではない
+  // (x=-0.67 < face_x_min) — hold 十分経っても検出しない。
+  for (int i = 20; i < 40; ++i) {
+    EXPECT_FALSE(d.feed(-670, -120, -740, i * 50));
+  }
+  // 腕組みに近い向き (x=-0.41 未満のケース) も同様。
+  for (int i = 40; i < 60; ++i) {
+    EXPECT_FALSE(d.feed(-790, 160, -590, i * 50));
   }
 }
 
 TEST(RaiseDetect, OutOfRangeSamplesIgnored) {
   sensors::RaiseDetector d;
-  for (int i = 0; i < 20; ++i) d.feed(0, 0, -1000, i * 50);
+  for (int i = 0; i < 20; ++i) d.feed(-410, -900, -160, i * 50);
   // 大きな揺れ (2g) の間は判定を進めない。
   for (int i = 20; i < 30; ++i) {
     EXPECT_FALSE(d.feed(0, -2000, 0, i * 50));
@@ -91,7 +107,7 @@ TEST(RaiseDetect, OutOfRangeSamplesIgnored) {
   // 揺れが収まっても hold はリセットされているので即検出にはならない。
   int first_at = -1;
   for (int i = 30; i < 60; ++i) {
-    if (d.feed(0, -1000, 0, i * 50)) {
+    if (d.feed(290, -150, -950, i * 50)) {
       first_at = i;
       break;
     }
@@ -188,14 +204,14 @@ TEST(Steps, ImuSampleCountsAndPublishes) {
 
 TEST(Steps, RaisePublishesEvent) {
   StepsFixture f;
-  // 安静姿勢を数サンプル → 向きを 90° 変える。
+  // 安静姿勢 (腕下げ) を数サンプル → 時計を見る姿勢へ (実機計測値)。
   for (int i = 0; i < 20; ++i) {
-    f.feed(0, 0, -1000);
+    f.feed(-410, -900, -160);
     f.clock.advance_ms(50);
   }
   bool raised = false;
   for (int i = 0; i < 40 && !raised; ++i) {
-    f.feed(0, -1000, 0);
+    f.feed(290, -150, -950);
     raised = f.rec.count_of(EventType::RaiseDetected) > 0;
     f.clock.advance_ms(50);
   }

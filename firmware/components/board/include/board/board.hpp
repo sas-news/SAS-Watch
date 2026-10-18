@@ -164,7 +164,8 @@ namespace sleep {
     bool maybe_fast_resleep();
     // 直前の起床ゲート判定結果 (deep sleep を跨いだ RTC 保持値)。
     // n=-1 は「基準無しで素通り」。未実施なら false。
-    bool last_gate_debug(int32_t* n, float* deg, float* dir = nullptr);
+    bool last_gate_debug(int32_t* n, float* deg, float* dir = nullptr,
+                         int32_t* pass = nullptr);
     // 入眠直前の INT1 LOW 待ち結果 (iters=LOW 待ち反復数, lvl=入眠時実レベル)。
     bool last_entry_debug(int* iters, int* lvl);
 }

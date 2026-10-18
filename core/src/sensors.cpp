@@ -61,7 +61,12 @@ bool RaiseDetector::feed(int16_t x_mg, int16_t y_mg, int16_t z_mg,
     return false;
   }
 
-  if (ang >= cfg_.raise_deg) {
+  // 角度変化 + 「画面が顔側を向いている」絶対姿勢条件。角度だけだと
+  // 腕を前に伸ばす/腕組み等でも 60-95° 変わって誤点灯する (実機計測)。
+  const bool face_ok =
+      !cfg_.face_check ||
+      (cz <= cfg_.face_z_max && cx >= cfg_.face_x_min);
+  if (ang >= cfg_.raise_deg && face_ok) {
     if (hold_since_ms_ == 0) {
       hold_since_ms_ = now_ms;
       return false;

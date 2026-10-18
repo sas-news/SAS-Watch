@@ -44,6 +44,7 @@ constexpr uint32_t kRefMagic = 0x52454631u;  // "REF1"
 RTC_DATA_ATTR int32_t s_gate_n;       // 採用サンプル数 (-1=基準無し)
 RTC_DATA_ATTR int32_t s_gate_deg_x10;
 RTC_DATA_ATTR int16_t s_gate_dir_x10[3];  // 計測姿勢 (単位ベクトル x10)
+RTC_DATA_ATTR int32_t s_gate_pass;  // 0=拒否(再入眠), 1=採用, -1=判定前
 RTC_DATA_ATTR uint32_t s_gate_magic;
 constexpr uint32_t kGateMagic = 0x47415445u;  // "GATE"
 // 入眠直前の INT1 LOW 待ち結果 — 直前ログは USB 切断で喪失するので
@@ -213,29 +214,23 @@ void enter_deep_sleep(uint64_t wake_after_us, bool imu_wake,
     vTaskDelay(pdMS_TO_TICKS(500));
     // フラッシュの 500ms 中に WoM イベントが発火して INT1 が HIGH
     // ラッチしていると、入眠と同時に ext0/ext1 が即発火する (実機観測:
-    // 取り回しの動きで毎度即起床)。STATUS1 読取ではピンが初期値に戻ら
-    // ないため、HIGH を読むたびに disarm→arm で初期値 LOW に強制する。
-    // そのついでに姿勢を基準として採り直す — 手動入眠では watch_app が
-    // 基準を採る時点ではまだ取り回し中で、寝姿勢とずれるとノイズ起床
-    // で誤採用し得る。LOW が連続3回 (150ms) 読めたら安静確定で入眠。
-    // 動き続けても上限 ~1s で寝る (その場合は起床ゲートが姿勢で判定)。
+    // 取り回しの動きで毎度即起床)。ここでは arm を触らず STATUS1 読取
+    // (=ラッチ解除) だけで LOW を待つ — disarm→accel読取→arm を繰り
+    // 返すと arm 直後のピン遷移ラグで毎回 HIGH を読んで攪拌し続ける
+    // (実測: 'c' 単発では LOW に落ちるのに 'a' 直後は HIGH 残留)。
+    // LOW が連続3回読めたら安静確定で入眠。動き続けるなら上限 ~1.6s で
+    // 打ち切り、その場合は起床ゲートが姿勢で弾く。
     if (imu_wake) {
         int low_streak = 0;
         int i = 0;
-        for (; i < 20; ++i) {
+        for (; i < 40; ++i) {
             if (!gpio_get_level(pins::kImuInt1)) {
                 if (++low_streak >= 3) break;
             } else {
                 low_streak = 0;
-                board::imu::disarm_wake_on_motion();
-                vTaskDelay(pdMS_TO_TICKS(60));  // 21Hz で新規1発
-                float ax = 0, ay = 0, az = 0;
-                if (board::imu::read_accel_mg(&ax, &ay, &az) == ESP_OK) {
-                    set_wake_reference(ax, ay, az, s_prior_wake_us);
-                }
-                board::imu::arm_wake_on_motion(false);
+                board::imu::wom_clear();
             }
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(40));
         }
         s_entry_iters = i;
         s_entry_lvl = (int)gpio_get_level(pins::kImuInt1);
@@ -279,6 +274,7 @@ bool maybe_fast_resleep()
         if (m & (1ULL << pins::kButtonPwr)) {
             s_gate_n = -2;  // PWR 押下 = ゲートバイパス
             s_gate_deg_x10 = 0;
+            s_gate_pass = 1;
             s_gate_magic = kGateMagic;
             return false;  // PWR = ユーザーの明示操作
         }
@@ -291,6 +287,7 @@ bool maybe_fast_resleep()
     if (s_ref_magic != kRefMagic) {
         s_gate_n = -1;
         s_gate_deg_x10 = 0;
+        s_gate_pass = -1;
         s_gate_magic = kGateMagic;
         ESP_LOGI(TAG, "imu wake gate: no ref -> normal boot");
         return false;
@@ -377,14 +374,25 @@ bool maybe_fast_resleep()
         s_gate_dir_x10[2] = static_cast<int16_t>(sz / cn * 10.f);
     }
     s_gate_magic = kGateMagic;
-    constexpr float kRaiseDeg = 50.f;  // core RaiseDetector::raise_deg と同値
+    // 採用条件 (実機12姿勢の装着計測で決定):
+    //   角度変化 deg>=30 — 方向条件があるので 50 まで上げると小さい
+    //   腕上げ (40-50°) を取りこぼす。
+    //   絶対姿勢 z<=-0.65 (画面上向き) かつ x>=-0.35 (見る手首回転) —
+    //   角度だけだと前伸ばし 60°/腕組み 73°/打鍵 75° を区別できない。
+    //   core RaiseDetector::Config の face 条件と同値。
+    constexpr float kRaiseDeg = 30.f;
+    constexpr float kFaceZMax = -0.65f;
+    constexpr float kFaceXMin = -0.35f;
     if (n <= 0) {
         return false;  // 有効サンプル無し = 判定不能 → 寝直さない
     }
+    const float ux = sx / cn, uz = sz / cn;
     // 姿勢が安定しなかった (連続動作中に打ち切り) 場合は受け入れない —
-    // 振動/取り回しで一瞬 50° を超えても画面ONしない。
-    if (stable >= 3 && deg >= kRaiseDeg) {
-        return false;  // 腕を上げて静止した → 通常起動 (画面ON)
+    // 振動/取り回しで一瞬しきい値を超えても画面ONしない。
+    const bool face_ok = uz <= kFaceZMax && ux >= kFaceXMin;
+    s_gate_pass = (stable >= 3 && deg >= kRaiseDeg && face_ok) ? 1 : 0;
+    if (s_gate_pass) {
+        return false;  // 腕を上げて時計を見る姿勢で静止した → 通常起動
     }
     if (pmic::is_vbus()) {
         return false;  // USB 接続中は寝直さない (デバッグ用)
@@ -410,13 +418,16 @@ bool maybe_fast_resleep()
     return true;
 }
 
-bool last_gate_debug(int32_t* n, float* deg, float* dir)
+bool last_gate_debug(int32_t* n, float* deg, float* dir, int32_t* pass)
 {
     if (s_gate_magic != kGateMagic) {
         return false;
     }
     *n = s_gate_n;
     *deg = s_gate_deg_x10 / 10.f;
+    if (pass) {
+        *pass = s_gate_pass;
+    }
     if (dir) {
         dir[0] = s_gate_dir_x10[0] / 10.f;
         dir[1] = s_gate_dir_x10[1] / 10.f;
