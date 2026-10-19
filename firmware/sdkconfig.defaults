@@ -98,14 +98,9 @@ CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 # 内部RAMに余裕ができたら y に戻すと light sleep 時 ~650uA 節約できる。
 CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n
 
-# LVGL 描画バッファ高さ: 既定100行=82KB は大きすぎる。
-# buff_dma=true (内蔵SRAM確保) と組み合わせるため、BLE 等と
-# 共存できるサイズに下げる。
-# double_buffer=true (esp_display.cpp) で2枚確保するため、
-# 10行 x2枚 = 16.4KB が内蔵消費 (= 単バッファ20行のときと同量)。
-# 20行 x2枚 = 32.8KB だと BLE_INIT の 32KB 連続確保が失敗して
-# 起動ループになることを実機で確認済み。
-CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT=10
+# LVGL 描画バッファは esp_display.cpp が全面サイズを PSRAM に確保する
+# (BSP_DISPLAY_LVGL_BUF_HEIGHT は使わない。転送は内蔵 SRAM の
+# バウンスバッファ 8.2KB x2 経由)。
 
 # LVGL: 公式サンプル 02_lvgl_demo_v9 / BSP v2 推奨設定ベース
 # 日本語フォントはまだ無し (plan.md I 章)

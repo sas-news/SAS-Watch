@@ -16,8 +16,12 @@ components/theme_store/  /assets littlefs マウント + BULK kind="theme" 受�
 components/board/        ボード層 (BSP依存部品: buttons/pmic/rtc/imu/haptics/sleep)
 components/diag/         起動時診断 (システム情報, I2Cスキャン)
 components/XPowersLib/   AXP2101ドライバ (公式サンプル 01_AXP2101 から vendor, MIT)
+components/audio/        マイク (ES7210) 録音・ADP1 保存 (スピーカーは無効)
+components/ota/ wifi/    HTTPS OTA と Wi-Fi
+vendor/                  パッチを当てた外部コンポーネント (BSP / esp_lvgl_port / sh8601)。
+                         main/idf_component.yml の override_path で差し替え。vendor/README.md
 partitions.csv           docs/plan.md I章の案 (OTA x2 + littlefs x2 + coredump)
-sdkconfig.defaults       esp32s3 / Flash 16MB / PSRAM Octal / NimBLE / PM / LVGL
+sdkconfig.defaults       esp32s3 / Flash 32MB / PSRAM Octal / NimBLE / PM / LVGL
 ```
 
 ## 操作方法
@@ -27,18 +31,19 @@ sdkconfig.defaults       esp32s3 / Flash 16MB / PSRAM Octal / NimBLE / PM / LVGL
 | 入力 | 動作 |
 |---|---|
 | BOOT 短押し | 画面の主アクション (タイマー開始/停止 など) |
-| BOOT 長押し | 開発者画面 (未実装) |
-| BOOT 2連打 | メモ録音 (未実装) |
-| PWR 短押し | 戻る (Home では画面OFF) |
-| PWR 長押し | 電源メニュー (スリープ/再起動/電源OFFの案内) |
-| 右スワイプ | 戻る |
-| 下スワイプ (Home) | クイック設定 (明るさ・画面OFF・アプリ/設定への入口) |
+| BOOT 長押し | 開発者画面 |
+| BOOT 2連打 | なし (この個体は録音できないため) |
+| PWR 短押し | 画面 ON/OFF の切り替え (どの画面でも) |
+| PWR 長押し | 電源メニュー (6 秒以上で AXP2101 がハード電源断) |
+| 右スワイプ / 戻るピル | 戻る |
+| 下スワイプ (Home) | クイック設定 |
 | 上スワイプ (Home) | アプリ一覧 |
-| 画面長押し | 電源メニュー |
+| 画面長押し | 現在のアプリへ (既定は何もしない) |
 
 画面が消えている間の入力は「画面を起こす」だけで、アクションとしては処理しない。
-無操作 → 薄暗く (20%) → 画面OFF の順で省電力になり、ボタン/タッチで復帰。
-画面OFFが `deep_sleep_after_s` (既定60秒) 続くと deep sleep (タイマー期限/BOOT/タッチで復帰)。
+無操作 8 秒で薄暗く、12 秒で画面 OFF。画面 OFF が `deep_sleep_after_s`
+(既定 1800 秒) 続くと deep sleep に入る (PWR・腕上げ・タイマー期限で復帰)。
+USB 接続中 (`usb_keep_awake=1`) は deep sleep しない。
 
 依存は `main/idf_component.yml` 参照 (BSP `waveshare/esp32_s3_touch_amoled_2_06` ^2,
 `lvgl/lvgl` 9.5, `espressif/button`, `waveshare/qmi8658`, `waveshare/pcf85063a`)。
@@ -70,40 +75,43 @@ docker run --rm -v "$PWD":/project -w /project -e IDF_TARGET=esp32s3 espressif/i
 
 ## 書き込み・ログ
 
-USB-C で接続 (ネイティブUSB, GPIO19/20)。ポート名は環境で読み替える。
+USB-C で接続 (ネイティブUSB, GPIO19/20)。ポートはクラッシュや再列挙で
+`/dev/ttyACM0` ↔ `/dev/ttyACM1` に変わるので、毎回 `ls /dev/ttyACM*` で確かめる。
+
+アプリだけ書き込むなら esptool を直接使うのが速くて安全 (**オフセットは必ず 0x20000** =
+ota_0。ほかの値だと partition を壊してブートループする):
 
 ```sh
-idf.py -p /dev/ttyACM0 flash monitor
-# 終了: Ctrl+]
+python -m esptool -p /dev/ttyACM0 -b 460800 --before default_reset --after hard_reset \
+  --chip esp32s3 write_flash 0x20000 build/sas_watch.bin
+python -m esp_idf_monitor --port /dev/ttyACM0 build/sas_watch.elf   # 終了: Ctrl+]
 ```
 
-初回書き込み前に Factory ファームのバックアップを推奨 (plan.md Phase 0):
+`idf.py flash` は cmake を再実行する。`IDF_CCACHE_ENABLE=1` を付けずに呼ぶと
+全リビルドになるので注意。同梱テーマの書き込みはリポジトリ直下の AGENTS.md を参照。
 
-```sh
-esptool.py -p /dev/ttyACM0 read_flash 0 0x1000000 factory_backup.bin
-esptool.py -p /dev/ttyACM0 flash_id
-```
+### シリアルのデバッグコマンド
 
-## Phase 0 チェック手順 (実機が届いたら)
+モニタ (USB-Serial/JTAG) に 1 文字送ると実行する (`watch_app.cpp` の serial_dbg_task)。
 
-起動ログを見て `docs/board.md` の未確認リストを埋める:
-
-| 見る場所 | 確認すること |
+| 文字 | 動作 |
 |---|---|
-| `diag: flash=..MB` | 32MB (GD25Q256) が見えるか → `sdkconfig.defaults` の FLASHSIZE |
-| `diag: psram=..` | PSRAM 8MB が確保できているか |
-| `diag: i2c scan` | `0x18,0x34,0x38,0x40,0x51,0x6B` が全部応答するか |
-| `board.pmic: AXP2101 ok` | 電池%/充電状態が正しいか |
-| `board.rtc: RTC ..` | RTC 時刻が正しいか。電源OFF後も時刻を保つか |
-| `board.imu: QMI8658 ok` | who_am_i が読めるか |
-| `app: button BOOT/PWR` | BOOT 短押し/長押し/2回押し、PWR 短押し/長押しが出るか |
-| 画面 | 時刻・日付・電池%が出るか、画面向き、タッチで復帰するか |
-| 無操作10秒後 | 画面が消えて、タッチ/ボタンで復帰するか |
+| `b` | 描画ベンチ。主要 6 画面で全面再描画とスクロールの ms を `bench:` 行に出す (docs/perf.md) |
+| `t` | 同梱テーマを順に切り替える (standard→mame→cosmos→cute→cyber。NVS に保存される) |
+| `h` | app タスクの心拍・内蔵ヒープ |
+| `s` | 強制 deep sleep |
+| `g` | 直前の起床ゲート・入眠の診断を再表示 |
+| `a` / `c` / `w` | IMU の生値 / WoM ラッチのクリア / WoM の再 arm |
+| `r` | raise_to_wake を ON |
+| `d` | 電源系の設定を既定値に戻す |
 
-PWR 長押し 6 秒 → AXP2101 がハード電源 OFF するはず (要実機確認)。
-モーター (GPIO18 パルス) は `board::haptics::pulse()` を呼ぶ経路がまだ無いので、実機で有無を確認してから試す。
+初めて実機を立ち上げるときの手順は docs/bringup.md。
 
 ## 音声メモと音
+
+> 現状: この個体はスピーカー/コーデックを撤去済みで再生は無効。録音も、開始時に
+> I2S DMA 用の内蔵 RAM が足りず失敗している (docs/roadmap.md T18、保留中)。
+> 以下は仕様として残す。
 
 マイク (ES7210) で録った音声メモと、スピーカー (ES8311) で鳴らす音の仕様。
 
@@ -170,14 +178,7 @@ PWR 長押し 6 秒 → AXP2101 がハード電源 OFF するはず (要実機�
 > 技術メモ: ペアリング方式は LE Secure Connections の Numeric Comparison。
 > ボンド情報は時計の NVS に保存されるので、ペアリングは初回だけで済みます。
 
-## まだ入っていないもの / 推測値
+## 推測値
 
-`// TODO(hw)` を grep すれば一覧になる。主なもの:
-
-- Flash 32MB 設定 (現在は 16MB として使う)
-- QMI8658 INT1 の極性・wake-on-motion の閾値 (`0x40` は例値)
-- 画面の向き・タッチ座標の一致
-- `panel_power` (ALDO2 カット) 後のディスプレイ再初期化時間
-- `esp_lcd_panel_disp_on_off` が CO5300 ドライバで効くか (ディスプレイ消灯経路)
-- deep sleep 時の復帰 (タイマー期限/BOOT/タッチ) と IMU wake-on-motion の閾値
-- LVGL フォントが 4.9MB あるので flash/描画速度への影響 (要実機)
+`// TODO(hw)` を grep すると、実機で確かめていない値の一覧になる。
+実機で分かったことは docs/handoff.md (現状) と docs/board.md (ハード) に書く。

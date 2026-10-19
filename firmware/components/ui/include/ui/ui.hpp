@@ -43,6 +43,17 @@ uint32_t theme_skin_bytes();
 // sim では自分で lv_display_create するので呼ばない。
 lv_display_t* init_display();
 
+// firmware 用の描画ベンチ (シリアル 'b')。どのタスクからでも呼べる。
+// LVGL タスク上で現在の画面を全面再描画 ×6 と縦スクロール ×32 で計測し、
+// `bench: screen=<名> full avg/max ... scroll avg/max ...` を 1 行出す。
+// 計測が終わるまで戻らない (タイムアウト 15s)。
+void perf_bench();
+
+// firmware 用の PNG デコーダ検証 (シリアル 'p')。LVGL タスク上で、
+// 主要テーマ画像を行ストリーミング版と lodepng 版でそれぞれデコードし、
+// ヘッダとピクセルデータをバイト一致比較する (`pngtest: ...` ログ)。
+void png_selftest();
+
 // 既定 display のアクティブ画面に Home を組み立てる。
 // firmware: lvgl_port_lock 保持中に呼ぶ。sim: 直接呼ぶ。
 bool create(const Ctx& ctx);

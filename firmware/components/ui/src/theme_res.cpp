@@ -1,9 +1,15 @@
 // theme_res.cpp — テーマ資産の遅延ロード (docs/theme-format.md v2)。
-// .bin は検査してそのまま、.png は lodepng で RGB565A8 に一度だけ変換。
+// .bin は検査してそのまま、.png は一度だけ LVGL 画像に変換する
+// (firmware: png_stream の行ストリーミング版をまず試す — 全ピクセル
+// 不透明なら RGB565、透過ありなら RGB565A8。対応外・失敗は lodepng に
+// フォールバック。sim は常に lodepng)。
 // フォントは lv_binfont_create_from_buffer (バッファはアリーナで保持)。
 #include "theme_res.hpp"
 
+#include <cstdio>
 #include <cstring>
+
+#include "components.hpp"
 
 // lodepng.h は extern "C" の内側で <vector>/<string> を include するため
 // C++ から直接読めない。使う関数だけここで宣言する (lvgl が lodepng.c を
@@ -15,6 +21,22 @@ const char* lodepng_error_text(unsigned code);
 }
 #include "ui/port.hpp"
 #include "watch/theme/package.hpp"
+
+#ifdef ESP_PLATFORM
+// firmware では行ストリーミング版を先に試す (lodepng 全体デコードは
+// ~1.6MB ピークで、全面描画バッファ併存時に PSRAM が足りない)。
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_lvgl_port.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "png_stream.hpp"
+
+namespace {
+constexpr const char* kTag = "theme_res";
+}  // namespace
+#endif
 
 namespace theme_res {
 namespace {
@@ -28,13 +50,21 @@ bool ends_png(const char* name) {
   return n >= 4 && std::strcmp(name + n - 4, ".png") == 0;
 }
 
-// RGB565A8 (cf 0x14) のヘッダ + 2 面 (色 + 不透明アルファ) を組み立てる。
-// png の rgba を 16bit+alpha に縮める。戻り値: 総バイト数 (0=失敗)。
-uint32_t png_to_rgb565a8(const uint8_t* rgba, uint16_t w, uint16_t h,
-                         uint8_t* dst, uint32_t cap, lv_image_dsc_t* dsc) {
+// png の rgba を LVGL 画像 (12B ヘッダ + 色面 [+ α面]) に組み立てる。
+// 全ピクセル不透明なら RGB565 (px*2、毎フレームの α ブレンドが不要)、
+// 透過ありなら RGB565A8 (cf 0x14、px*3)。戻り値: 総バイト数 (0=失敗)。
+uint32_t png_to_lv(const uint8_t* rgba, uint16_t w, uint16_t h,
+                   uint8_t* dst, uint32_t cap, lv_image_dsc_t* dsc) {
   const uint32_t px = static_cast<uint32_t>(w) * h;
-  const uint64_t total = 12u + px * 3u;
-  if (total > cap || total > 0xFFFFFFFFull) return 0;
+  bool opaque = true;
+  for (uint32_t i = 0; i < px; ++i) {
+    if (rgba[i * 4 + 3] != kAlphaOpaque) {
+      opaque = false;
+      break;
+    }
+  }
+  const uint32_t total = 12u + px * (opaque ? 2u : 3u);
+  if (total > cap) return 0;
   uint8_t* c = dst + 12;
   uint8_t* a = c + px * 2;
   for (uint32_t i = 0; i < px; ++i) {
@@ -45,17 +75,18 @@ uint32_t png_to_rgb565a8(const uint8_t* rgba, uint16_t w, uint16_t h,
         ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
     c[i * 2] = static_cast<uint8_t>(v);
     c[i * 2 + 1] = static_cast<uint8_t>(v >> 8);
-    a[i] = rgba[i * 4 + 3];
+    if (!opaque) a[i] = rgba[i * 4 + 3];
   }
   std::memset(dsc, 0, sizeof(*dsc));
   dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
-  dsc->header.cf = LV_COLOR_FORMAT_RGB565A8;
+  dsc->header.cf =
+      opaque ? LV_COLOR_FORMAT_RGB565 : LV_COLOR_FORMAT_RGB565A8;
   dsc->header.w = w;
   dsc->header.h = h;
   dsc->header.stride = static_cast<uint16_t>(w * 2);
-  dsc->data_size = px * 3u;
+  dsc->data_size = px * (opaque ? 2u : 3u);
   dsc->data = dst + 12;
-  return static_cast<uint32_t>(total);
+  return total;
 }
 
 uint32_t decode_bin(const char* id, const char* file, uint8_t* dst,
@@ -93,19 +124,28 @@ uint32_t decode_png(const char* id, const char* file, uint8_t* dst,
   if (!src) return 0;
   uint32_t out = 0;
   if (ui::port::theme_entry_read(id, file, src, sz)) {
-    // LVGL 同梱 lodepng はパッチ済み: *out には RGBA 生配列ではなく
-    // lv_draw_buf_t* (ARGB8888, data は PNG の RGBA バイト順) が入る。
-    uint8_t* raw = nullptr;
-    unsigned w = 0, h = 0;
-    // lodepng は lv_draw_buf/lv_malloc 経由 (TODO(hw): 実機で確認 — 410x502 で ~820KB)
-    const unsigned err = lodepng_decode32(&raw, &w, &h, src, sz);
-    if (err == 0 && raw) {
-      lv_draw_buf_t* buf = reinterpret_cast<lv_draw_buf_t*>(raw);
-      if (buf->data && w > 0 && w <= max_w && h > 0 && h <= max_h) {
-        out = png_to_rgb565a8(buf->data, static_cast<uint16_t>(w),
-                              static_cast<uint16_t>(h), dst, cap, dsc);
+#ifdef ESP_PLATFORM
+    // 行ストリーミング版 (~50KB の作業メモリ)。対応外は lodepng へ。
+    out = ui::png_stream_decode(src, sz, max_w, max_h, dst, cap, dsc);
+    if (!out) {
+      ESP_LOGW(kTag, "png stream fallback: %s/%s", id, file);
+    }
+#endif
+    if (!out) {
+      // LVGL 同梱 lodepng はパッチ済み: *out には RGBA 生配列ではなく
+      // lv_draw_buf_t* (ARGB8888, data は PNG の RGBA バイト順) が入る。
+      uint8_t* raw = nullptr;
+      unsigned w = 0, h = 0;
+      // lodepng は lv_draw_buf/lv_malloc 経由 (410x502 で ~820KB)
+      const unsigned err = lodepng_decode32(&raw, &w, &h, src, sz);
+      if (err == 0 && raw) {
+        lv_draw_buf_t* buf = reinterpret_cast<lv_draw_buf_t*>(raw);
+        if (buf->data && w > 0 && w <= max_w && h > 0 && h <= max_h) {
+          out = png_to_lv(buf->data, static_cast<uint16_t>(w),
+                          static_cast<uint16_t>(h), dst, cap, dsc);
+        }
+        lv_draw_buf_destroy(buf);
       }
-      lv_draw_buf_destroy(buf);
     }
   }
   ui::port::theme_tmp_free(src);
@@ -421,8 +461,8 @@ const lv_image_dsc_t* img_load(const char* id, const char* file,
       if (buf->data && w > 0 && w <= max_w && h > 0 && h <= max_h) {
         uint8_t* dst = ui::port::theme_asset_alloc(need);
         if (dst &&
-            png_to_rgb565a8(buf->data, static_cast<uint16_t>(w),
-                            static_cast<uint16_t>(h), dst, need, dsc)) {
+            png_to_lv(buf->data, static_cast<uint16_t>(w),
+                      static_cast<uint16_t>(h), dst, need, dsc)) {
           slot->used = true;
           ret = dsc;
         }
@@ -455,6 +495,9 @@ const lv_font_t* font_load(const char* id, const char* file) {
 }
 
 void reset() {
+  // スキン画像の 9-slice レンダーキャッシュ: SkinImg* が全て
+  // 無効になるので先に破棄 (components.cpp の ui::c::skin_cache_clear)。
+  ui::c::skin_cache_clear();
   // binfont フォントを解放してから dsc プールを空にする
   // (呼び出し側がこの直後に ui::port::theme_assets_reset() する)。
   for (auto& s : s_fonts) {
@@ -471,3 +514,154 @@ void reset() {
 }
 
 }  // namespace theme_res
+
+#ifdef ESP_PLATFORM
+namespace {
+
+// IHDR からサイズだけ拾う (検証は png_stream_decode 側がやる)。
+uint32_t png_be32(const uint8_t* p) {
+  return (static_cast<uint32_t>(p[0]) << 24) |
+         (static_cast<uint32_t>(p[1]) << 16) |
+         (static_cast<uint32_t>(p[2]) << 8) | p[3];
+}
+
+SemaphoreHandle_t s_pngtest_done = nullptr;
+
+// 出力検証用の軽量ハッシュ (FNV-1a 32bit)。PC 側 (tools 等) と同じ式で
+// 比較できるようにしておく — assets の本体と lodepng 参照が両方ない環境でも
+// デコード正しさを確認するため。
+uint32_t fnv1a(const uint8_t* p, uint32_t n) {
+  uint32_t h = 2166136261u;
+  for (uint32_t i = 0; i < n; ++i) {
+    h ^= p[i];
+    h *= 16777619u;
+  }
+  return h;
+}
+
+void png_selftest_run(void*) {
+  struct Case {
+    const char* theme;
+    const char* file;
+  };
+  static const Case kCases[] = {
+      {"cosmos", "bg.png"},        {"cosmos", "timer_bg.png"},
+      {"cosmos", "alert_bg.png"},  {"cosmos", "face_chara.png"},
+      {"cute", "bg.png"},          {"cute", "card.png"},
+      {"cute", "list_group.png"},  {"cyber", "bg.png"},
+      {"cyber", "card.png"},       {"cyber", "list_group.png"},
+  };
+  for (const Case& c : kCases) {
+    uint32_t sz = 0;
+    if (!ui::port::theme_entry_stat(c.theme, c.file, &sz) || sz == 0 ||
+        sz > theme_res::kPngSrcMax) {
+      ESP_LOGW(kTag, "pngtest: %s/%s missing", c.theme, c.file);
+      continue;
+    }
+    uint8_t* src = static_cast<uint8_t*>(
+        heap_caps_malloc(sz, MALLOC_CAP_SPIRAM));
+    if (!src || !ui::port::theme_entry_read(c.theme, c.file, src, sz)) {
+      heap_caps_free(src);
+      ESP_LOGW(kTag, "pngtest: %s/%s read fail", c.theme, c.file);
+      continue;
+    }
+    if (sz < 33 || std::memcmp(src + 12, "IHDR", 4) != 0) {
+      heap_caps_free(src);
+      ESP_LOGW(kTag, "pngtest: %s/%s not png", c.theme, c.file);
+      continue;
+    }
+    const uint16_t w = static_cast<uint16_t>(png_be32(src + 16));
+    const uint16_t h = static_cast<uint16_t>(png_be32(src + 20));
+    const uint32_t cap = 12u + static_cast<uint32_t>(w) * h * 3u;
+    uint8_t* buf_a =
+        static_cast<uint8_t*>(heap_caps_malloc(cap, MALLOC_CAP_SPIRAM));
+    uint8_t* buf_b =
+        static_cast<uint8_t*>(heap_caps_malloc(cap, MALLOC_CAP_SPIRAM));
+    if (!buf_a || !buf_b) {
+      heap_caps_free(src);
+      heap_caps_free(buf_a);
+      heap_caps_free(buf_b);
+      ESP_LOGW(kTag, "pngtest: %s/%s alloc fail", c.theme, c.file);
+      continue;
+    }
+
+    lv_image_dsc_t dsc_a = {}, dsc_b = {};
+    int64_t t0 = esp_timer_get_time();
+    const uint32_t ra =
+        ui::png_stream_decode(src, sz, w, h, buf_a, cap, &dsc_a);
+    const uint32_t t_stream =
+        static_cast<uint32_t>((esp_timer_get_time() - t0) / 1000);
+
+    // 参照: lodepng 全体デコード + png_to_lv。
+    t0 = esp_timer_get_time();
+    uint8_t* raw = nullptr;
+    unsigned lw = 0, lh = 0;
+    const unsigned lerr = lodepng_decode32(&raw, &lw, &lh, src, sz);
+    uint32_t rb = 0;
+    if (lerr == 0 && raw) {
+      lv_draw_buf_t* lbuf = reinterpret_cast<lv_draw_buf_t*>(raw);
+      if (lbuf->data) {
+        rb = theme_res::png_to_lv(lbuf->data, static_cast<uint16_t>(lw),
+                                  static_cast<uint16_t>(lh), buf_b, cap,
+                                  &dsc_b);
+      }
+      lv_draw_buf_destroy(lbuf);
+    }
+    const uint32_t t_lodepng =
+        static_cast<uint32_t>((esp_timer_get_time() - t0) / 1000);
+
+    const char* verdict = "OK";
+    uint32_t diff_at = 0;
+    if (rb == 0) {
+      verdict = "lodepng_fail";
+    } else if (ra == 0) {
+      verdict = "stream_fail";
+    } else if (ra != rb || dsc_a.header.cf != dsc_b.header.cf ||
+               dsc_a.header.w != dsc_b.header.w ||
+               dsc_a.header.h != dsc_b.header.h ||
+               dsc_a.header.stride != dsc_b.header.stride ||
+               dsc_a.data_size != dsc_b.data_size) {
+      verdict = "MISMATCH header";
+    } else {
+      for (uint32_t i = 0; i < dsc_a.data_size; ++i) {
+        if (buf_a[12 + i] != buf_b[12 + i]) {
+          verdict = "MISMATCH";
+          diff_at = i;
+          break;
+        }
+      }
+    }
+    ESP_LOGI(kTag,
+             "pngtest: %s/%s %ux%u cf=%u stream=%lums lodepng=%lums "
+             "src=%08lx crc=%08lx %s%s%lu",
+             c.theme, c.file, w, h, static_cast<unsigned>(dsc_a.header.cf),
+             (unsigned long)t_stream, (unsigned long)t_lodepng,
+             (unsigned long)fnv1a(src, sz),
+             ra ? (unsigned long)fnv1a(buf_a + 12, dsc_a.data_size) : 0u,
+             verdict, diff_at ? " at byte " : "", (unsigned long)diff_at);
+    heap_caps_free(src);
+    heap_caps_free(buf_a);
+    heap_caps_free(buf_b);
+  }
+  xSemaphoreGive(s_pngtest_done);
+}
+
+}  // namespace
+
+namespace ui {
+
+// シリアル 'p': png_stream_decode と lodepng+png_to_lv の出力を
+// 比較するセルフテスト。LVGL タスク上で実行 (lv_malloc 等を使うため)。
+void png_selftest() {
+  if (!s_pngtest_done) s_pngtest_done = xSemaphoreCreateBinary();
+  if (!s_pngtest_done || !lvgl_port_lock(1000)) {
+    ESP_LOGW(kTag, "pngtest: lvgl lock busy");
+    return;
+  }
+  lv_async_call(png_selftest_run, nullptr);
+  lvgl_port_unlock();
+  xSemaphoreTake(s_pngtest_done, pdMS_TO_TICKS(60000));
+}
+
+}  // namespace ui
+#endif  // ESP_PLATFORM

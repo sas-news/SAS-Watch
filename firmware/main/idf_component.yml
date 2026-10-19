@@ -4,8 +4,18 @@ dependencies:
   idf: ">=5.5.0"
   waveshare/esp32_s3_touch_amoled_2_06:
     # v2 is the current board BSP line; review a future major with both IDF lines and hardware.
+    # ローカルパッチ (vendor/): SPI ISR LEVEL3 + core1 固定。vendor/README.md 参照。
     version: "^2.0.0"
     public: true
+    override_path: "../vendor/esp32_s3_touch_amoled_2_06"
+  espressif/esp_lvgl_port:
+    # BSP 経由の推移依存。ローカルパッチ (vendor/): 専用タッチ読取タスク + シャドウキャッシュ。
+    version: "^2.9.0"
+    override_path: "../vendor/esp_lvgl_port"
+  waveshare/esp_lcd_sh8601:
+    # BSP 経由の推移依存。ローカルパッチ (vendor/): QSPI pclk 80MHz + PRIV_REQUIRES esp_timer。
+    version: "^2.0.0"
+    override_path: "../vendor/esp_lcd_sh8601"
   lvgl/lvgl:
     version: "9.5.0"
     public: true

@@ -129,4 +129,8 @@ void set_dot(lv_obj_t* dot, lv_color_t col);
 // 共通コンポーネント外のオブジェクトにも使える。
 bool skin_obj(lv_obj_t* o, watch::ThemeSkinPartId part);
 
+// 9-slice レンダーキャッシュを全破棄する。スキン画像がアンロード
+// されるタイミング (theme_res::reset) で必ず呼ぶ。LVGL タスク専用。
+void skin_cache_clear();
+
 }  // namespace ui::c

@@ -128,7 +128,7 @@ flowchart TD
 
 | タスク | Core | 優先度 | 役割 |
 |---|---|---|---|
-| `lvgl` (esp_lvgl_portが作る) | 1 | 4 | 描画・タッチ |
+| `lvgl` (esp_lvgl_portが作る) | 1 (固定。QSPI の SPI ISR も core1) | 4 | 描画・タッチ |
 | `app` | 1 | 5 | Actionキュー処理、Feature、Store更新 |
 | `sensor` | 0 | 3 | I2C（PMIC/RTC/IMU）、ボタン |
 | `ble` (NimBLE host) | 0 | – | BLE |
@@ -323,9 +323,8 @@ struct ScreenDescriptor {
 
 | 項目 | 初期値 | 理由 |
 |---|---|---|
-| 色 | RGB565、`swap_bytes`はBSP設定に従う | |
-| バッファ | BSP初期値（20行・PSRAM）で動かしてから、**410×100行×2枚・内部RAM**（約164KB）と比較 | 内部RAMの方が速いがRAMを食う。フル画面（約402KB）は内部RAMに入らない |
-| 代案 | フル画面2枚をPSRAMに | アニメが多いキャラThemeで試す【要実機：fps比較】 |
+| 色 | RGB565、バイトスワップはフラッシュ時のコピーで行う | |
+| バッファ | **決定 (2026-10-19)**: 全面 1 枚 (410×502、約402KB) を PSRAM に置き、内蔵 SRAM の 8.2KB バウンスバッファ 2 枚経由で QSPI に送る | 小さい内蔵バッファ (10 行×2) では 1 フレームが ~50 回の描画パスに割れて遅かった。計測と経緯は docs/perf.md |
 | テアリング | GPIO13(TE)を使うか検討 | BSPは未使用。スクロールでチラつくなら導入 |
 | 更新周期 | `LV_DEF_REFR_PERIOD` 16ms→**通常33ms** | 30fpsで十分。電池優先 |
 | 黒背景 | **基本テーマは黒背景** | AMOLEDは黒が光らない＝電池が持つ |

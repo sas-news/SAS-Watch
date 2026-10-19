@@ -58,7 +58,7 @@ dependencies:
       require: private
       version: '>=4.4.2'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.0.1~1
   espressif/esp_lcd_touch:
@@ -82,22 +82,19 @@ dependencies:
       require: private
       version: '>=5.2'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.1.1
   espressif/esp_lvgl_port:
-    component_hash: d3c020b45c3dfc0d1706a83b63a1c34a6eb444a6e935f9afff79f92b7b94dcef
     dependencies:
     - name: idf
-      require: private
       version: '>=5.2'
     - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: public
+      public: true
       version: '>=8,<10'
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/vendor/esp_lvgl_port
+      type: local
     version: 2.9.0
   espressif/usb:
     component_hash: 1d90d7c7b0682dbfcc36f47cf5acf224a5cfb850a62f39cd86d3159cfec12a81
@@ -138,60 +135,43 @@ dependencies:
       type: service
     version: 9.5.0
   waveshare/esp32_s3_touch_amoled_2_06:
-    component_hash: a68c5c26aabb00634f46834116a62413f75f34d672a8b3c639b8f8253160ec68
     dependencies:
-    - name: waveshare/esp_lcd_sh8601
-      registry_url: https://components.espressif.com
-      require: private
-      version: '*'
     - name: espressif/esp_codec_dev
-      registry_url: https://components.espressif.com
-      require: public
+      public: true
       version: ~1.5
     - name: espressif/esp_lcd_panel_io_additions
-      registry_url: https://components.espressif.com
-      require: private
       version: ^1
     - name: espressif/esp_lcd_touch_ft5x06
-      registry_url: https://components.espressif.com
-      require: private
       version: '*'
     - name: espressif/esp_lvgl_port
-      registry_url: https://components.espressif.com
-      require: public
+      public: true
       version: ^2
     - name: idf
-      require: private
       version: '>=5.3'
     - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: private
       version: '>=8,<10'
     - name: espressif/usb
-      registry_url: https://components.espressif.com
-      require: public
+      public: true
       rules:
       - if: idf_version >=6.0
       version: ^1.0.0
+    - name: waveshare/esp_lcd_sh8601
+      version: '*'
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/vendor/esp32_s3_touch_amoled_2_06
+      type: local
     targets:
     - esp32s3
     version: 2.0.0
   waveshare/esp_lcd_sh8601:
-    component_hash: af135de8ee4a036bcff17bde98e6a96e02202d388fecf6004363e3d3e047943a
     dependencies:
     - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
       version: 0.*
     - name: idf
-      require: private
       version: '>=5.3'
     source:
-      registry_url: https://components.espressif.com
-      type: service
+      path: /home/sasnews/Desktop/ai-space/SAS-Watch/firmware/vendor/esp_lcd_sh8601
+      type: local
     version: 2.0.0
   waveshare/pcf85063a:
     component_hash: 61a541e6d9db63e3a96cacb906fc8d455e2341d700a63021fcfbacd7a3a7e081
@@ -216,13 +196,15 @@ dependencies:
 direct_dependencies:
 - espressif/button
 - espressif/esp_codec_dev
+- espressif/esp_lvgl_port
 - espressif/usb
 - idf
 - joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_amoled_2_06
+- waveshare/esp_lcd_sh8601
 - waveshare/pcf85063a
 - waveshare/qmi8658
-manifest_hash: 34a3b9dca8abf01b890625ad7005eba45a391afaaf6fcfe1e8412786d5bb6163
+manifest_hash: 4a6bc82dcdd8bc71e19a03082f45abbe07b2217ed168cbb2cc5f3660c49031af
 target: esp32s3
 version: 2.0.0

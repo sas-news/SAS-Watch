@@ -229,6 +229,215 @@ void skin_draw_9(lv_layer_t* layer, const theme_res::SkinImg* im,
   }
 }
 
+// ---- スキン 9-slice レンダーキャッシュ ----
+// 9-slice は領域ごとの伸縮描画で LVGL のソフト変換パスを毎フレーム通り
+// 重い (実機 cute の settings で全画面 ~250ms の ~65%)。スキン画像と
+// 表示サイズが同じなら見た目は不変なので (SkinImg*, w, h) をキーに
+// RGB565A8 の完成形を 1 回だけ作り、以後は scale=1 のブリットで描く。
+// (cf は RGB565A8: 色面が RGB565 量子化のままなので往復変換で 1bit も
+//  ずれず、縁のアンチエイリアス α も保てる)。
+//   - 最大 16 エントリ・合計 512KB (アプリ一覧の bake 用 ~850KB と
+//     PSRAM を取り合うので控えめ)。超過は、直近フレームで描いていない
+//     ものを古い順 (LRU) に追い出す。表示中のものしか無ければ諦める。
+//   - 構築は描画イベントの中では行わない: ミス時は従来通り伸縮描画し
+//     つつ lv_async_call で非描画タイミングに構築を予約する (DRAW
+//     イベント中に別の canvas/layer を使って描画しないため)。
+//   - テーマ差し替えで SkinImg* が無効になるため theme_res::reset()
+//     から ui::c::skin_cache_clear() で全破棄する。
+
+constexpr int kSkinCacheMax = 16;
+constexpr uint32_t kSkinCacheBytes = 512 * 1024;
+// これより大きい見え面は budget に入らないのでキャッシュしない。
+// (RGB565A8 は 3B/px)
+constexpr int32_t kSkinCacheMaxPx = kSkinCacheBytes / 3;
+
+struct SkinCacheEnt {
+  const theme_res::SkinImg* im = nullptr;
+  lv_draw_buf_t* buf = nullptr;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  uint32_t age = 0;
+  uint32_t frame = 0;  // 最後に描いたフレーム (s_frame)
+};
+SkinCacheEnt s_scache[kSkinCacheMax];
+uint32_t s_scache_age = 0;
+
+// 構築予約 (LVGL タスク内でのみ触る)。
+struct SkinCacheReq {
+  const theme_res::SkinImg* im;
+  uint16_t w;
+  uint16_t h;
+};
+SkinCacheReq s_screq[kSkinCacheMax];
+int s_screq_n = 0;
+bool s_scbuild_sched = false;
+
+// 描画フレーム番号 (LV_EVENT_RENDER_START で進める)。直近のフレームで
+// 描いたエントリは表示中とみなし、追い出さない。追い出すと、収まり
+// きらない画面で「構築→追い出し→再描画でミス→構築」が回り続けて
+// LVGL タスクを占有する (実機の cute 設定画面で発生)。
+uint32_t s_frame = 0;
+bool s_frame_hooked = false;
+
+void frame_cb(lv_event_t*) { ++s_frame; }
+
+// need バイト分を置けるよう、直近フレームで使っていない古いエントリから
+// 破棄する。表示中のものを消さないと収まらないなら false (この要求は諦める)。
+bool scache_make_room(uint32_t need) {
+  for (;;) {
+    uint32_t total = 0;
+    int n = 0;
+    int oldest = -1;
+    for (int i = 0; i < kSkinCacheMax; ++i) {
+      if (!s_scache[i].buf) continue;
+      ++n;
+      total += s_scache[i].buf->data_size;
+      if (s_scache[i].frame != s_frame &&
+          (oldest < 0 || s_scache[i].age < s_scache[oldest].age)) {
+        oldest = i;
+      }
+    }
+    if (total + need <= kSkinCacheBytes && n < kSkinCacheMax) return true;
+    if (oldest < 0) return false;
+    lv_draw_buf_destroy(s_scache[oldest].buf);
+    s_scache[oldest] = SkinCacheEnt{};
+  }
+}
+
+void scache_put(const theme_res::SkinImg* im, uint16_t w, uint16_t h,
+                lv_draw_buf_t* buf) {
+  for (auto& e : s_scache) {
+    if (!e.buf) {
+      e.im = im;
+      e.buf = buf;
+      e.w = w;
+      e.h = h;
+      e.age = ++s_scache_age;
+      e.frame = s_frame;  // 要求元は直近フレームで表示されていた
+      return;
+    }
+  }
+  lv_draw_buf_destroy(buf);  // 空き枠が無い (make_room 済みなので通常来ない)
+}
+
+void skin_cache_build(void*) {
+  s_scbuild_sched = false;
+  // バッチ中だけ使うオフスクリーン canvas。sys レイヤの非表示の子にする
+  // (画面切替で消えず、描画にも出ない)。parent=nullptr だと「画面」として
+  // 作られ、削除後の layout 更新が display=NULL を踏んで落ちた (実機)。
+  lv_obj_t* canvas = lv_canvas_create(lv_layer_sys());
+  if (!canvas) {
+    s_screq_n = 0;
+    return;
+  }
+  lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
+  bool built = false;
+  while (s_screq_n > 0) {
+    const SkinCacheReq r = s_screq[--s_screq_n];
+    // 予約中に別経路で作られたものは飛ばす。
+    bool have = false;
+    for (auto& e : s_scache) {
+      if (e.buf && e.im == r.im && e.w == r.w && e.h == r.h) {
+        e.age = ++s_scache_age;
+        have = true;
+        break;
+      }
+    }
+    if (have) continue;
+    if (!scache_make_room(static_cast<uint32_t>(r.w) * r.h * 3u + 64u)) {
+      continue;
+    }
+    // 合成は ARGB8888 で行う (LVGL の sw blend は RGB565A8 を描画先に
+    // すると α 面を書かない)。結果を RGB565A8 に詰め直して保持する。
+    lv_draw_buf_t* tmp =
+        lv_draw_buf_create(r.w, r.h, LV_COLOR_FORMAT_ARGB8888, 0);
+    if (!tmp) continue;
+    lv_draw_buf_t* buf =
+        lv_draw_buf_create(r.w, r.h, LV_COLOR_FORMAT_RGB565A8, 0);
+    if (!buf) {
+      lv_draw_buf_destroy(tmp);
+      continue;
+    }
+    lv_draw_buf_clear(tmp, nullptr);
+    lv_canvas_set_draw_buf(canvas, tmp);
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    const lv_area_t a = {0, 0, static_cast<lv_coord_t>(r.w - 1),
+                         static_cast<lv_coord_t>(r.h - 1)};
+    skin_draw_9(&layer, r.im, &a);
+    lv_canvas_finish_layer(canvas, &layer);
+    const uint32_t cstride = buf->header.stride;
+    uint8_t* alpha = buf->data + cstride * r.h;
+    for (uint16_t y = 0; y < r.h; ++y) {
+      const uint8_t* s = tmp->data + tmp->header.stride * y;
+      uint16_t* c = reinterpret_cast<uint16_t*>(buf->data + cstride * y);
+      uint8_t* al = alpha + (cstride / 2) * y;
+      for (uint16_t x = 0; x < r.w; ++x) {
+        const uint8_t b = s[x * 4 + 0], g = s[x * 4 + 1], rr = s[x * 4 + 2];
+        c[x] = static_cast<uint16_t>(((rr & 0xF8) << 8) | ((g & 0xFC) << 3) |
+                                     (b >> 3));
+        al[x] = s[x * 4 + 3];
+      }
+    }
+    lv_draw_buf_destroy(tmp);
+    scache_put(r.im, r.w, r.h, buf);
+    built = true;
+  }
+  lv_obj_delete(canvas);
+  // 一度のバッチでまとめて再描画させる (キャッシュされたブリットに
+  // 切り替わるので次フレームから速くなる)。
+  if (built) lv_obj_invalidate(lv_screen_active());
+}
+
+void skin_cache_request(const theme_res::SkinImg* im, int32_t w, int32_t h) {
+  if (w <= 0 || h <= 0 || w * h > kSkinCacheMaxPx) return;
+  for (int i = 0; i < s_screq_n; ++i) {
+    if (s_screq[i].im == im && s_screq[i].w == w && s_screq[i].h == h) {
+      return;
+    }
+  }
+  if (s_screq_n >= kSkinCacheMax) return;  // 予約が一杯 → 次のミスで再試行
+  s_screq[s_screq_n++] = {im, static_cast<uint16_t>(w),
+                        static_cast<uint16_t>(h)};
+  if (!s_scbuild_sched) {
+    s_scbuild_sched = true;
+    lv_async_call(skin_cache_build, nullptr);
+  }
+}
+
+// キャッシュ済みの完成形を area に描く。無ければ構築を予約して false。
+bool skin_blit_cached(lv_layer_t* layer, const theme_res::SkinImg* im,
+                      const lv_area_t* a) {
+  if (!s_frame_hooked) {
+    lv_display_add_event_cb(lv_display_get_default(), frame_cb,
+                            LV_EVENT_RENDER_START, nullptr);
+    s_frame_hooked = true;
+  }
+  const int32_t w = lv_area_get_width(a);
+  const int32_t h = lv_area_get_height(a);
+  for (auto& e : s_scache) {
+    if (e.buf && e.im == im && e.w == w && e.h == h) {
+      e.age = ++s_scache_age;
+      e.frame = s_frame;
+      lv_draw_image_dsc_t dsc;
+      lv_draw_image_dsc_init(&dsc);
+      dsc.src = e.buf;
+      lv_draw_image(layer, &dsc, a);
+      return true;
+    }
+  }
+  skin_cache_request(im, w, h);
+  return false;
+}
+
+// キャッシュ優先の 9-slice 描画。
+void skin_draw_9_cached(lv_layer_t* layer, const theme_res::SkinImg* im,
+                        const lv_area_t* a) {
+  if (!skin_blit_cached(layer, im, a)) {
+    skin_draw_9(layer, im, a);
+  }
+}
+
 // event user_data = part | (mode << 8)。mode 0=全面 / 1=下端の帯。
 void* skin_ud(int part, int mode) {
   return reinterpret_cast<void*>(
@@ -256,7 +465,7 @@ void skin_draw_cb(lv_event_t* e) {
                           : 4;
     a.y1 = a.y2 - (s - 1);
   }
-  skin_draw_9(lv_event_get_layer(e), im, &a);
+  skin_draw_9_cached(lv_event_get_layer(e), im, &a);
 }
 
 // ラベル (kLabelTag) の文字色を再帰で塗り替える。
@@ -339,7 +548,7 @@ void skin_switch_draw_cb(lv_event_t* e) {
   if (const theme_res::SkinSet* tr = t.skin[watch::kSkinSwitchTrack]) {
     const theme_res::SkinImg* im =
         chk && tr->img[2] ? tr->img[2] : tr->img[0];
-    if (im) skin_draw_9(layer, im, &a);
+    if (im) skin_draw_9_cached(layer, im, &a);
   }
   if (const theme_res::SkinSet* kn = t.skin[watch::kSkinSwitchKnob]) {
     const theme_res::SkinImg* im =
@@ -354,7 +563,7 @@ void skin_switch_draw_cb(lv_event_t* e) {
       k.x2 += lv_obj_get_style_pad_right(o, LV_PART_KNOB);
       k.y1 -= lv_obj_get_style_pad_top(o, LV_PART_KNOB);
       k.y2 += lv_obj_get_style_pad_bottom(o, LV_PART_KNOB);
-      skin_draw_9(layer, im, &k);
+      skin_draw_9_cached(layer, im, &k);
     }
   }
 }
@@ -370,7 +579,7 @@ void skin_slider_draw_cb(lv_event_t* e) {
   lv_obj_get_coords(o, &a);
 
   if (const theme_res::SkinSet* tr = t.skin[watch::kSkinSliderTrack]) {
-    if (tr->img[0]) skin_draw_9(layer, tr->img[0], &a);
+    if (tr->img[0]) skin_draw_9_cached(layer, tr->img[0], &a);
   }
 
   // indic_area = coords − MAIN pad。
@@ -391,6 +600,8 @@ void skin_slider_draw_cb(lv_event_t* e) {
   if (const theme_res::SkinSet* fl = t.skin[watch::kSkinSliderFill]) {
     const theme_res::SkinImg* im =
         pressed && fl->img[1] ? fl->img[1] : fl->img[0];
+    // fill は値で幅が変わるのでキャッシュしない (幅ごとにエントリが
+    // 増えて LRU を押し出すだけ)。直接 9-slice で描く。
     if (im && pos > 0) skin_draw_9(layer, im, &fill);
   }
   if (const theme_res::SkinSet* kn = t.skin[watch::kSkinSliderKnob]) {
@@ -408,12 +619,22 @@ void skin_slider_draw_cb(lv_event_t* e) {
       k.x2 += lv_obj_get_style_pad_right(o, LV_PART_KNOB);
       k.y1 -= lv_obj_get_style_pad_top(o, LV_PART_KNOB);
       k.y2 += lv_obj_get_style_pad_bottom(o, LV_PART_KNOB);
-      skin_draw_9(layer, im, &k);
+      skin_draw_9_cached(layer, im, &k);
     }
   }
 }
 
 }  // namespace
+
+// theme_res::reset() から呼ぶ: SkinImg* が無効になるので全エントリ破棄。
+// LVGL タスク内 (theme_apply 経路) 専用。
+void skin_cache_clear() {
+  for (auto& e : s_scache) {
+    if (e.buf) lv_draw_buf_destroy(e.buf);
+    e = SkinCacheEnt{};
+  }
+  s_screq_n = 0;
+}
 
 lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
   const Theme& t = theme();

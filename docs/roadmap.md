@@ -1,6 +1,7 @@
-# roadmap.md — 残タスクの実施計画 (2026-10-12 時点・引き継ぎ用)
+# roadmap.md — 残タスクの実施計画 (引き継ぎ用。2026-10-19 更新)
 
-`docs/handoff.md` の残タスク全部について**方針はすでに決めてある**。
+残タスク全部について**方針はすでに決めてある** (元は 2026-10-12 の handoff の残タスク一覧。
+旧 handoff は `docs/archive/handoff-2026-10-15.md`)。
 どのモデルが引き継いでも、ここに書いた方針・受け入れ条件どおりに進めればよい。
 方針を変えたいときは、理由をここに追記してから変えること。
 
@@ -20,8 +21,8 @@
   - sim (デザイン確認の主手段): `cmake -S sim -B sim/build && cmake --build sim/build -j && ./sim/build/snapshot --out sim/screenshots`
     で全画面の PNG が出る。**デザイン系の変更は、変更前後のスクショを並べて確認する**。
   - firmware: `cd firmware && IDF_CCACHE_ENABLE=1 idf.py build`
-    (ESP-IDF は `/home/sasnews/esp/esp-idf`)。書き込みは handoff.md「実機操作での失敗と教訓」の
-    esptool 手順 (アプリは 0x20000)。
+    (ESP-IDF は `/home/sasnews/esp/esp-idf`)。書き込みは firmware/README.md「書き込み・ログ」の
+    esptool 手順 (アプリは 0x20000)。描画性能は `b` ベンチ (docs/perf.md)。
   - android: `cd android && ./gradlew :protocol:test :agent:test :app:assembleDebug :app:lint`
     (JAVA_HOME = mise の temurin-17、SDK = `~/android-sdk`)。
     アプリ側のユニットテストは `:app:testDebugUnitTest`。
@@ -128,6 +129,7 @@
   - スクロールリストの `bake_scroll` は今のまま。
 - 計測: T0-3 の `perf:` ログで、主要画面の初回 render ms を変更前と変更後で表にして
   handoff.md に記録する (ユーザーに書き込みと操作を依頼)。
+  → T29 の `b` ベンチ (docs/perf.md) に置き換え。
 - 受け入れ条件: 主要画面の初回 render が変更前より短い。見た目の劣化はスクショで確認する。
 
 状態: 完了 2a09e5f
@@ -142,7 +144,7 @@
   - ヘッダはどの画面も同じ形にする (タイトル左寄せ・戻るピル・右に mascot)。
 - 監査結果 (違反一覧) は sim スクショ付きでユーザーに見せ、承認後に直す。
 
-状態: T16 に吸収 (監査結果は docs/t6-audit.md)
+状態: T16 に吸収 (監査結果は docs/archive/t6-audit.md)
 
 ## T7. アプリアイコン (E) — 難度 S
 
@@ -270,7 +272,7 @@
   - リストは縦スクロールだけ。確定は行のタップ。破壊的な操作は確認ダイアログを経る。
   - 「戻る」ピルとハードの PWR は常に同じ動作をする。
 - 全画面をこのルールで監査し (コードと sim で)、違反を一覧にしてから直す。
-  監査結果は handoff.md に残す。
+  監査結果は handoff.md に残す (現在は docs/archive/handoff-2026-10-15.md の T14 節)。
 
 状態: 完了 7837edd
 
@@ -310,7 +312,7 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
     `‐ – — ・ … 「」` など UI でよく使う記号も含める。
   - 重なりは行・カードの高さを内容依存 (SIZE_CONTENT + min_height) にして直す。
     ぎりぎり固定の高さはやめる。-14px の重ね詰めはやめて、行間で調整する。
-  - T6 監査 (docs/t6-audit.md) の「確実な違反」のうち、数字の色に関するもの以外も直す。
+  - T6 監査 (docs/archive/t6-audit.md) の「確実な違反」のうち、数字の色に関するもの以外も直す。
 - 受け入れ条件: 全テーマ × 全画面で、重なり 0・欠けグリフ 0・safe_area 0。
   変更前後のスクショを並べてユーザーに見せる。
 
@@ -569,7 +571,7 @@ I2S DMA は内蔵 RAM 不足のまま見込み)
 実機でユーザーが見つけた4件。個別に切り分けてよい。
 
 - a. **メニューの枠の角が黒く塗りつぶされる** (角丸の外側が黒い)。
-  候補: パネル物理角R ≈100px (handoff.md) に対する描画領域のクリップ
+  候補: パネル物理角R ≈100px (handoff.md の実機確定値) に対する描画領域のクリップ
   不足、`skin_base` の scrim/bg が角まで覆う、`clip_corner` 未指定の
   親コンテナ (shell.cpp / components.cpp の card/group)。
 - b. **スクロールの表示領域が途中で切れて下まで表示されない**。
@@ -696,16 +698,39 @@ I2S DMA は内蔵 RAM 不足のまま見込み)
 
 状態: 未着手
 
+## T29. 時計の動作が重い (ユーザー報告 2026-10-19) — 難度 M (実機)
+
+- 計測手段を先に作った: シリアル `b` で主要 6 画面の全面再描画とスクロールの ms を出す
+  (`ui::perf_bench`、docs/perf.md)。テーマ切替は `t`。
+- 原因と対処 (詳細と数値は docs/perf.md):
+  1. 描画バッファが内蔵 SRAM の 10 行 ×2 で、1 フレームが ~50 パスに割れていた →
+     PSRAM の全面バッファ 1 枚 + 内蔵 8.2KB バウンス 2 枚で転送 (`esp_display.cpp`)。
+     standard で全面 85〜112ms → 40〜68ms。内蔵 SRAM は起動時に +8KB。
+  2. 9-slice スキンの伸縮描画が毎フレーム LVGL のソフト変換を通っていた →
+     (画像, サイズ) ごとの合成結果をキャッシュ (512KB)。cute/cyber の設定・タイマーで 2 割減。
+  3. 副作用: 全面 PNG を lodepng で展開すると ~1.65MB 要り、cosmos の背景が消えた →
+     行ストリーミングの PNG デコーダ (`png_stream.cpp`, ROM tinfl, 作業 ~50KB)。
+     不透明な画像は RGB565 で持つ (毎フレームの α ブレンドが不要)。
+- 実機ベンチで見つけて直した潜在バグ:
+  - spi_bus_lock のマルチコア競合で UI が凍る (IDFGH-17166) → LVGL タスクと SPI ISR を core1 固定。
+  - 旧画面の削除タイマーが遷移アニメ完了より先に走り、`prev_scr` が解放済みを指して落ちる → 延期。
+  - shell のイベントリングが ClockTick で埋まりうる → ClockTick は未処理 1 件に畳む。
+- `managed_components/` に置かれていた性能パッチ (SPI 割り込みレベル、タッチ読取タスク、QSPI 80MHz) を
+  `firmware/vendor/` に移して追跡するようにした (CI と clean clone では消えていた)。
+- 残り: cute/cyber の設定・タイマーはスキン無しの 2.4 倍 (スライダーの塗りと大きいカードが
+  キャッシュに載らない)。設定画面表示中の内蔵 SRAM の空きが数百バイト。
+
+状態: 完了
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。
 
-現状サマリ (2026-10-15): T23/T26 は完了 (cute/cyber で実機確認)。
-T18 は I2S DMA の内蔵 RAM 不足で保留。T24 は未着手 (app 空き 8%)。
-T25 は先送り。T22 はユーザーの判断待ち。
-テーマ適用直後に `BLE_INIT: Malloc failed` が1回出る件は T26 の観察事項。
+現状サマリ (2026-10-19): T27 完了、T29 (動作が重い) 完了 (docs/perf.md)。
+T18 は保留 (T29 で内蔵 SRAM が起動時に 8KB 増えたので再挑戦の余地あり)。T24 は未着手 (app 空き 8%)。
+T25 は先送り。T22 はユーザーの判断待ち。T28 は未着手。
 
-次のおすすめ順: **T27 → T24 → T18 → T28 → T25 → T22**。
+次のおすすめ順: **T24 → T18 → T28 → T25 → T22**。
 
 ## 対象外 / 判断済み
 

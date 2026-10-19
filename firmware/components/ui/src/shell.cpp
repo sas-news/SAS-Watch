@@ -67,16 +67,41 @@ void drain_events(void*);
 
 void bus_cb(const watch::Event& e, void*) {
   port::crit_enter();
+  // ClockTick は毎秒来るが、画面側は「今の時刻で描き直す」だけなので
+  // 未処理のものが 1 件あれば足りる。重ねて積むと、drain が遅れた間
+  // (lock 取得失敗で lv_async_call を積めなかった等) に 16 件のリングが
+  // Tick で埋まり、後続の ThemeChanged などが黙って捨てられうる。
+  bool dup_tick = false;
+  if (e.type == watch::EventType::ClockTick) {
+    for (uint8_t i = s_rt; i != s_rh; i = static_cast<uint8_t>((i + 1) % kRingCap)) {
+      if (s_ring[i].type == watch::EventType::ClockTick) {
+        dup_tick = true;
+        break;
+      }
+    }
+  }
   const uint8_t nx = static_cast<uint8_t>((s_rh + 1) % kRingCap);
-  if (nx != s_rt) {
+  bool dropped = false;
+  if (!dup_tick && nx != s_rt) {
     s_ring[s_rh] = e;
     s_rh = nx;
+  } else if (!dup_tick) {
+    dropped = true;
   }
   port::crit_exit();
+  // ログはクリティカルセクションの外で出す (portMUX 中のログは不可)。
+  if (dropped) {
+    char m[48];
+    std::snprintf(m, sizeof(m), "event ring full: dropped %d", (int)e.type);
+    watch::log_write(watch::LogLevel::Warn, "shell", m);
+  }
   // lv_async_call は lv_timer リストを触るので lock 下で登録する。
   if (port::lock(50)) {
     lv_async_call(drain_events, nullptr);
     port::unlock();
+  } else {
+    watch::log_write(watch::LogLevel::Warn, "shell",
+                     "event async defer fail");
   }
 }
 
@@ -102,6 +127,8 @@ void drain_events(void*) {
 // テーマ切替で即破棄するとき対象が重複しないよう引き算する)。
 lv_timer_t* s_del_timers[4] = {};
 
+void schedule_delete(lv_obj_t* old, uint32_t ms);
+
 void del_old_screen(lv_timer_t* t) {
   for (auto& s : s_del_timers) {
     if (s == t) {
@@ -110,9 +137,17 @@ void del_old_screen(lv_timer_t* t) {
     }
   }
   lv_obj_t* old = static_cast<lv_obj_t*>(lv_timer_get_user_data(t));
-  if (old && old != s_home && old != s_cur) {
-    lv_obj_delete(old);
+  if (!old || old == s_home || old == s_cur) return;
+  // 遷移アニメがまだ終わっていない (LVGL タスクが重い描画などで遅れると
+  // anim_ms+60 を過ぎても prev_scr/scr_to_load が残る) なら消さずに待つ。
+  // 先に消すと次の refr の lv_obj_update_layout(prev_scr) が解放済み画面を
+  // 踏んで LoadProhibited になる (実機の cute で発生)。
+  lv_display_t* d = lv_display_get_default();
+  if (d && (d->prev_scr == old || d->scr_to_load == old)) {
+    schedule_delete(old, 50);
+    return;
   }
+  lv_obj_delete(old);
 }
 
 void schedule_delete(lv_obj_t* old, uint32_t ms) {

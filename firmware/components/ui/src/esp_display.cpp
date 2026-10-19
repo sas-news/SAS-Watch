@@ -8,11 +8,17 @@
 //   lvgl_port_init → bsp_display_new → lvgl_port_add_disp
 //   → rounder (CO5300 は x/y が偶数境界必須) → bsp_touch_new
 //   → lvgl_port_add_touch → bsp_display_brightness_init
-// (BSP は add_disp_rgb を使うが QSPI では flush_ready が早すぎる
-//  ため非RGB経路の add_disp を使う — 下のコメント参照)
+//
+// フラッシュは port 標準ではなく bounce_flush_cb (下) で行う:
+// QSPI の SPI DMA は PSRAM を読めないので、LVGL 描画バッファを
+// 全面サイズで PSRAM に置き、flush 時に内蔵 SRAM の 8.2KB バウンス
+// バッファ 2 枚へ分割コピー + バイトスワップしながら送信する。
+// 送信完了 ISR がスロットセマフォを返すので、chunk i の DMA 転送中に
+// chunk i+1 のコピーが重なり、転送途中のバッファ上書きも起きない。
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
 
+#include "esp_attr.h"
 #include "esp_err.h"  // bsp/display.h が esp_err_t を自分では include しない
 #include "bsp/display.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
@@ -24,6 +30,9 @@
 #include "esp_lvgl_port.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
 
 #include <atomic>
@@ -67,9 +76,195 @@ static void rounder_event_cb(lv_event_t* e) {
   area->y2 = ((y2 >> 1) << 1) + 1;
 }
 
+// ---- バウンスバッファ・フラッシュ ----
+// LVGL 描画バッファは全面サイズで PSRAM (SPI DMA は PSRAM を読めない)。
+// flush 時に内蔵 SRAM のバウンスバッファ 2 枚へ行単位コピー + RGB565
+// バイトスワップし、draw_bitmap で分割送信する。旧構成 (内蔵 8.2KB
+// 描画バッファ 2 枚 + 未使用の sw_rotate バッファ 1 枚 = 24.6KB) より
+// 内蔵 SRAM の消費が 1/3 に減り、1 回のレンダリングで画面全体を
+// 描けるのでフラッシュ回数自体も大幅に減る。
+static constexpr size_t kBounceBytes = BSP_LCD_H_RES * 10 * 2;  // 8200B
+static uint8_t* s_bounce[2] = {};
+// 空きスロット数。take = バウンスバッファ確保、ISR の give = DMA 完了。
+static SemaphoreHandle_t s_bounce_free = nullptr;
+
+// esp_lcd_panel_io 色転送完了 ISR。1 draw_bitmap = 1 give。
+// (lvgl_port の on_color_trans_done を置き換える — port 版は
+//  flush_ready を転送ごとに呼ぶので多チャンク送信では使えない)
+static bool IRAM_ATTR bounce_trans_done_cb(esp_lcd_panel_io_handle_t,
+                                           esp_lcd_panel_io_event_data_t*,
+                                           void*) {
+  BaseType_t hp_task_woken = pdFALSE;
+  xSemaphoreGiveFromISR(s_bounce_free, &hp_task_woken);
+  return hp_task_woken == pdTRUE;
+}
+
+// slot 確保のタイムアウト。転送は 8.2KB/QSPI@80MHz で ~1ms。これを
+// 大きく超える待ち = 転送完了 ISR が来ない異常 (queue 失敗や転送
+// スタック)。無限待ちにすると LVGL タスクが mutex ごと凍るので
+// (実機で確認) ログを出してその flush の残りは捨てる。
+static constexpr TickType_t kSlotTimeout = pdMS_TO_TICKS(1000);
+
+// フリーズ切り分け用: flush 入出カウンタと段階。LVGL が flush 内で
+// 凍っているなら in != out、描画側 (render/dispatch) なら in == out。
+// stage: 0=slot待ち 1=コピー 2=draw_bitmap内 3=drain待ち。
+static volatile uint32_t s_flush_in = 0, s_flush_out = 0,
+                         s_flush_stage = 0;
+
+static void bounce_flush_cb(lv_display_t* disp, const lv_area_t* area,
+                            uint8_t* px_map) {
+  s_flush_in++;
+  s_flush_stage = 0;
+  const int32_t w = lv_area_get_width(area);
+  const int32_t h = lv_area_get_height(area);
+  // PARTIAL + LV_DRAW_BUF_STRIDE_ALIGN=1 → ソースは w*2 B/行 のパック。
+  const size_t row_bytes = static_cast<size_t>(w) * 2;
+  // CO5300 は y 開始/高さが偶数必須 (rounder が x1/y1 偶・x2/y2 奇に
+  // 丸めるので w/h は偶数)。チャンク行数も偶数に丸める。
+  int32_t rows = static_cast<int32_t>(kBounceBytes / row_bytes) & ~1;
+  if (rows < 2) rows = 2;
+  if (rows > h) rows = h;
+  const uint8_t* src = px_map;
+  int32_t y = 0;
+  int i = 0;
+  bool aborted = false;
+  while (y < h) {
+    const int32_t n = (h - y < rows) ? (h - y) : rows;
+    if (xSemaphoreTake(s_bounce_free, kSlotTimeout) != pdTRUE) {
+      ESP_LOGE(TAG, "bounce slot stall y=%ld/%ld int_free=%u", (long)y,
+               (long)h, heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+      aborted = true;
+      break;
+    }
+    s_flush_stage = 1;
+    uint8_t* buf = s_bounce[i & 1];
+    memcpy(buf, src + static_cast<size_t>(y) * row_bytes,
+           static_cast<size_t>(n) * row_bytes);
+    lv_draw_sw_rgb565_swap(buf, static_cast<uint32_t>(w * n));
+    s_flush_stage = 2;
+    const esp_err_t err =
+        esp_lcd_panel_draw_bitmap(s_panel, area->x1, area->y1 + y,
+                                  area->x2 + 1, area->y1 + y + n, buf);
+    if (err != ESP_OK) {
+      // CASET/RASET 失敗。色転送はキューされていないので slot は
+      // 自分で返す (tx_color 失敗は sh8601 が握り潰すのでここでは
+      // 検出できず、上の take タイムアウトで拾う)。
+      ESP_LOGE(TAG, "draw_bitmap failed: %s", esp_err_to_name(err));
+      xSemaphoreGive(s_bounce_free);
+      aborted = true;
+      break;
+    }
+    y += n;
+    i++;
+    s_flush_stage = 0;
+  }
+  if (!aborted) {
+    // 両スロットを取り切るまで待つ = 全 DMA 完了。バッファ解放。
+    s_flush_stage = 3;
+    for (int k = 0; k < 2; k++) {
+      if (xSemaphoreTake(s_bounce_free, kSlotTimeout) != pdTRUE) {
+        ESP_LOGE(TAG, "bounce drain stall int_free=%u",
+                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        break;
+      }
+    }
+    xSemaphoreGive(s_bounce_free);
+    xSemaphoreGive(s_bounce_free);
+  }
+  lv_display_flush_ready(disp);
+  s_flush_out++;
+}
+
 namespace ui {
 
 void perf_mark_screen(const char* name) { s_perf_screen = name; }
+
+// ---- 描画ベンチ (perf_bench) ----
+// 縦にスクロールできる最初の可視オブジェクト (content() の列など)。
+static lv_obj_t* bench_find_scrollable(lv_obj_t* o) {
+  const uint32_t n = lv_obj_get_child_count(o);
+  for (uint32_t i = 0; i < n; i++) {
+    lv_obj_t* c = lv_obj_get_child(o, i);
+    if (lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) continue;
+    if (lv_obj_has_flag(c, LV_OBJ_FLAG_SCROLLABLE) &&
+        lv_obj_get_scroll_top(c) + lv_obj_get_scroll_bottom(c) > 64) {
+      return c;
+    }
+    if (lv_obj_t* r = bench_find_scrollable(c)) return r;
+  }
+  return nullptr;
+}
+
+static uint32_t bench_refr_us() {
+  const int64_t t0 = esp_timer_get_time();
+  lv_refr_now(s_disp);
+  return static_cast<uint32_t>(esp_timer_get_time() - t0);
+}
+
+static SemaphoreHandle_t s_bench_done = nullptr;
+
+// LVGL タスク上で走る (lv_async_call)。描画は呼び出し側スタックで
+// 行われるので、4KB の sdbg タスクから直接 lv_refr_now しない。
+static void bench_run(void*) {
+  lv_obj_t* scr = lv_screen_active();
+  constexpr int kFull = 6;
+  uint32_t full_sum = 0, full_max = 0;
+  lv_refr_now(s_disp);  // 溜まっている無効領域を先に吐く
+  for (int i = 0; i < kFull; i++) {
+    lv_obj_invalidate(scr);
+    const uint32_t us = bench_refr_us();
+    full_sum += us;
+    full_max = LV_MAX(full_max, us);
+  }
+  constexpr int kSteps = 16;
+  constexpr int kDy = 12;
+  uint32_t sc_sum = 0, sc_max = 0;
+  int sc_n = 0;
+  if (lv_obj_t* col = bench_find_scrollable(scr)) {
+    const int32_t y0 = lv_obj_get_scroll_y(col);
+    for (int dir = 0; dir < 2; dir++) {
+      for (int i = 0; i < kSteps; i++) {
+        lv_obj_scroll_by(col, 0, dir == 0 ? -kDy : kDy, LV_ANIM_OFF);
+        const uint32_t us = bench_refr_us();
+        sc_sum += us;
+        sc_max = LV_MAX(sc_max, us);
+        sc_n++;
+      }
+    }
+    lv_obj_scroll_to_y(col, y0, LV_ANIM_OFF);
+    lv_refr_now(s_disp);
+  }
+  ESP_LOGI("bench",
+           "screen=%s full avg=%lu max=%lu ms scroll(n=%d) avg=%lu max=%lu ms "
+           "int_free=%u int_largest=%u psram_free=%u psram_largest=%u",
+           current_screen_name(), (unsigned long)(full_sum / kFull / 1000),
+           (unsigned long)(full_max / 1000), sc_n,
+           (unsigned long)(sc_n ? sc_sum / sc_n / 1000 : 0),
+           (unsigned long)(sc_max / 1000),
+           heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+           heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+  xSemaphoreGive(s_bench_done);
+}
+
+void perf_bench() {
+  if (!s_disp) return;
+  if (!s_bench_done) s_bench_done = xSemaphoreCreateBinary();
+  if (!s_bench_done || !lvgl_port_lock(1000)) {
+    ESP_LOGW(TAG, "bench: lvgl lock busy (flush %lu/%lu st%lu)",
+             (unsigned long)s_flush_in, (unsigned long)s_flush_out,
+             (unsigned long)s_flush_stage);
+    return;
+  }
+  lv_async_call(bench_run, nullptr);
+  lvgl_port_unlock();
+  if (xSemaphoreTake(s_bench_done, pdMS_TO_TICKS(15000)) != pdTRUE) {
+    ESP_LOGW(TAG, "bench timeout (flush %lu/%lu st%lu)",
+             (unsigned long)s_flush_in, (unsigned long)s_flush_out,
+             (unsigned long)s_flush_stage);
+  }
+}
 
 // indev の PRESSED で Wake Action を emit する (消灯中のタップ起こし)。
 // widget に当たらない場所のタップでも発火するので全面で起きる。
@@ -193,6 +388,10 @@ void draw_corner_probes() {
 lv_display_t* init_display() {
   // LVGL タスク (lvgl_port) — core1 相当、prio 4。
   lvgl_port_cfg_t pcfg = ESP_LVGL_PORT_INIT_CONFIG();
+  // SPI ISR と同じ core1 に固定する (vendor BSP の buscfg.isr_cpu_id)。
+  // 別コアだと spi_bus_lock のマルチコア競合 (IDFGH-17166) で
+  // flush 中に spi_device_acquire_bus が永久待ちになる。BLE は core0。
+  pcfg.task_affinity = 1;
   ESP_ERROR_CHECK(lvgl_port_init(&pcfg));
   ESP_LOGI(TAG, "lvgl port ready");
 
@@ -204,18 +403,27 @@ lv_display_t* init_display() {
   };
   ESP_ERROR_CHECK(bsp_display_new(&dcfg, &s_panel, &s_io));
 
+  // バウンスバッファ 2 枚 + スロットセマフォ (bounce_flush_cb 用)。
+  s_bounce_free = xSemaphoreCreateCounting(2, 2);
+  ESP_RETURN_ON_FALSE(s_bounce_free != nullptr, nullptr, TAG,
+                      "bounce sem failed");
+  for (int i = 0; i < 2; i++) {
+    s_bounce[i] = static_cast<uint8_t*>(heap_caps_malloc(
+        kBounceBytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+    ESP_RETURN_ON_FALSE(s_bounce[i] != nullptr, nullptr, TAG,
+                        "bounce buf alloc failed");
+  }
+
   lvgl_port_display_cfg_t disp_cfg = {
       .io_handle = s_io,
       .panel_handle = s_panel,
       .control_handle = nullptr,
-      .buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT,
-      // 2枚バッファで転送中にもう片方へ描画でき、逐次フラッシュの
-      // 頭打ちとスクロール時の実効FPSが上がる。
-      // buff_dma=true (内蔵SRAM) と組み合わせるため、高さは
-      // BSP_DISPLAY_LVGL_BUF_HEIGHT=10 にして2枚合計16.4KBに抑える
-      // (20行x2枚=32.8KB では BLE_INIT の 32KB 連続確保が失敗し
-      // 起動ループになることを実機確認済み)。
-      .double_buffer = true,
+      // 描画バッファは全面サイズを PSRAM に (SPI DMA は PSRAM を
+      // 読めない → buff_dma=false, buff_spiram=true。転送は
+      // bounce_flush_cb がバウンスバッファ経由で行う)。確保に
+      // 失敗したら 252 行 → 126 行に縮めて再試行する。
+      .buffer_size = BSP_LCD_H_RES * BSP_LCD_V_RES,
+      .double_buffer = false,
       .trans_size = 0,
       .hres = BSP_LCD_H_RES,
       .vres = BSP_LCD_V_RES,
@@ -230,24 +438,45 @@ lv_display_t* init_display() {
       .color_format = LV_COLOR_FORMAT_RGB565,
       .flags =
           {
-              // QSPI の SPI DMA は PSRAM を読めない → 描画バッファは
-              // 内蔵 SRAM に確保する。false だと MALLOC_CAP_DEFAULT で
-              // PSRAM に着地し、bounce buffer 化も内部不足で失敗する
-              // (実機で spi tx_color ESP_ERR_NO_MEM 連発を確認)。
-              .buff_dma = true,
-              .buff_spiram = false,
-              .sw_rotate = true,
-              .swap_bytes = true,
+              .buff_dma = false,
+              .buff_spiram = true,
+              .sw_rotate = false,
+              // バイトスワップはバウンスコピー時に自分でやるので
+              // port 側は OFF (ここを true にすると二重スワップ)。
+              .swap_bytes = false,
           },
   };
-  // QSPI パネルなので非RGB経路の add_disp を使う。
-  // add_disp_rgb (BSP がパラレルRGB用オプション流用で採用) は
-  // flush 時に draw_bitmap をキューイングした直後 flush_ready を
-  // 即返してしまい、DMA 転送中に LVGL がバッファを再描画して
-  // 行単位で混ざる (実機で横縞・色化けを確認)。
-  // 非RGB経路は on_color_trans_done 登録で実転送完了後にのみ
-  // flush_ready になる。
-  s_disp = lvgl_port_add_disp(&disp_cfg);
+  // QSPI パネルなので非RGB経路の add_disp を使う (add_disp_rgb は
+  // パラレルRGB前提で flush_ready の扱いが違う)。
+  // add_disp から flush cb / 転送完了 ISR の差し替えまで lvgl_port_lock
+  // (再帰 mutex) を保持する。間に LVGL タスクの再描画が挟まると
+  // port 既定の flush cb が PSRAM バッファを直接 DMA に渡して
+  // queue_trans が失敗し、flush_ready も来ず LVGL が空転する
+  // (実機で taskLVGL wdt を確認)。
+  static constexpr uint32_t kTryRows[] = {BSP_LCD_V_RES, 252, 126};
+  if (lvgl_port_lock(-1)) {
+    for (uint32_t rows : kTryRows) {
+      disp_cfg.buffer_size = BSP_LCD_H_RES * rows;
+      s_disp = lvgl_port_add_disp(&disp_cfg);
+      if (s_disp) {
+        ESP_LOGI(TAG, "draw buf %lux%lu PSRAM",
+                 (unsigned long)BSP_LCD_H_RES, (unsigned long)rows);
+        break;
+      }
+      ESP_LOGW(TAG, "add_disp %lu rows failed; retry", (unsigned long)rows);
+    }
+    if (s_disp) {
+      // port が張った flush cb / 転送完了 ISR を差し替える。
+      // port 版は転送1回ごとに flush_ready を返すので、1 flush を
+      // 複数 draw_bitmap に分ける我々のパイプラインでは使えない。
+      lv_display_set_flush_cb(s_disp, bounce_flush_cb);
+      const esp_lcd_panel_io_callbacks_t cbs = {
+          .on_color_trans_done = bounce_trans_done_cb,
+      };
+      esp_lcd_panel_io_register_event_callbacks(s_io, &cbs, nullptr);
+    }
+    lvgl_port_unlock();
+  }
   ESP_RETURN_ON_FALSE(s_disp != nullptr, nullptr, TAG, "add_disp failed");
 
     // 偶数丸め (BSP と同じイベント)。

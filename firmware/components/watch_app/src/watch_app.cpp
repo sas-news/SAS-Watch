@@ -383,6 +383,56 @@ void serial_dbg_task(void*) {
         vTaskDelay(pdMS_TO_TICKS(60));
         ESP_LOGI(TAG, "serial: wom_clear=%s int1=%d",
                  esp_err_to_name(cr), (int)gpio_get_level(GPIO_NUM_21));
+      } else if (buf[i] == 'b' || buf[i] == 'B') {
+        // 描画ベンチ ('b'ench): 主要画面へ順に遷移して ui::perf_bench。
+        // 画面遷移は Navigate Action (タッチ操作と同じ経路)。
+        static constexpr watch::Route kRoutes[] = {
+            watch::Route::Home,     watch::Route::More,
+            watch::Route::Settings, watch::Route::Stopwatch,
+            watch::Route::Timer,    watch::Route::Notifications,
+        };
+        ESP_LOGI(TAG, "serial: bench start ('b')");
+        for (watch::Route r : kRoutes) {
+          watch::Action a;
+          a.type = r == watch::Route::Home ? watch::ActionType::Home
+                                           : watch::ActionType::Navigate;
+          // source=System だと kick_activity されず bench 中に画面が
+          // 消えて後半が計測できない。タッチ操作として扱う。
+          a.source = watch::ActionSource::Touch;
+          a.arg0 = static_cast<uint32_t>(r);
+          push_action(a);
+          wake_task();
+          vTaskDelay(pdMS_TO_TICKS(1200));
+          ui::perf_bench();
+          if (r != watch::Route::Home) {
+            watch::Action h;
+            h.type = watch::ActionType::Home;
+            h.source = watch::ActionSource::Touch;
+            push_action(h);
+            wake_task();
+            vTaskDelay(pdMS_TO_TICKS(800));
+          }
+        }
+        ESP_LOGI(TAG, "serial: bench done");
+      } else if (buf[i] == 'p' || buf[i] == 'P') {
+        // PNG デコーダ比較テスト ('p'ngtest): 行ストリーム版と
+        // lodepng 版の出力をバイト一致で検証する (LVGL タスク上)。
+        ui::png_selftest();
+      } else if (buf[i] == 't' || buf[i] == 'T') {
+        // テーマ巡回 ('t'heme): 同梱テーマを順に SetTheme で適用する。
+        // ble_glue の pending 経路と同じく Action の text に id を積む。
+        static const char* kThemes[] = {"standard", "mame", "cosmos",
+                                        "cute", "cyber"};
+        static int s_theme_idx = 1;  // 現在 standard なので次から
+        const char* id = kThemes[s_theme_idx++ %
+                                 (sizeof(kThemes) / sizeof(kThemes[0]))];
+        watch::Action a;
+        a.type = watch::ActionType::SetTheme;
+        a.source = watch::ActionSource::Touch;
+        a.set_text(id);
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: theme -> %s", id);
       } else if (buf[i] == 'w' || buf[i] == 'W') {
         // WoM 再 arm — 初期値に強制できるかの切り分け ('w'om rearm)。
         board::imu::disarm_wake_on_motion();
