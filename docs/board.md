@@ -13,8 +13,8 @@
 | PMIC | AXP2101 (XPowersLib) | I2C 0x34 |
 | IMU | QMI8658C (waveshare/qmi8658) | I2C 0x6B |
 | RTC | PCF85063ATL | I2C 0x51 |
-| Mic ADC | ES7210 + mic x2 | I2C 0x40 【要実機】 + I2S |
-| Codec | ES8311 + NS4150B amp | I2C 0x18 【要実機】 + I2S |
+| Mic ADC | ES7210 + mic x2 | I2C 0x40 (実機で応答確認) + I2S |
+| Codec | ES8311 + NS4150B amp | I2C 0x18 (実機で応答確認) + I2S。この個体はスピーカー無効 (`WATCH_ENABLE_SPEAKER=n`) |
 | microSD | BSP は SDMMC 1-bit | |
 | Motor | パッドのみ (GPIO18→NPN)。本体の有無【要実機】 | |
 
@@ -48,20 +48,20 @@
 DCDC1=3.3V(VCC3V3, ESP32/パネルVCI) / ALDO2=3.3V → DSI_PWR_EN (パネル電源) / ALDO3 → モーター / AXP IRQ は ESP32 に未接続（I2C ポーリング）。
 
 ## BSP の事実
-- `bsp_display_start()`：LVGL バッファ 410x20 行、PSRAM、シングル
+- `bsp_display_start()`：LVGL バッファ 410x20 行、PSRAM、シングル (本プロジェクトは使わず `ui/src/esp_display.cpp` が自前で初期化する。docs/perf.md)
 - `bsp_display_brightness_set(percent)`：CO5300 cmd 0x51
 - `bsp_display_lock(timeout)` / `bsp_display_unlock()`
 - `bsp_i2c_init()` / `bsp_i2c_get_handle()`
 - `bsp_audio_codec_speaker_init()` / `bsp_audio_codec_microphone_init()`
 - `bsp_sdcard_mount()`
 - BSP_CAPS_BUTTONS=0, BSP_CAPS_IMU=0（ボタンと IMU は自前）
-- CO5300 は描画領域の x/y が偶数である必要あり（rounder）【要実機】
+- CO5300 は描画領域の x/y が偶数である必要あり（rounder）。奇数だとチラつく (実機確認済み)
 
 ## 未確認リスト
-- [ ] Flash ID (`esptool.py flash_id`)
-- [ ] I2C スキャン結果
-- [ ] PWR=GPIO10 で HIGH になるか
+- [x] Flash ID → GD25Q256 32MB
+- [x] I2C スキャン結果 → 0x18 / 0x34 / 0x38 / 0x40 / 0x51 / 0x6B が応答
+- [x] PWR=GPIO10 で HIGH になるか → 押下 HIGH (deep sleep の ext1 起床で確認)
 - [x] QMI8658 INT1 の極性 → WoM イベントで HIGH ラッチ (deep sleep ext0 起床で実証)
 - [ ] モーターの有無
-- [ ] 画面向き・タッチ座標
+- [x] 画面向き・タッチ座標 → 回転なしで一致
 - [ ] 各状態の消費電流

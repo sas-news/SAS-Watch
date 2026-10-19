@@ -13,3 +13,5 @@ android/.kotlin/
 android/local.properties
 .cxx/
 android/**/bin/
+sim/build*/
+docs/screenshots/safe_area_report.txt
