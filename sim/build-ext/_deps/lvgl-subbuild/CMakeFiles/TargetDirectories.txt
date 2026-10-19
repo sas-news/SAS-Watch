@@ -1,3 +1,0 @@
-/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/CMakeFiles/lvgl-populate.dir
-/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/CMakeFiles/edit_cache.dir
-/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-subbuild/CMakeFiles/rebuild_cache.dir

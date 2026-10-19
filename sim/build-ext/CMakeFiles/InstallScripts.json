@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/cmake_install.cmake",
-		"/home/sasnews/Desktop/ai-space/SAS-Watch/sim/build-ext/_deps/lvgl-build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
