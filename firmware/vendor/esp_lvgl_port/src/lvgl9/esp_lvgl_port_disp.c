@@ -778,7 +778,11 @@ static void lvgl_port_disp_rotation_update(lvgl_port_display_ctx_t *disp_ctx)
     switch (lv_display_get_rotation(disp_ctx->disp_drv)) {
     case LV_DISPLAY_ROTATION_0:
         /* Rotate LCD display */
-        esp_lcd_panel_swap_xy(control_handle, disp_ctx->rotation.swap_xy);
+        /* SAS-Watch: SH8601/CO5300 は swap_xy 未実装で、呼ぶと毎回
+           E ログが出る。恒等 (false) のときは呼ばない。 */
+        if (disp_ctx->rotation.swap_xy) {
+            esp_lcd_panel_swap_xy(control_handle, true);
+        }
         esp_lcd_panel_mirror(control_handle, disp_ctx->rotation.mirror_x, disp_ctx->rotation.mirror_y);
         break;
     case LV_DISPLAY_ROTATION_90:

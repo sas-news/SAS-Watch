@@ -299,17 +299,21 @@ lv_obj_t* skin_img(lv_obj_t* scr, const char* name, int x, int y, bool front) {
   return im;
 }
 
+// 計測用 (シリアル 'z'): 0=全部敷く 1=bg画像なし 2=bg+scrim+deco全無し
+// 3=部品スキン (draw cb の画像) も全無し。画面を作り直すたびに効く。
+static uint8_t s_skin_dbg = 0;
+
 // スキン (画面別 > "*") の bg+scrim+deco(back) を scr に敷く。
 // 画像は screen ブロック (640KiB×2) にデコード; scr の DELETE で返す。
 void skin_base(lv_obj_t* scr, int8_t sidx) {
   const watch::ThemeScreenSkin* sk =
       sidx >= 0 ? ui::theme_screen_skin(sidx) : nullptr;
   s_skin = SkinAlloc{};
-  if (!sk) return;
+  if (!sk || s_skin_dbg >= 2) return;
   const bool need_blk = sk->bg[0] || sk->deco_count > 0;
   if (need_blk) s_skin.blk = port::theme_screen_block();
   int z = 0;
-  if (sk->bg[0] && s_skin.blk) {
+  if (sk->bg[0] && s_skin.blk && s_skin_dbg == 0) {
     lv_obj_t* im = skin_img(scr, sk->bg, 0, 0, false);
     if (im) lv_obj_move_to_index(im, z++);
   }
@@ -876,6 +880,17 @@ const Ctx& ctx() { return s_ctx; }
 const char* current_screen_name() {
   return route_name(s_ctx.nav ? s_ctx.nav->current() : watch::Route::Home);
 }
+
+// 計測用 ('z'): 画面スキン (bg/scrim/deco) を段階的に無効化する。
+// 0=全部 → 1=bg無し → 2=画面スキン全無し → 3=部品スキンも全無し。
+// 次に作る画面から効く。
+uint8_t skin_dbg_next() {
+  s_skin_dbg = static_cast<uint8_t>((s_skin_dbg + 1) % 4);
+  return s_skin_dbg;
+}
+
+// 部品スキンの cb (components.cpp) から現在値を引く。
+uint8_t skin_dbg() { return s_skin_dbg; }
 
 void set_passkey_confirm(void (*fn)(bool accept)) {
   s_passkey_confirm = fn;

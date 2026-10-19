@@ -54,6 +54,12 @@ void perf_bench();
 // ヘッダとピクセルデータをバイト一致比較する (`pngtest: ...` ログ)。
 void png_selftest();
 
+// 計測用 (シリアル 'z'): 画面スキンを段階的に無効化する。
+// 0=全部 → 1=bg無し → 2=画面スキン全無し → 3=部品スキンも全無し。
+uint8_t skin_dbg_next();
+// 現在の段階 (部品スキンの描画 cb から参照。ui 内部向け)。
+uint8_t skin_dbg();
+
 // 既定 display のアクティブ画面に Home を組み立てる。
 // firmware: lvgl_port_lock 保持中に呼ぶ。sim: 直接呼ぶ。
 bool create(const Ctx& ctx);

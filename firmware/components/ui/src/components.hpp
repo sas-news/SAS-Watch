@@ -15,7 +15,7 @@ lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn);
 lv_obj_t* content(lv_obj_t* scr);
 
 // スクロール内容のスナップショット化 (押しっぱスクロール軽量化)。
-// col の子 inner (内容全高のコンテナ) を RGB565 の1枚の画像に焼き直し、
+// col の子 inner (内容全高のコンテナ) を RGB565A8 の1枚の画像に焼き直し、
 // zones[] の矩形に透明クリックゾーンを復元する。スクロール中の再描画が
 // 全子要素の再描画から画像ブリットに変わり大幅に軽くなる。
 // ※ 静的リスト専用。動的更新・スイッチ等の状態付き部品は焼き込めない。
@@ -132,5 +132,15 @@ bool skin_obj(lv_obj_t* o, watch::ThemeSkinPartId part);
 // 9-slice レンダーキャッシュを全破棄する。スキン画像がアンロード
 // されるタイミング (theme_res::reset) で必ず呼ぶ。LVGL タスク専用。
 void skin_cache_clear();
+
+// `b` ベンチ用: スキン描画の内訳 (キャッシュヒットのブリットと
+// ミス時の 9-slice 伸縮描画) を呼数・画素数・拒否理由で集計する。
+// ESP 実機のみ有意。LVGL9 の描画はタスク化されているので us は
+// タスク作成コストのみ (実描画時間は含まない) — 分母は呼数で見る。
+void skin_stats_reset();
+void skin_stats(uint64_t* blit_us, uint32_t* blit_n, uint64_t* miss_us,
+                uint32_t* miss_n, uint32_t* blit_px, uint32_t* miss_px,
+                uint32_t* rej_size, uint32_t* rej_room, uint32_t* fill_n,
+                uint32_t* band_n, uint32_t* imgreg_n, uint32_t bail[10]);
 
 }  // namespace ui::c

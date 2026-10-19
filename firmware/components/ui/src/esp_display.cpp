@@ -17,6 +17,7 @@
 // chunk i+1 のコピーが重なり、転送途中のバッファ上書きも起きない。
 #include "ui/port.hpp"
 #include "ui/ui.hpp"
+#include "components.hpp"
 
 #include "esp_attr.h"
 #include "esp_err.h"  // bsp/display.h が esp_err_t を自分では include しない
@@ -209,6 +210,7 @@ static void bench_run(void*) {
   lv_obj_t* scr = lv_screen_active();
   constexpr int kFull = 6;
   uint32_t full_sum = 0, full_max = 0;
+  c::skin_stats_reset();
   lv_refr_now(s_disp);  // 溜まっている無効領域を先に吐く
   for (int i = 0; i < kFull; i++) {
     lv_obj_invalidate(scr);
@@ -245,6 +247,30 @@ static void bench_run(void*) {
            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
            heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
            heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+  // スキン描画の呼数内訳 (blit=キャッシュ等倍, miss=9-slice 伸縮,
+  // rej_size=大きすぎてキャッシュ不能, rej_room=予算不足で構築断念)。
+  // LVGL9 は描画タスク遅延なので us は実描画を含まず、呼数と画素数で見る。
+  uint64_t blit_us = 0, miss_us = 0;
+  uint32_t blit_n = 0, miss_n = 0, blit_px = 0, miss_px = 0;
+  uint32_t rej_size = 0, rej_room = 0;
+  uint32_t fill_n = 0, band_n = 0, imgreg_n = 0, bail[10] = {0};
+  c::skin_stats(&blit_us, &blit_n, &miss_us, &miss_n, &blit_px, &miss_px,
+                &rej_size, &rej_room, &fill_n, &band_n, &imgreg_n, bail);
+  ESP_LOGI("bench",
+           "skinstats: screen=%s blit(n=%lu px=%lu) miss(n=%lu px=%lu) "
+           "rej(size=%lu room=%lu %lux%lu<-%lux%lu) fill=%lu band=%lu "
+           "imgreg=%lu "
+           "bail(fmt=%lu scan=%lu alpha=%lu nonuni=%lu runs=%lu bands=%lu)",
+           current_screen_name(), (unsigned long)blit_n,
+           (unsigned long)blit_px, (unsigned long)miss_n,
+           (unsigned long)miss_px, (unsigned long)rej_size,
+           (unsigned long)rej_room, (unsigned long)bail[6],
+           (unsigned long)bail[7], (unsigned long)bail[8],
+           (unsigned long)bail[9], (unsigned long)fill_n,
+           (unsigned long)band_n, (unsigned long)imgreg_n,
+           (unsigned long)bail[0], (unsigned long)bail[1],
+           (unsigned long)bail[2], (unsigned long)bail[3],
+           (unsigned long)bail[4], (unsigned long)bail[5]);
   xSemaphoreGive(s_bench_done);
 }
 

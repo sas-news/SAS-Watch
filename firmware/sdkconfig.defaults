@@ -104,7 +104,11 @@ CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n
 
 # LVGL: 公式サンプル 02_lvgl_demo_v9 / BSP v2 推奨設定ベース
 # 日本語フォントはまだ無し (plan.md I 章)
-CONFIG_LV_USE_CLIB_MALLOC=y
+# malloc は CUSTOM: lv_malloc_core を lv_mem_psram.c で実装し、
+# LVGL ヒープ (widget 数百B×数百個) を PSRAM に逃がす。CLIB だと
+# ALWAYSINTERNAL=1024 のため小確保が全部内蔵 SRAM を食い、設定画面で
+# 空きが数百Bまで枯渇していた (実機計測)。
+CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
 CONFIG_LV_DEF_REFR_PERIOD=33

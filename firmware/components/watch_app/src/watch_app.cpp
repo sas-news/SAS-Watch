@@ -433,6 +433,10 @@ void serial_dbg_task(void*) {
         push_action(a);
         wake_task();
         ESP_LOGI(TAG, "serial: theme -> %s", id);
+      } else if (buf[i] == 'z' || buf[i] == 'Z') {
+        // スキン段階無効化 ('z'ero skin): 0=全部 1=bgなし 2=画面スキン全無し。
+        // 次に画面を作り直した時点から効くので、続けて b で計測する。
+        ESP_LOGI(TAG, "serial: skin_dbg=%u", (unsigned)ui::skin_dbg_next());
       } else if (buf[i] == 'w' || buf[i] == 'W') {
         // WoM 再 arm — 初期値に強制できるかの切り分け ('w'om rearm)。
         board::imu::disarm_wake_on_motion();

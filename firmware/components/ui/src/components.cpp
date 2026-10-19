@@ -8,6 +8,13 @@
 #include "theme_res.hpp"
 #include "ui/port.hpp"
 
+#if defined(ESP_PLATFORM)
+#include "esp_timer.h"
+#else
+#include <cstdio>
+#include <cstdlib>
+#endif
+
 // ‹ › (U+2039/203A) だけの小さなフォント。font_jp_* は既定収録範囲外で
 // 再生成すると既存グリフが全部入れ替わるので、シェブロン専用に分けた。
 LV_FONT_DECLARE(font_chev_22);
@@ -198,6 +205,267 @@ void skin_draw_reg(lv_layer_t* layer, const lv_image_dsc_t* d,
   lv_draw_image(layer, &dsc, &a);
 }
 
+// ---- 大きい中央領域の高速近似 ----
+// 全面級のカード (list_group 等) は 9-slice の中央伸縮だけで毎フレーム
+// ~20万px のソフト変換になり支配的だった (実機計測)。カード内部の絵は
+// 実質 1 軸のなだらかなグラデーションなので、出力領域が大きいときは
+// 中央を画像ではなく 2-stop 線形グラデの矩形塗りで近似する。端点は
+// 実画像の中央領域の隅から採るので誤差は小さい (cute は誤差 0)。
+// α が均一でない領域や、縦横とも強い変化 (模様・対角) は画像に戻す。
+
+// src (RGB565/RGB565A8) の (px,py) を読む。
+void skin_px_at(const lv_image_dsc_t* d, int32_t px, int32_t py,
+                lv_color_t* col, lv_opa_t* opa) {
+  const uint32_t stride =
+      d->header.stride ? d->header.stride
+                       : static_cast<uint32_t>(d->header.w) * 2;
+  const uint16_t* row =
+      reinterpret_cast<const uint16_t*>(d->data + py * stride);
+  const uint16_t v = row[px];
+  *col = lv_color_make(static_cast<uint8_t>((v >> 8) & 0xF8),
+                       static_cast<uint8_t>((v >> 3) & 0xFC),
+                       static_cast<uint8_t>((v << 3) & 0xF8));
+  *opa = d->header.cf == LV_COLOR_FORMAT_RGB565A8
+             ? static_cast<lv_opa_t>(
+                   d->data[stride * d->header.h +
+                           static_cast<uint32_t>(py) * (stride / 2) + px])
+             : static_cast<lv_opa_t>(LV_OPA_COVER);
+}
+
+int skin_px_diff(lv_color_t a, lv_color_t b) {
+  return LV_ABS(a.red - b.red) + LV_ABS(a.green - b.green) +
+         LV_ABS(a.blue - b.blue);
+}
+
+uint32_t s_ss_fill_n = 0, s_ss_band_n = 0;  // 近似パス領域数/帯 draw call 数
+uint32_t s_ss_imgreg_n = 0;                 // 画像パス領域数
+
+struct SkinRun;
+bool skin_runs_draw(lv_layer_t* layer, const lv_image_dsc_t* d, int32_t x,
+                    int32_t y, int32_t w, int32_t h, bool use_h,
+                    const lv_color_t* col, lv_opa_t opa,
+                    const SkinRun* runs, int nr, int linerr);
+// 近似パスを断った理由別 (fmt=非565/小, scan=走査超過, alpha=α不均一,
+// nonuni=直交非一様, runs=帯>64, bands=非ベース帯>40)
+uint32_t s_ss_bail[6] = {0};
+
+// 領域の中央を走査し、1 軸の変化として表せるなら矩形塗りの列で
+// 描画する (ソフト変換回避)。戻り値 true = 描画済み。
+// 判定は実ピクセルベースなので、近似できない絵は画像描画に戻る:
+//   - 単色 → 塗り1発 (cute のカード中央はこれで誤差 0)
+//   - 滑らかなグラデ (線形近似の誤差が小さい) → 2-stop グラデ
+//   - 2色以上の縞/帯 (cyber のスキャンライン等) → run 毎の帯塗り
+//   - それ以外 (α不均一・横方向に非一様・細かい模様) → false
+constexpr int kSkinScanMax = 640;  // 走査上限 (skin 領域は数百px)
+
+struct SkinRun {
+  uint16_t s, e;     // src 行/列範囲 [s, e] (kSkinScanMax=640 に収まる)
+  lv_color_t c;
+};
+
+// axis=false: 中央列を縦に走査 (各行が横一様か確認)
+// axis=true : 中央行を横に走査 (各列が縦一様か確認)
+bool skin_1d_scan(const lv_image_dsc_t* d, bool horiz,
+                  lv_color_t* col, lv_opa_t* opa, SkinRun* runs,
+                  int* n_runs, int* max_err_vs_linear) {
+  const int32_t sw = d->header.w, sh = d->header.h;
+  const int32_t n = horiz ? sw : sh;
+  if (n > kSkinScanMax) {
+    ++s_ss_bail[1];
+    return false;
+  }
+  const int32_t mid = (horiz ? sh : sw) / 2;
+  lv_opa_t a0 = 0;
+  bool ainit = false;
+  // 中央ラインを取得しつつ、直交方向の一様性と α の均一さを数か所確認。
+  const int nq = 6;
+  for (int32_t i = 0; i < n; ++i) {
+    lv_color_t c;
+    lv_opa_t a;
+    skin_px_at(d, horiz ? i : mid, horiz ? mid : i, &c, &a);
+    if (!ainit) {
+      a0 = a;
+      ainit = true;
+    } else if (LV_ABS(a - a0) > 8) {
+      ++s_ss_bail[2];
+      return false;  // 内部 α が均一でない
+    }
+    col[i] = c;
+  }
+  // 直交方向の一様性: nq 個の位置で、ライン両端 vs 中央を比較。
+  for (int k = 0; k < nq; ++k) {
+    const int32_t t = (n - 1) * k / (nq - 1);
+    lv_color_t ca, cb, cc;
+    lv_opa_t oa, ob, oc;
+    skin_px_at(d, horiz ? t : 0, horiz ? 0 : t, &ca, &oa);
+    skin_px_at(d, horiz ? t : sw - 1, horiz ? sh - 1 : t, &cb, &ob);
+    skin_px_at(d, horiz ? t : mid, horiz ? mid : t, &cc, &oc);
+    if (skin_px_diff(ca, cc) > 12 || skin_px_diff(cb, cc) > 12) {
+      ++s_ss_bail[3];
+      return false;
+    }
+    if (LV_ABS(oa - a0) > 8 || LV_ABS(ob - a0) > 8) {
+      ++s_ss_bail[2];
+      return false;
+    }
+  }
+  *opa = a0;
+  // run 圧縮 (色ずれ ±4 を同色とみなす)。
+  int nr = 0;
+  for (int32_t i = 0; i < n;) {
+    int32_t j = i + 1;
+    while (j < n && skin_px_diff(col[j], col[i]) <= 12) ++j;
+    if (nr < 64) runs[nr] = {static_cast<uint16_t>(i),
+                             static_cast<uint16_t>(j - 1), col[i]};
+    ++nr;
+    i = j;
+  }
+  *n_runs = nr;
+  // 線形近似誤差 (端点は lerp するので中点付近だけ見る)。
+  int err = 0;
+  for (int32_t i = 1; i < n - 1; ++i) {
+    const int t = i * 255 / (n - 1);
+    const lv_color_t g = {
+        static_cast<uint8_t>(col[0].blue +
+                             (col[n - 1].blue - col[0].blue) * t / 255),
+        static_cast<uint8_t>(col[0].green +
+                             (col[n - 1].green - col[0].green) * t / 255),
+        static_cast<uint8_t>(col[0].red +
+                             (col[n - 1].red - col[0].red) * t / 255)};
+    err = LV_MAX(err, skin_px_diff(col[i], g));
+    if (err > 40) break;  // 打ち切り
+  }
+  *max_err_vs_linear = err;
+  return true;
+}
+
+void skin_fill_rect(lv_layer_t* layer, int32_t x, int32_t y, int32_t w,
+                    int32_t h, lv_color_t c, lv_opa_t opa) {
+  lv_draw_rect_dsc_t rd;
+  lv_draw_rect_dsc_init(&rd);
+  rd.bg_opa = opa;
+  rd.bg_color = c;
+  const lv_area_t a = {x, y, x + w - 1, y + h - 1};
+  lv_draw_rect(layer, &rd, &a);
+}
+
+bool skin_region_fill(lv_layer_t* layer, const lv_image_dsc_t* d,
+                      int32_t x, int32_t y, int32_t w, int32_t h) {
+#ifndef ESP_PLATFORM
+  if (getenv("SKIN_FILL_OFF")) return false;
+#endif
+  if (!d || !d->data || d->header.w < 2 || d->header.h < 2) {
+    ++s_ss_bail[0];
+    return false;
+  }
+  if (d->header.cf != LV_COLOR_FORMAT_RGB565 &&
+      d->header.cf != LV_COLOR_FORMAT_RGB565A8) {
+    ++s_ss_bail[0];
+    return false;
+  }
+  static lv_color_t col[kSkinScanMax];
+  static SkinRun runs[64];
+  lv_opa_t opa = 0;
+  int nr = 0, linerr = 0;
+  // 走査軸は変化が支配的な方向に合わせる必要がある (横長領域でも
+  // 縦方向の縞模様なら縦走査でしか表せない)。形状から推した軸を
+  // 先に試す。細い縁ストリップは LVGL の伸縮補間そのものが見た目の
+  // 一部 (端のフェード等) なので、両辺が大きい領域だけ逆軸も試す。
+  bool use_h = d->header.w >= 4 * d->header.h;
+  if (!skin_1d_scan(d, use_h, col, &opa, runs, &nr, &linerr)) {
+    if (w < 64 || h < 64) return false;
+    use_h = !use_h;
+    if (!skin_1d_scan(d, use_h, col, &opa, runs, &nr, &linerr)) {
+      return false;
+    }
+  }
+  return skin_runs_draw(layer, d, x, y, w, h, use_h, col, opa, runs, nr,
+                        linerr);
+}
+
+// 1D 走査結果 (col/nr/linerr) に基づいて領域を塗る。
+// true = 描画済み, false = 表せないので画像描画に戻る。
+bool skin_runs_draw(lv_layer_t* layer, const lv_image_dsc_t* d, int32_t x,
+                    int32_t y, int32_t w, int32_t h, bool use_h,
+                    const lv_color_t* col, lv_opa_t opa,
+                    const SkinRun* runs, int nr, int linerr) {
+#ifndef ESP_PLATFORM
+  if (getenv("SKIN_FILL_DEBUG")) {
+    fprintf(stderr, "  scan n=%d nr=%d linerr=%d use_h=%d opa=%d c0=(%d,%d,%d) cN=(%d,%d,%d)\n",
+            use_h ? (int)d->header.w : (int)d->header.h, nr, linerr,
+            (int)use_h, (int)opa, col[0].red, col[0].green, col[0].blue,
+            col[(use_h ? (int)d->header.w : (int)d->header.h) - 1].red,
+            col[(use_h ? (int)d->header.w : (int)d->header.h) - 1].green,
+            col[(use_h ? (int)d->header.w : (int)d->header.h) - 1].blue);
+    for (int i = 0; i < nr && i < 16; ++i) {
+      fprintf(stderr, "    run[%d] %d..%d (%d,%d,%d)\n", i, runs[i].s,
+              runs[i].e, runs[i].c.red, runs[i].c.green, runs[i].c.blue);
+    }
+  }
+#endif
+
+  if (nr == 1) {
+    skin_fill_rect(layer, x, y, w, h, col[0], opa);
+    return true;
+  }
+  // 滑らかなグラデーション → 2-stop グラデ矩形。
+  if (linerr <= 12) {
+    lv_draw_rect_dsc_t rd;
+    lv_draw_rect_dsc_init(&rd);
+    rd.bg_opa = opa;
+    rd.bg_grad.dir = use_h ? LV_GRAD_DIR_HOR : LV_GRAD_DIR_VER;
+    rd.bg_grad.stops_count = 2;
+    rd.bg_grad.stops[0] = {col[0], LV_OPA_COVER, 0};
+    const int32_t n = use_h ? d->header.w : d->header.h;
+    rd.bg_grad.stops[1] = {col[n - 1], LV_OPA_COVER, 255};
+    const lv_area_t a = {x, y, x + w - 1, y + h - 1};
+    lv_draw_rect(layer, &rd, &a);
+    return true;
+  }
+  // 縞/帯: 全帯を塗ると draw call が帯数分掛かるので、最多色を
+  // 全面に敷いて残りの帯だけ重ねる (交互縞なら約半分に減る)。
+  if (nr > 64) {
+    ++s_ss_bail[4];
+    return false;
+  }
+  const int32_t n = use_h ? d->header.w : d->header.h;
+  // 最多出現の run 色をベースに選ぶ。
+  int base = 0, best = 0;
+  for (int i = 0; i < nr; ++i) {
+    const int wgt = runs[i].e - runs[i].s + 1;
+    if (wgt > best) {
+      best = wgt;
+      base = i;
+    }
+  }
+  int overlap = 0;
+  for (int i = 0; i < nr; ++i) {
+    if (i != base && skin_px_diff(runs[i].c, runs[base].c) <= 12) ++overlap;
+  }
+  // ベース以外の帯数 (= draw call -1)。帯の反復が細かい絵は
+  // draw call コストが変換を上回るので画像に戻す。
+  if (nr - overlap > 40) {
+    ++s_ss_bail[5];
+    return false;
+  }
+  s_ss_band_n += static_cast<uint32_t>(nr - overlap) + 1;
+  skin_fill_rect(layer, x, y, w, h, runs[base].c, opa);
+  for (int i = 0; i < nr; ++i) {
+    if (i == base || skin_px_diff(runs[i].c, runs[base].c) <= 12) continue;
+    const int32_t b0 = static_cast<int32_t>(
+        (static_cast<int64_t>(runs[i].s) * (use_h ? w : h)) / n);
+    const int32_t b1 = static_cast<int32_t>(
+        (static_cast<int64_t>(runs[i].e + 1) * (use_h ? w : h)) / n) - 1;
+    if (b1 < b0) continue;
+    if (use_h) {
+      skin_fill_rect(layer, x + b0, y, b1 - b0 + 1, h, runs[i].c, opa);
+    } else {
+      skin_fill_rect(layer, x, y + b0, w, b1 - b0 + 1, runs[i].c, opa);
+    }
+  }
+  return true;
+}
+
 // SkinImg の 9 領域を area に配置して描画 (角=原寸、辺/中央=伸縮)。
 void skin_draw_9(lv_layer_t* layer, const theme_res::SkinImg* im,
                  const lv_area_t* a) {
@@ -224,8 +492,26 @@ void skin_draw_9(lv_layer_t* layer, const theme_res::SkinImg* im,
     if (!d->data) continue;
     const int ry = i / 3;
     const int cx = i % 3;
-    skin_draw_reg(layer, d, xs[cx], ys[ry], xs[cx + 1] - xs[cx],
-                  ys[ry + 1] - ys[ry]);
+    const int32_t rw = xs[cx + 1] - xs[cx];
+    const int32_t rh = ys[ry + 1] - ys[ry];
+    // 角以外の大きめ領域は線形グラデの矩形塗りで近似 (ソフト変換回避)。
+    // 縁ストリップも実質 1 軸グラデなので同じ近似が効く。近似条件
+    // (α均一・1軸優勢) を満たさない絵は画像描画に戻るので安全。
+    const bool corner = (ry != 1 && cx != 1);
+    if (!corner && static_cast<int64_t>(rw) * rh >= 2048 &&
+        skin_region_fill(layer, d, xs[cx], ys[ry], rw, rh)) {
+      ++s_ss_fill_n;
+#ifndef ESP_PLATFORM
+      if (getenv("SKIN_FILL_DEBUG")) {
+        fprintf(stderr, "fill9 %p reg%d out %d,%d %dx%d src %ux%u\n",
+                (const void*)im, i, (int)xs[cx], (int)ys[ry], rw, rh,
+                d->header.w, d->header.h);
+      }
+#endif
+      continue;
+    }
+    ++s_ss_imgreg_n;
+    skin_draw_reg(layer, d, xs[cx], ys[ry], rw, rh);
   }
 }
 
@@ -247,9 +533,28 @@ void skin_draw_9(lv_layer_t* layer, const theme_res::SkinImg* im,
 
 constexpr int kSkinCacheMax = 16;
 constexpr uint32_t kSkinCacheBytes = 512 * 1024;
-// これより大きい見え面は budget に入らないのでキャッシュしない。
-// (RGB565A8 は 3B/px)
-constexpr int32_t kSkinCacheMaxPx = kSkinCacheBytes / 3;
+// これより大きい見え面はキャッシュしない。大きな部品はキャッシュの
+// RGB565A8 ブリット (read+α合成+write) より、直接描画 (縁の伸縮 +
+// 中央のグラデ矩形は dst に書くだけ) のほうが速く、キャッシュ容量も
+// 小さな部品のために残せる (settings の 6 万px カードで測定)。
+constexpr int32_t kSkinCacheMaxPx = 32768;
+
+// ---- スキン描画の内訳計測 (ESP 実機のみ。`b` ベンチの skinstats: 行) ----
+// 注意: LVGL9 の描画はタスク化されていて lv_draw_image の呼び出し時間は
+// 実描画コストを含まない。ここでは「呼数・種別・拒否理由」を数えるに留める。
+int64_t stat_now_us() {
+#if defined(ESP_PLATFORM)
+  return esp_timer_get_time();
+#else
+  return 0;
+#endif
+}
+uint64_t s_ss_blit_us = 0, s_ss_miss_us = 0;
+uint32_t s_ss_blit_n = 0, s_ss_miss_n = 0;
+uint32_t s_ss_blit_px = 0, s_ss_miss_px = 0;
+uint32_t s_ss_rej_size = 0, s_ss_rej_room = 0;  // キャッシュ不能/満杯の要求数
+uint16_t s_ss_rej_w = 0, s_ss_rej_h = 0;    // 最後に拒否した部品の表示サイズ
+uint16_t s_ss_rej_sw = 0, s_ss_rej_sh = 0;  // その中心領域のソースサイズ
 
 struct SkinCacheEnt {
   const theme_res::SkinImg* im = nullptr;
@@ -345,6 +650,7 @@ void skin_cache_build(void*) {
     }
     if (have) continue;
     if (!scache_make_room(static_cast<uint32_t>(r.w) * r.h * 3u + 64u)) {
+      ++s_ss_rej_room;  // 予算が足りず構築を見送った
       continue;
     }
     // 合成は ARGB8888 で行う (LVGL の sw blend は RGB565A8 を描画先に
@@ -366,7 +672,29 @@ void skin_cache_build(void*) {
                          static_cast<lv_coord_t>(r.h - 1)};
     skin_draw_9(&layer, r.im, &a);
     lv_canvas_finish_layer(canvas, &layer);
+    // 全面不透明なら RGB565 で保持する (A8 ブレンドより速く、
+    // メモリも 2B/px に減る)。
+    bool opaque = true;
+    for (uint16_t y = 0; y < r.h && opaque; ++y) {
+      const uint8_t* s = tmp->data + tmp->header.stride * y;
+      for (uint16_t x = 0; x < r.w; ++x) {
+        if (s[x * 4 + 3] < 250) {
+          opaque = false;
+          break;
+        }
+      }
+    }
+    if (opaque) {
+      lv_draw_buf_t* buf565 =
+          lv_draw_buf_create(r.w, r.h, LV_COLOR_FORMAT_RGB565, 0);
+      if (buf565) {
+        lv_draw_buf_destroy(buf);
+        buf = buf565;
+      }
+    }
     const uint32_t cstride = buf->header.stride;
+    const bool has_alpha =
+        buf->header.cf == LV_COLOR_FORMAT_RGB565A8;
     uint8_t* alpha = buf->data + cstride * r.h;
     for (uint16_t y = 0; y < r.h; ++y) {
       const uint8_t* s = tmp->data + tmp->header.stride * y;
@@ -376,7 +704,7 @@ void skin_cache_build(void*) {
         const uint8_t b = s[x * 4 + 0], g = s[x * 4 + 1], rr = s[x * 4 + 2];
         c[x] = static_cast<uint16_t>(((rr & 0xF8) << 8) | ((g & 0xFC) << 3) |
                                      (b >> 3));
-        al[x] = s[x * 4 + 3];
+        if (has_alpha) al[x] = s[x * 4 + 3];
       }
     }
     lv_draw_buf_destroy(tmp);
@@ -390,7 +718,16 @@ void skin_cache_build(void*) {
 }
 
 void skin_cache_request(const theme_res::SkinImg* im, int32_t w, int32_t h) {
-  if (w <= 0 || h <= 0 || w * h > kSkinCacheMaxPx) return;
+  if (w <= 0 || h <= 0 || w * h > kSkinCacheMaxPx) {
+    ++s_ss_rej_size;  // 大きすぎて一生キャッシュされない部品
+    s_ss_rej_w = static_cast<uint16_t>(w);
+    s_ss_rej_h = static_cast<uint16_t>(h);
+    if (im) {
+      s_ss_rej_sw = static_cast<uint16_t>(im->reg[4].header.w);
+      s_ss_rej_sh = static_cast<uint16_t>(im->reg[4].header.h);
+    }
+    return;
+  }
   for (int i = 0; i < s_screq_n; ++i) {
     if (s_screq[i].im == im && s_screq[i].w == w && s_screq[i].h == h) {
       return;
@@ -422,7 +759,11 @@ bool skin_blit_cached(lv_layer_t* layer, const theme_res::SkinImg* im,
       lv_draw_image_dsc_t dsc;
       lv_draw_image_dsc_init(&dsc);
       dsc.src = e.buf;
+      const int64_t t0 = stat_now_us();
       lv_draw_image(layer, &dsc, a);
+      s_ss_blit_us += stat_now_us() - t0;
+      ++s_ss_blit_n;
+      s_ss_blit_px += static_cast<uint32_t>(w) * h;
       return true;
     }
   }
@@ -434,7 +775,12 @@ bool skin_blit_cached(lv_layer_t* layer, const theme_res::SkinImg* im,
 void skin_draw_9_cached(lv_layer_t* layer, const theme_res::SkinImg* im,
                         const lv_area_t* a) {
   if (!skin_blit_cached(layer, im, a)) {
+    const int64_t t0 = stat_now_us();
     skin_draw_9(layer, im, a);
+    s_ss_miss_us += stat_now_us() - t0;
+    ++s_ss_miss_n;
+    s_ss_miss_px += static_cast<uint32_t>(lv_area_get_width(a)) *
+                    lv_area_get_height(a);
   }
 }
 
@@ -446,6 +792,7 @@ void* skin_ud(int part, int mode) {
 
 // 汎用 DRAW_MAIN コールバック: 現在 state の part 画像を 9-slice で描く。
 void skin_draw_cb(lv_event_t* e) {
+  if (ui::skin_dbg() >= 3) return;  // 'z' 計測: 部品スキン無し
   lv_obj_t* o = lv_event_get_target_obj(e);
   const uintptr_t ud =
       reinterpret_cast<uintptr_t>(lv_event_get_user_data(e));
@@ -539,6 +886,7 @@ bool skin_apply_obj(lv_obj_t* o, watch::ThemeSkinPartId part, int mode,
 // lv_switch.c の計算と同じ (アニメ中の位置は内部状態なので、
 // 画像は CHECKED トグルで即座に切り替わる)。
 void skin_switch_draw_cb(lv_event_t* e) {
+  if (ui::skin_dbg() >= 3) return;
   lv_obj_t* o = lv_event_get_target_obj(e);
   const Theme& t = theme();
   lv_layer_t* layer = lv_event_get_layer(e);
@@ -572,6 +920,7 @@ void skin_switch_draw_cb(lv_event_t* e) {
 // lv_bar.c draw_indic + lv_slider.c position_knob と同じ式
 // (値は現在値のみ — ドラッグ中のアニメ途中値は参照しない)。
 void skin_slider_draw_cb(lv_event_t* e) {
+  if (ui::skin_dbg() >= 3) return;
   lv_obj_t* o = lv_event_get_target_obj(e);
   const Theme& t = theme();
   lv_layer_t* layer = lv_event_get_layer(e);
@@ -602,7 +951,13 @@ void skin_slider_draw_cb(lv_event_t* e) {
         pressed && fl->img[1] ? fl->img[1] : fl->img[0];
     // fill は値で幅が変わるのでキャッシュしない (幅ごとにエントリが
     // 増えて LRU を押し出すだけ)。直接 9-slice で描く。
-    if (im && pos > 0) skin_draw_9(layer, im, &fill);
+    if (im && pos > 0) {
+      const int64_t t0 = stat_now_us();
+      skin_draw_9(layer, im, &fill);
+      s_ss_miss_us += stat_now_us() - t0;
+      ++s_ss_miss_n;
+      s_ss_miss_px += static_cast<uint32_t>(pos) * lv_area_get_height(&fill);
+    }
   }
   if (const theme_res::SkinSet* kn = t.skin[watch::kSkinSliderKnob]) {
     const theme_res::SkinImg* im =
@@ -634,6 +989,43 @@ void skin_cache_clear() {
     e = SkinCacheEnt{};
   }
   s_screq_n = 0;
+}
+
+void skin_stats_reset() {
+  s_ss_blit_us = s_ss_miss_us = 0;
+  s_ss_blit_n = s_ss_miss_n = 0;
+  s_ss_blit_px = s_ss_miss_px = 0;
+  s_ss_rej_size = s_ss_rej_room = 0;
+  s_ss_fill_n = s_ss_band_n = s_ss_imgreg_n = 0;
+  s_ss_rej_w = s_ss_rej_h = s_ss_rej_sw = s_ss_rej_sh = 0;
+  memset(s_ss_bail, 0, sizeof(s_ss_bail));
+}
+
+void skin_stats(uint64_t* blit_us, uint32_t* blit_n, uint64_t* miss_us,
+                uint32_t* miss_n, uint32_t* blit_px, uint32_t* miss_px,
+                uint32_t* rej_size, uint32_t* rej_room, uint32_t* fill_n,
+                uint32_t* band_n, uint32_t* imgreg_n, uint32_t bail[10]) {
+  *blit_us = s_ss_blit_us;
+  *blit_n = s_ss_blit_n;
+  *miss_us = s_ss_miss_us;
+  *miss_n = s_ss_miss_n;
+  *blit_px = s_ss_blit_px;
+  *miss_px = s_ss_miss_px;
+  *rej_size = s_ss_rej_size;
+  *rej_room = s_ss_rej_room;
+  *fill_n = s_ss_fill_n;
+  *band_n = s_ss_band_n;
+  *imgreg_n = s_ss_imgreg_n;
+  bail[0] = s_ss_bail[0];
+  bail[1] = s_ss_bail[1];
+  bail[2] = s_ss_bail[2];
+  bail[3] = s_ss_bail[3];
+  bail[4] = s_ss_bail[4];
+  bail[5] = s_ss_bail[5];
+  bail[6] = s_ss_rej_w;
+  bail[7] = s_ss_rej_h;
+  bail[8] = s_ss_rej_sw;
+  bail[9] = s_ss_rej_sh;
 }
 
 lv_obj_t* header(lv_obj_t* scr, const char* title, bool back_btn) {
@@ -744,9 +1136,9 @@ bool bake_scroll(lv_obj_t* col, lv_obj_t* inner, const BakeZone* zones,
   lv_obj_get_content_coords(col, &ca);
   lv_obj_get_coords(inner, &ia);
 
-  // ARGB8888 + 全面クリア: RGB565 だとアルファが無く、カードの角丸の
-  // 外側が未描画メモリ (=不透明黒) として焼き付いて角が黒く見える
-  // (T27-a)。ARGB8888 なら角は透明のまま残る。
+  // ARGB8888 (4B/px) + 全面クリア: lv_snapshot は RGB565A8 を
+  // サポートしない (lv_snapshot.c の Not supported color format)。
+  // カード角丸の外側は透明のまま残す (T27-a 対策)。
   lv_draw_buf_t* buf = lv_snapshot_create_draw_buf(inner,
                                                    LV_COLOR_FORMAT_ARGB8888);
   if (!buf) return false;
@@ -831,7 +1223,6 @@ lv_obj_t* button_danger(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
 }
 
 lv_obj_t* group(lv_obj_t* parent) {
-  const Theme& t = theme();
   lv_obj_t* g = lv_obj_create(parent);
   bubble(g);
   lv_obj_set_size(g, LV_PCT(100), LV_SIZE_CONTENT);

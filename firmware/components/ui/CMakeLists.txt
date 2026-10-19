@@ -8,6 +8,7 @@ idf_component_register(
     SRCS ${WATCH_UI_SOURCES} ${SAS_APP_UI_SOURCES}
          "src/esp_display.cpp"
          "src/esp_port.cpp"
+         "src/lv_mem_psram.c"
          "src/png_stream.cpp"
     INCLUDE_DIRS "include" "src" "${SAS_APP_GEN_DIR}"
     REQUIRES watch_core board
@@ -18,6 +19,9 @@ idf_component_register(
 
 # アプリ側の画面は SAS_APP_<ID> ガード付きの共有コードと同じ define を使う。
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ${SAS_APP_DEFINES})
+# lv_mem_psram.c の lv_malloc_core 等は liblvgl より後に来ることもある
+# リンク順のため、-u で最初から必須シンボル扱いにする。
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-u lv_malloc_core")
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wall -Wextra -fno-exceptions -fno-rtti)

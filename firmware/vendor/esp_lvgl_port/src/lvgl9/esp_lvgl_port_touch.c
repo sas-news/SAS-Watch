@@ -11,6 +11,7 @@
 #include "esp_lcd_touch.h"
 #include "esp_lvgl_port.h"
 #include "esp_timer.h"
+#include "driver/gpio.h"
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -220,12 +221,25 @@ static void IRAM_ATTR lvgl_port_touch_interrupt_callback(esp_lcd_touch_handle_t 
 static void lvgl_port_touch_reader_task(void *arg)
 {
     lvgl_port_touch_ctx_t *touch_ctx = (lvgl_port_touch_ctx_t *)arg;
+    const esp_lcd_touch_handle_t tp = touch_ctx->handle;
+    const gpio_num_t int_gpio = tp->config.int_gpio_num;
+    const int int_level = tp->config.levels.interrupt;
     for (;;) {
         /* Wait for an interrupt edge; poll every 100 ms as a safety net. */
-        xSemaphoreTake(touch_ctx->sem, pdMS_TO_TICKS(100));
+        const BaseType_t got = xSemaphoreTake(touch_ctx->sem, pdMS_TO_TICKS(100));
+        if (got != pdTRUE && int_gpio != GPIO_NUM_NC &&
+                gpio_get_level(int_gpio) != int_level &&
+                touch_ctx->cache_cnt == 0) {
+            /* SAS-Watch: アイドル時の無条件 I2C ポーリングが FT3168 の
+               省電力周期と当たり NACK (E ログ 5 行) を連発していた。
+               INT 非アサートかつ押下キャッシュ無しの間は読み飛ばす。
+               強制読み出しは置かない: 休眠中は読み出し自体が NACK する
+               ので意味がなく、取りこぼした割込はレベル検出で拾える。 */
+            continue;
+        }
         /* The I2C read can block ~14 ms while the sensor is touched.
            It runs here, outside the LVGL task. */
-        esp_lcd_touch_read_data(touch_ctx->handle);
+        esp_lcd_touch_read_data(tp);
         /* Drain the driver state into the shadow cache. get_data() consumes
            tp->data.points, so it must run here — once per hardware read. */
         uint8_t cnt = 0;
