@@ -23,8 +23,8 @@
 | 描画パイプライン | PSRAM の全面描画バッファ 1 枚 + 内蔵 8.2KB バウンス 2 枚 | docs/perf.md |
 | LVGL タスク / SPI ISR | 両方 core1 固定 | spi_bus_lock のマルチコア競合 (IDFGH-17166) で UI が凍った |
 | 全面再描画 (standard) | 40〜68ms (`b` ベンチ) | docs/perf.md |
-| 全面再描画 (cute/cyber) | 75〜225ms。スキンの重い画面 (設定・タイマー) が遅い | docs/perf.md |
-| 内蔵 SRAM | 起動後の空き ~21KB。BLE init に 32KB 連続が要る。設定画面表示中は空き数百バイト | `b` の int_free |
+| 全面再描画 (cute/cyber) | 80〜157ms (設定は最大 ~160ms)。スキンの大きい部品は近似塗りに置き換え済み | docs/perf.md |
+| 内蔵 SRAM | 起動後の空き ~21KB、表示中 ~18-21KB (LVGL ヒープを PSRAM に移して安定化) | `b` の int_free |
 | PSRAM | standard で空き ~2.9MB、画像テーマのアプリ一覧で ~140KB (mame) | `b` の psram_free |
 | app 領域 | 4MB 中の空き 8% | T24 (日本語フォントを外に出す) で戻す予定 |
 | VSYS power-off 閾値 | 2600 mV (既定維持) | AXP2101 reg 0x24 |
@@ -32,7 +32,7 @@
 | パネル窓オフセット | x_gap=22, y_gap=0 | 同上 |
 | 待機中の再描画 | 0 (無操作で redraw なし) | LVGL sysmon |
 | `deep_sleep_after_s` | BLE `settings.set` で即時反映 | core/protocol/dispatch.cpp |
-| touch の I2C NACK | ~14 秒に 1 回、実害なし | FT3168 の省電力周期と推定 |
+| touch の I2C NACK | 解消。FT3168 スリープ中のセーフティポーリングを INT (GPIO38) ゲートで止めた | vendor/esp_lvgl_port |
 | 起床ゲート (腕上げ) | `静止3連続 && deg>=30 && dir.z<=-0.65 && dir.x>=-0.35` (左手首で計測) | roadmap T27 |
 
 ## 未解決・注意
@@ -42,10 +42,14 @@
 - BLE のテーマ転送 (T25)。
 - 時計の設定画面からファイルテーマを選べない (T28)。
 - Home と文字盤の整理はユーザーの判断待ち (T22、`docs/home-face-proposal.md`)。
-- 起動時に `E sh8601: swap_xy is not supported by this panel` が 1 行出るが無害
-  (esp_lvgl_port が sw_rotate=false のとき swap_xy を呼ぶ。パネル側が未実装なだけ)。
+- 起動時の `E sh8601: swap_xy is not supported by this panel` は vendor の
+  esp_lvgl_port をパッチして消した (回転なしボードでは呼ぶ意味がない)。
 - 画像テーマ (cosmos/cute/cyber) で、アプリ一覧の bake (~850KB) が PSRAM の断片化で
   確保できないことがある。そのときは bake せずに普通の一覧で表示される (見た目は同じで少し重い)。
+- スキン (9-slice) の大きい部品は 1D 走査で近似塗りに切り替えた (fill/band、詳細は
+  docs/perf.md)。cute は sim 差分 ~0、cyber は縞の補間差のみ (max<=17) で性能が
+  およそ 1.3〜1.8 倍になった。縁ストリップは LVGL の伸縮補間が見た目の一部なので
+  近似していない (やると cute で max=146 の誤差が出る)。
 
 ## 実機作業の注意
 
