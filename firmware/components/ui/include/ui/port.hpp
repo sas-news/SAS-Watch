@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 
+struct _lv_font_t;  // lv_font_t (LVGL) — lv_types.h と同じ宣言
+
 namespace ui::port {
 
 // LVGL タスクと排他するロック (firmware: lvgl_port_lock)。
@@ -92,6 +94,13 @@ void theme_screen_free(uint8_t* p);
 // 使い終わったら必ず theme_tmp_free()。
 uint8_t* theme_tmp_alloc(uint32_t n);
 void theme_tmp_free(uint8_t* p);
+
+// 内蔵の日本語フォント (assets の fonts/jp_<px>.bin) を読み、
+// lv_binfont で生成した lv_font_t を返す。データは永続バッファに置く
+// (フォントはアンロードしない)。無ければ nullptr — 呼び出し側が
+// 最小内蔵フォント (ASCII+かな) に落とす。結果は内部でキャッシュする。
+// LVGL コンテキスト内で呼ぶ。
+const _lv_font_t* builtin_font_load(uint8_t px);
 
 // ---- ファーム更新 (docs/protocol-v1.md) ----
 // stage: 0 idle / 1 wifi / 2 download / 3 verify / 4 done / 5 reboot / 6 fail

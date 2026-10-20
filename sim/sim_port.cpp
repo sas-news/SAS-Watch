@@ -294,6 +294,51 @@ uint8_t* theme_tmp_alloc(uint32_t n) {
 }
 void theme_tmp_free(uint8_t* p) { std::free(p); }
 
+// 内蔵フォント (T24)。firmware は /assets/fonts/ だが sim は
+// リポジトリの tools/fonts/bin/ (make_assets_image.sh と同じ入力) を読む。
+const lv_font_t* builtin_font_load(uint8_t px) {
+  constexpr uint8_t kSizes[3] = {20, 26, 32};
+  static lv_font_t* s_fonts[3] = {};
+  static bool s_tried[3] = {};
+  int i = -1;
+  for (int k = 0; k < 3; ++k) {
+    if (px == kSizes[k]) i = k;
+  }
+  if (i < 0) return nullptr;
+  if (s_tried[i]) return s_fonts[i];
+  s_tried[i] = true;
+
+  char path[64];
+  std::snprintf(path, sizeof(path), "tools/fonts/bin/jp_%u.bin", px);
+  FILE* f = std::fopen(path, "rb");
+  if (!f) {
+    std::fprintf(stderr, "[sim] %s なし (gen_fonts.py --binfont で生成)\n",
+                 path);
+    return nullptr;
+  }
+  std::fseek(f, 0, SEEK_END);
+  const long sz = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  uint8_t* buf = static_cast<uint8_t*>(std::malloc(static_cast<size_t>(sz)));
+  if (!buf || sz <= 0 ||
+      std::fread(buf, 1, static_cast<size_t>(sz), f) !=
+          static_cast<size_t>(sz)) {
+    std::fclose(f);
+    std::free(buf);
+    return nullptr;
+  }
+  std::fclose(f);
+  lv_font_t* lf = lv_binfont_create_from_buffer(buf,
+                                              static_cast<uint32_t>(sz));
+  if (!lf) {
+    std::free(buf);
+    std::fprintf(stderr, "[sim] %s binfont parse failed\n", path);
+    return nullptr;
+  }
+  s_fonts[i] = lf;
+  return lf;
+}
+
 }  // namespace ui::port
 
 namespace ui {

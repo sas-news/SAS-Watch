@@ -505,6 +505,16 @@ lv_display_t* init_display() {
   }
   ESP_RETURN_ON_FALSE(s_disp != nullptr, nullptr, TAG, "add_disp failed");
 
+  // T24: assets の日本語フォント (binfont) をここで読んでおく。
+  // theme_apply のアリーナ確保より先に PSRAM を抑えるのと、
+  // LVGL ヒープへの複製が終わってから画面構築に入るため。
+  if (lvgl_port_lock(-1)) {
+    ui::port::builtin_font_load(20);
+    ui::port::builtin_font_load(26);
+    ui::port::builtin_font_load(32);
+    lvgl_port_unlock();
+  }
+
     // 偶数丸め (BSP と同じイベント)。
   lv_display_add_event_cb(s_disp, rounder_event_cb, LV_EVENT_INVALIDATE_AREA,
                           nullptr);

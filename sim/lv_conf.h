@@ -19,8 +19,8 @@
 #define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_48 1
 // 生成フォントを既定に (LV_FONT_CUSTOM_DECLARE は lv_font_t が見える場所で展開される)。
-#define LV_FONT_CUSTOM_DECLARE LV_FONT_DECLARE(font_jp_20)
-#define LV_FONT_DEFAULT &font_jp_20
+#define LV_FONT_CUSTOM_DECLARE LV_FONT_DECLARE(font_jp_min_20)
+#define LV_FONT_DEFAULT &font_jp_min_20
 
 #define LV_USE_LABEL 1
 #define LV_USE_BUTTON 1

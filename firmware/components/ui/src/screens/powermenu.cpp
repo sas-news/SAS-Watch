@@ -26,7 +26,7 @@ lv_obj_t* build(lv_obj_t* scr) {
                 [](lv_event_t*) { ui::port::restart(); }, nullptr);
 
   lv_obj_t* info = ui::c::card(col);
-  // 注意文は左揃え。font_jp_20 の行高は 24px。line_space を強く詰めすぎると
+  // 注意文は左揃え。font_jp 20px の行高は 24px。line_space を強く詰めすぎると
   // 行が重なる (-12 → 12px で実際に重なった) ので軽く詰める程度にする。
   lv_obj_set_flex_align(info, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
                         LV_FLEX_ALIGN_START);

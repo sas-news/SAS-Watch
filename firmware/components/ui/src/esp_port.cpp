@@ -11,6 +11,7 @@
 #include "esp_idf_version.h"
 #include "esp_app_desc.h"
 #include "esp_lvgl_port.h"
+#include "lvgl.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_chip_info.h"
@@ -79,16 +80,19 @@ void ota_status(OtaView* out) {
 // ---- テーマ資産 (littlefs "/assets/themes" + PSRAM アリーナ) ----
 
 // TODO(hw): 実機で確認 — テーマ作業領域は PSRAM に確保する。
-// 先頭は画面背景用ブロック 640KiB×2 (現画面+Home が同時に居る)。
 // 資産領域はテーマごとの見積もり (theme_res::assets_estimate) 分だけ
 // 確保する。常時 4MiB だと残り PSRAM が ~40KB しか無く、描画レイヤー・
 // fopen のロック・lodepng が内蔵 RAM に溢れて abort する (cute で実機観測)。
+// 画面背景用ブロック (640KiB×2、遷移中に新旧画面が同時に持つ) は
+// アリーナとは別個に確保する — T24 の binfont (~1.4MB 常駐) で
+// PSRAM が分断されると、資産+ブロックの単一確保 (~3MB) が連続確保
+// できず、mame の資産が欠ける。分割なら隙間に入る。
 constexpr uint32_t kScreenBlocks = 2;
-constexpr uint32_t kGlobalOff = kScreenBlocks * kThemeScreenBlockSize;
 constexpr uint32_t kAssetCap = 3 * 1024 * 1024;  // 資産領域の上限
 uint8_t* s_arena = nullptr;
-uint32_t s_arena_size = 0;   // kGlobalOff + asset_bytes
-uint32_t s_arena_used = kGlobalOff;
+uint32_t s_arena_size = 0;   // 資産領域だけのサイズ
+uint32_t s_arena_used = 0;
+uint8_t* s_blk[kScreenBlocks] = {};
 bool s_blk_used[kScreenBlocks] = {};
 
 const char* theme_assets_root() { return "/assets/themes"; }
@@ -100,21 +104,52 @@ void theme_assets_reset(uint32_t asset_bytes) {
     heap_caps_free(s_arena);
     s_arena = nullptr;
   }
+  for (auto& b : s_blk) {
+    if (b) {
+      heap_caps_free(b);
+      b = nullptr;
+    }
+  }
+  for (auto& u : s_blk_used) u = false;
   if (asset_bytes > kAssetCap) asset_bytes = kAssetCap;
-  s_arena_size = kGlobalOff + asset_bytes;
+  s_arena_size = asset_bytes;
+  if (!s_arena_size) return;
+  // 画面ブロックを資産より先に確保する — 640KiB×2 が無いと
+  // 画面遷移中に背景スキンが片方消える。組み込みテーマ
+  // (asset_bytes=0) は画面スキンを使わないので取らない。
+  for (auto& b : s_blk) {
+    b = static_cast<uint8_t*>(heap_caps_malloc(
+        kThemeScreenBlockSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!b) break;
+  }
   s_arena = static_cast<uint8_t*>(
       heap_caps_malloc(s_arena_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!s_arena) {
+    // PSRAM の分断で見積もり分の連続確保に失敗したら、最大の連続
+    // ブロックで縮めて開き直す (大きい資産から順に欠けるだけで、
+    // s_arena=NULL の全滅よりはマシ)。
+    const uint32_t largest =
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    if (largest > 128 * 1024) {
+      s_arena_size = largest & ~15u;
+      s_arena = static_cast<uint8_t*>(heap_caps_malloc(
+          s_arena_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    }
+    if (s_arena) {
+      ESP_LOGW("theme", "arena shrink %lu -> %lu (fragmented)",
+               (unsigned long)asset_bytes,
+               (unsigned long)s_arena_size);
+    }
+  }
+  if (!s_arena) {
     s_arena_size = 0;
     ESP_LOGW("theme", "arena alloc %lu failed, psram free=%lu largest=%lu",
-             (unsigned long)(kGlobalOff + asset_bytes),
+             (unsigned long)asset_bytes,
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
              (unsigned long)heap_caps_get_largest_free_block(
                  MALLOC_CAP_SPIRAM));
   }
-  s_arena_used = kGlobalOff;
-  // 画面ブロックも全解放 (適用直後に画面は組み直される)。
-  for (auto& u : s_blk_used) u = false;
+  s_arena_used = 0;
 }
 
 namespace {
@@ -332,21 +367,26 @@ uint8_t* theme_asset_alloc(uint32_t n) {
 
 // ---- 画面背景ブロック ----
 
+// 640KiB×2 をアリーナとは別に確保する。テーマ期間中は使い回し、
+// theme_assets_reset でまとめて解放する。
 uint8_t* theme_screen_block() {
-  if (!s_arena) return nullptr;
   for (uint32_t i = 0; i < kScreenBlocks; ++i) {
-    if (!s_blk_used[i]) {
-      s_blk_used[i] = true;
-      return s_arena + i * kThemeScreenBlockSize;
+    if (s_blk_used[i]) continue;
+    if (!s_blk[i]) {
+      s_blk[i] = static_cast<uint8_t*>(heap_caps_malloc(
+          kThemeScreenBlockSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+      if (!s_blk[i]) return nullptr;
     }
+    s_blk_used[i] = true;
+    return s_blk[i];
   }
   return nullptr;
 }
 
 void theme_screen_free(uint8_t* p) {
-  if (!s_arena || !p) return;
+  if (!p) return;
   for (uint32_t i = 0; i < kScreenBlocks; ++i) {
-    if (s_arena + i * kThemeScreenBlockSize == p) {
+    if (s_blk[i] == p) {
       s_blk_used[i] = false;
       return;
     }
@@ -358,5 +398,68 @@ uint8_t* theme_tmp_alloc(uint32_t n) {
       heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 }
 void theme_tmp_free(uint8_t* p) { heap_caps_free(p); }
+
+// 内蔵フォント (T24): app バイナリから外した日本語フォントを
+// /assets/fonts/jp_<px>.bin から読み、lv_binfont で生成する。
+// ローダは glyph 表を LVGL ヒープ (PSRAM) に全複製するので、
+// 元バッファは create 後に解放してよい。バイナリ内に残ったのは
+// ASCII+かなの最小フォントだけで、ここが失敗すると漢字が出ない。
+const lv_font_t* builtin_font_load(uint8_t px) {
+  constexpr uint8_t kSizes[3] = {20, 26, 32};
+  static lv_font_t* s_fonts[3] = {};
+  static bool s_tried[3] = {};
+  int i = -1;
+  for (int k = 0; k < 3; ++k) {
+    if (px == kSizes[k]) i = k;
+  }
+  if (i < 0) return nullptr;
+  if (s_tried[i]) return s_fonts[i];
+  s_tried[i] = true;
+
+  char path[64];
+  std::snprintf(path, sizeof(path), "/assets/fonts/jp_%u.bin", px);
+  FILE* f = std::fopen(path, "rb");
+  if (!f) {
+    ESP_LOGW("font", "%s なし (assets 未更新?)", path);
+    return nullptr;
+  }
+  std::fseek(f, 0, SEEK_END);
+  const long sz = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  if (sz <= 0) {
+    std::fclose(f);
+    return nullptr;
+  }
+  // ローダは作業バッファ + LVGL ヒープへの複製で ~2 倍の PSRAM が
+  // 必要。足りない時に load_glyph 内で OOM すると NULL 書き込みで
+  // LVGL タスクが死ぬので、先に残量を見て最小フォントに逃がす。
+  if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) <
+      static_cast<uint32_t>(sz) * 2) {
+    std::fclose(f);
+    ESP_LOGW("font", "%s skip: psram tight (%ldB file)", path, sz);
+    return nullptr;
+  }
+  uint8_t* buf = static_cast<uint8_t*>(
+      heap_caps_malloc(static_cast<uint32_t>(sz),
+                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!buf || !staged_fread(f, buf, static_cast<uint32_t>(sz))) {
+    std::fclose(f);
+    heap_caps_free(buf);
+    ESP_LOGW("font", "%s read %ld failed", path, sz);
+    return nullptr;
+  }
+  std::fclose(f);
+  lv_font_t* lf = lv_binfont_create_from_buffer(buf,
+                                              static_cast<uint32_t>(sz));
+  // glyph/cmap は全部 LVGL ヒープに複製済み → 元バッファは不要。
+  heap_caps_free(buf);
+  if (!lf) {
+    ESP_LOGW("font", "%s binfont parse failed", path);
+    return nullptr;
+  }
+  s_fonts[i] = lf;
+  ESP_LOGI("font", "%s -> binfont %ldB", path, sz);
+  return lf;
+}
 
 }  // namespace ui::port

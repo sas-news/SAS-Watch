@@ -15,7 +15,7 @@
 #include <cstdlib>
 #endif
 
-// ‹ › (U+2039/203A) だけの小さなフォント。font_jp_* は既定収録範囲外で
+// ‹ › (U+2039/203A) だけの小さなフォント。font_jp_min_20 は既定収録範囲外で
 // 再生成すると既存グリフが全部入れ替わるので、シェブロン専用に分けた。
 LV_FONT_DECLARE(font_chev_22);
 LV_FONT_DECLARE(font_icon_36);
@@ -1137,13 +1137,21 @@ bool bake_scroll(lv_obj_t* col, lv_obj_t* inner, const BakeZone* zones,
   lv_obj_get_coords(inner, &ia);
 
   // ARGB8888 (4B/px) + 全面クリア: lv_snapshot は RGB565A8 を
-  // サポートしない (lv_snapshot.c の Not supported color format)。
+  // サポートせず、ARGB4444 は画像ソースとして描けない
+  // (lv_snapshot.c / draw 側の Not supported color format)。
   // カード角丸の外側は透明のまま残す (T27-a 対策)。
-  lv_draw_buf_t* buf = lv_snapshot_create_draw_buf(inner,
-                                                   LV_COLOR_FORMAT_ARGB8888);
+  constexpr lv_color_format_t kBakeCf = LV_COLOR_FORMAT_ARGB8888;
+  lv_draw_buf_t* buf = lv_snapshot_create_draw_buf(inner, kBakeCf);
+  if (!buf) {
+    // フォント・アリーナ常駐後の断片化 (T24) で ~850KB の連続確保に
+    // 失敗しうる。スキンキャッシュ (最大 512KB) を捨てて一度だけ
+    // 再試行する — キャッシュは以後のフレームで自然に再構築される。
+    skin_cache_clear();
+    buf = lv_snapshot_create_draw_buf(inner, kBakeCf);
+  }
   if (!buf) return false;
   lv_draw_buf_clear(buf, nullptr);
-  if (lv_snapshot_take_to_draw_buf(inner, LV_COLOR_FORMAT_ARGB8888, buf) !=
+  if (lv_snapshot_take_to_draw_buf(inner, kBakeCf, buf) !=
       LV_RESULT_OK) {
     lv_draw_buf_destroy(buf);
     return false;

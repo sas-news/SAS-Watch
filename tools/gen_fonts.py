@@ -2,8 +2,12 @@
 """日本語サブセットフォント生成 (tools/gen_fonts.py)
 
 firmware/components/ui/src/fonts/ に LVGL フォントを生成する。
-  - font_jp_20/26      : UI 文言用 (ASCII + かな + CJK句読点 + 全角記号
-                          + UI ソース内で使われている漢字 + 予備の常用漢字)
+T24 以降、日本語フォントの実体は assets パーティションの
+fonts/jp_<px>.bin (lv_binfont) で、バイナリにはフォールバック用の
+最小フォント font_jp_min_20 (ASCII+かな+記号) だけが残る。
+  - font_jp_min_20     : binfont が読めない時の予備 (ASCII+かな+記号)
+  - tools/fonts/bin/jp_20/26/32.bin : 本体 (--jp-bin で生成。
+                          20/26 は常用漢字込み、32 はソースの漢字のみ)
   - font_digits_56/96  : 時刻・タイマー用 (0-9 : . - + のみ)
   - font_fc_<fam>_<px> : 文字盤の時計数字用 (0-9 : のみ)。
                           <fam> = oswald / bebas / orbitron / outfit / chakra
@@ -11,13 +15,14 @@ firmware/components/ui/src/fonts/ に LVGL フォントを生成する。
                           JetBrains Mono Bold (OFL、tools/fonts/num/)
 
 使い方:
+  python3 tools/gen_fonts.py --jp-bin         # 本体 .bin + font_jp_min_20.c
   python3 tools/gen_fonts.py --font /path/to/NotoSansJP.ttf
   python3 tools/gen_fonts.py --faces          # 文字盤フォントだけ生成
   python3 tools/gen_fonts.py --num            # 等幅数字フォントだけ生成
 
 依存: lv_font_conv (npm i -g lv_font_conv)
-フォント: Noto Sans JP + Google Fonts 5 種 (OFL、tools/fonts/face/) +
-          JetBrains Mono (OFL、tools/fonts/num/)。
+フォント: M PLUS 1p (OFL、tools/fonts/jp/) + Google Fonts 5 種
+          (OFL、tools/fonts/face/) + JetBrains Mono (OFL、tools/fonts/num/)。
           生成物と一緒に OFL.txt / OFL-face.txt を同梱すること。
 """
 
@@ -201,6 +206,9 @@ def main() -> int:
                     help="文字盤フォントを tools/fonts/face/ から生成する")
     ap.add_argument("--num", action="store_true",
                     help="等幅数字フォントを tools/fonts/num/ から生成する")
+    ap.add_argument("--jp-bin", action="store_true",
+                    help="T24: assets 用の日本語 binfont (tools/fonts/bin/) と"
+                         " フォールバック font_jp_min_20.c を生成する")
     ap.add_argument("--icons", action="store_true",
                     help="アプリアイコンフォント (Material Symbols Rounded 36px)")
     ap.add_argument("--binfont", metavar="TTF",
@@ -240,8 +248,59 @@ def main() -> int:
         print(f"binfont: {outp} ({outp.stat().st_size} B)")
         return 0
 
+    if args.jp_bin:
+        # T24: app から外した日本語フォント本体。assets の fonts/ に置く
+        # .bin (lv_binfont) を tools/fonts/bin/ に生成し、フォールバックの
+        # font_jp_min_20.c も作る。tools/mklfs_assets/ が bin を image に入れる。
+        out = pathlib.Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        bin_out = REPO / "tools" / "fonts" / "bin"
+        bin_out.mkdir(parents=True, exist_ok=True)
+        symbols = collect_ui_chars()
+        print(f"UI chars: {len(symbols)} codepoints (incl. EXTRA_KANJI)")
+        ttf_med = REPO / "tools" / "fonts" / "jp" / "MPLUS1p-Medium.ttf"
+        ttf_bold = REPO / "tools" / "fonts" / "jp" / "MPLUS1p-Bold.ttf"
+        for size in (20, 26):
+            run([
+                "lv_font_conv",
+                "--font", str(ttf_med),
+                "--size", str(size),
+                "--bpp", args.bpp,
+                "--format", "bin",
+                "--no-compress",
+                "-r", BASE_RANGES,
+                "--symbols", symbols,
+                "-o", str(bin_out / f"jp_{size}.bin"),
+            ])
+        sub = collect_ui_chars(from_sources_only=True)
+        print(f"font_jp_32 chars: {len(sub)} codepoints")
+        run([
+            "lv_font_conv",
+            "--font", str(ttf_bold),
+            "--size", "32",
+            "--bpp", args.bpp,
+            "--format", "bin",
+            "--no-compress",
+            "-r", BASE_RANGES,
+            "--symbols", sub,
+            "-o", str(bin_out / "jp_32.bin"),
+        ])
+        # フォールバックの最小フォント (ASCII+かな+記号のみ、漢字なし)。
+        run([
+            "lv_font_conv",
+            "--font", str(ttf_med),
+            "--size", "20",
+            "--bpp", args.bpp,
+            "--format", "lvgl",
+            "--lv-include", "lvgl.h",
+            "-r", BASE_RANGES,
+            "--lv-font-name", "font_jp_min_20",
+            "-o", str(out / "font_jp_min_20.c"),
+        ])
+        return 0
+
     if not args.font and not args.faces and not args.num and not args.icons and not args.font_bold:
-        ap.error("--font か --faces か --num か --icons のどれかを指定して")
+        ap.error("--font か --jp-bin か --faces か --num か --icons のどれかを指定して")
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

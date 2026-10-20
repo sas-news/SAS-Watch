@@ -23,9 +23,9 @@
 #include "watch/theme/manifest.hpp"
 #include "watch/theme/package.hpp"
 
-LV_FONT_DECLARE(font_jp_20);
-LV_FONT_DECLARE(font_jp_26);
-LV_FONT_DECLARE(font_jp_32);
+// 日本語フォントの実体は assets の fonts/jp_<px>.bin (T24)。
+// バイナリに残るのはフォールバックの最小フォントだけ。
+LV_FONT_DECLARE(font_jp_min_20);
 LV_FONT_DECLARE(font_digits_96);
 LV_FONT_DECLARE(font_digits_56);
 
@@ -47,11 +47,31 @@ constexpr uint32_t kManifestMax = 32 * 1024;
 // manifest "bubble" で上書きした文言の保持領域。
 char s_bubble[5][48];
 
+// 内蔵フォントの解決: assets の binfont (PSRAM 永続) があればそれ、
+// 無ければ最小内蔵フォント。読み込みは port 側で一度だけ。
+const lv_font_t* builtin_font(uint8_t px) {
+  const lv_font_t* f = port::builtin_font_load(px);
+  if (f) return f;
+  switch (px) {
+    case 20: case 26: case 32: return &font_jp_min_20;
+    default: return nullptr;
+  }
+}
+
+// 内蔵テーマからコピーした Theme の日本語フォントを解決する。
+// (builtin テーマの静的フィールドは最小フォントを指している。
+//  binfont が読めていれば本物に差し替える)
+void fix_builtin_fonts(Theme* t) {
+  if (t->font_body == &font_jp_min_20) t->font_body = builtin_font(20);
+  if (t->font_row == &font_jp_min_20) t->font_row = builtin_font(26);
+  if (t->font_title == &font_jp_min_20) t->font_title = builtin_font(32);
+}
+
 const lv_font_t* font_for(uint8_t px, const lv_font_t* fallback) {
   switch (px) {
-    case 20: return &font_jp_20;
-    case 26: return &font_jp_26;
-    case 32: return &font_jp_32;
+    case 20: return builtin_font(20);
+    case 26: return builtin_font(26);
+    case 32: return builtin_font(32);
     case 56: return &font_digits_56;
     case 96: return &font_digits_96;
     default: return fallback;
@@ -112,6 +132,7 @@ bool load_file_theme(const char* id, Theme* out) {
   // LVGL コンテキスト内のみから呼ばれる前提で static で持つ。
   SAS_BIG_STATIC static Theme t;
   t = *builtin_theme("standard");
+  fix_builtin_fonts(&t);
   for (int i = 0; i < 19; ++i) {
     if (m.color_set & (1u << i)) {
       *theme_color_at(&t, i) = lv_color_hex(m.color[i]);
@@ -224,6 +245,7 @@ bool theme_apply(const char* id) {
     // 内蔵テーマは資産を使わない → アリーナは画面ブロック分だけに縮める。
     port::theme_assets_reset(0);
     t = *b;
+    fix_builtin_fonts(&t);
     ok = true;
     theme_set_info(id, std::strcmp(id, "standard") == 0 ? "標準" : id);
   } else {
@@ -233,6 +255,7 @@ bool theme_apply(const char* id) {
   }
   if (!ok) {
     t = *builtin_theme("standard");
+    fix_builtin_fonts(&t);
     theme_set_info("standard", "標準");
   }
   theme_replace_active(t);
