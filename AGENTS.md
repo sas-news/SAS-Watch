@@ -54,11 +54,16 @@
 - 新しい調査結果を独立した文書にしたら、役目を終えたときに `docs/archive/` へ移す。
 - 生成物 (ビルドディレクトリ、sim の出力、ログ) はコミットしない。スクショは `docs/screenshots*/` に置く。
 
-## 同梱テーマ (assets パーティション)
+## 同梱テーマ・フォント (assets パーティション)
 
 テーマ zip は BLE 転送のほか、USB で assets パーティションへ直接書き込める。
 `tools/mklfs_assets/make_assets_image.sh` が `android/app/src/main/assets/themes/*.zip`
 を `/themes/<id>.zip` に並べた littlefs イメージ `firmware/build/assets_littlefs.bin`
 を生成する (littlefs 設定は esp_littlefs と同一: block=4096, read/prog=128)。
+`tools/fonts/bin/` があれば `*.bin` も `fonts/` に入る — これは T24 で
+app バイナリから外した日本語フォント (jp_20/26/32) で、起動時に
+`ui::init_display` が PSRAM へ読む。再生成は `python3 tools/gen_fonts.py --jp-bin`
+(lv_font_conv 必須)。binfont が読めない時は内蔵の最小フォント
+(font_jp_min_20、ASCII+かな) にフォールバックする。
 書き込みは `python3 -m esptool write-flash 0x820000 firmware/build/assets_littlefs.bin`
 (assets パーティションのみ。アプリ・NVS・storage には触れない)。

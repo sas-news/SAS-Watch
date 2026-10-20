@@ -7,7 +7,10 @@
 
 - 対象個体: Waveshare ESP32-S3-Touch-AMOLED-2.06 (32MB flash / PSRAM 8MB)。スピーカーは無効、
   マイクは I2S DMA の内蔵 RAM 不足で録音できない (T18 保留)。
-- 同梱テーマ 4 つ (mame/cosmos/cute/cyber) は assets パーティションに USB で書いてある (AGENTS.md)。
+- 同梱テーマ 4 つ (mame/cosmos/cute/cyber) と日本語フォント 3 つ (jp_20/26/32 の
+  binfont、計 ~1.4MB) は assets パーティションに USB で書いてある (AGENTS.md)。
+  フォントは起動時に `ui::init_display` で PSRAM へ読み、失敗時は内蔵の最小
+  フォント (ASCII+かな+記号) にフォールバックする (T24)。
   BLE でのテーマ転送は不安定で先送り (T25)。
   **注意**: 実機の assets に入っている cute.zip は、リポジトリの `android/.../themes/cute.zip`
   より古い (bg.png が b6dd640 以前のもの)。必要なら assets イメージを作り直して書く。
@@ -25,8 +28,8 @@
 | 全面再描画 (standard) | 40〜68ms (`b` ベンチ) | docs/perf.md |
 | 全面再描画 (cute/cyber) | 80〜157ms (設定は最大 ~160ms)。スキンの大きい部品は近似塗りに置き換え済み | docs/perf.md |
 | 内蔵 SRAM | 起動後の空き ~21KB、表示中 ~18-21KB (LVGL ヒープを PSRAM に移して安定化) | `b` の int_free |
-| PSRAM | standard で空き ~2.9MB、画像テーマのアプリ一覧で ~140KB (mame) | `b` の psram_free |
-| app 領域 | 4MB 中の空き 8% | T24 (日本語フォントを外に出す) で戻す予定 |
+| PSRAM | standard で空き ~3.4MB (アリーナ不要)。肌テーマで ~750KB、 mame で ~450KB 空き (binfont 常駐 ~1.4MB + アリーナ) | `b` の psram_free |
+| app 領域 | 4MB 中の空き ~31% (日本語フォントを assets の binfont へ移した T24) | `idf.py build` 末尾 |
 | VSYS power-off 閾値 | 2600 mV (既定維持) | AXP2101 reg 0x24 |
 | 角 R / safe-area | R≈100px / 32〜36px | 実機写真の解析 |
 | パネル窓オフセット | x_gap=22, y_gap=0 | 同上 |
@@ -38,14 +41,17 @@
 ## 未解決・注意
 
 - 録音できない (T18)。描画バッファの見直しで内蔵 SRAM が起動時に 8KB 増えたので、再挑戦の余地がある。
-- app 領域の空きが 8% (T24)。
 - BLE のテーマ転送 (T25)。
 - 時計の設定画面からファイルテーマを選べない (T28)。
 - Home と文字盤の整理はユーザーの判断待ち (T22、`docs/home-face-proposal.md`)。
 - 起動時の `E sh8601: swap_xy is not supported by this panel` は vendor の
   esp_lvgl_port をパッチして消した (回転なしボードでは呼ぶ意味がない)。
-- 画像テーマ (cosmos/cute/cyber) で、アプリ一覧の bake (~850KB) が PSRAM の断片化で
-  確保できないことがある。そのときは bake せずに普通の一覧で表示される (見た目は同じで少し重い)。
+- 肌テーマ (cute/cyber) ではアプリ一覧の bake (~850KB) がほぼ確実に失敗する
+  (T24 の binfont 常駐 ~1.4MB + アリーナで、最大連続空きは ~500KB)。
+  見た目は同じだがスクロールが ~180ms と遅い。bake 確保失敗時はスキン
+  キャッシュを捨てて一度だけ再試行する。テーマアリーナは「資産領域」と
+  「画面ブロック 640KiB×2」に分割して別個確保する — フォント常駐後は
+  単一 ~3MB の連続確保が失敗して mame の資産が欠けていたため。
 - スキン (9-slice) の大きい部品は 1D 走査で近似塗りに切り替えた (fill/band、詳細は
   docs/perf.md)。cute は sim 差分 ~0、cyber は縞の補間差のみ (max<=17) で性能が
   およそ 1.3〜1.8 倍になった。縁ストリップは LVGL の伸縮補間が見た目の一部なので
