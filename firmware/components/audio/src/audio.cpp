@@ -140,49 +140,22 @@ esp_codec_dev_handle_t speaker() {
 i2s_chan_handle_t s_i2s_rx = nullptr;
 
 esp_codec_dev_handle_t mic_open() {
-  // 途中失敗は全部ここで巻き戻す (チャネル/data_if/ctrl_if が残ると
-  // ポート占有のまま再試行が永久に失敗する → 実機で観測済み)。
+  // I2S チャネルと DMA バッファは audio::init が先に確保済み (T18:
+  // 録音要求時には内蔵 RAM の連続ブロックが残っていないため)。
+  // ここでは enable と codec_dev 側だけを開く。
+  // 途中失敗は全部ここで巻き戻す (data_if/ctrl_if が残ると
+  // 再試行が永久に失敗する → 実機で観測済み)。チャネルは init
+  // 所有なので disable まで (del しない)。
   auto abort = []() -> esp_codec_dev_handle_t {
-    if (s_i2s_rx) {
-      i2s_channel_disable(s_i2s_rx);  // 未enableでも戻り値を無視して良い
-      i2s_del_channel(s_i2s_rx);
-      s_i2s_rx = nullptr;
-    }
+    if (s_i2s_rx) i2s_channel_disable(s_i2s_rx);
     return nullptr;
   };
-  i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(
-      static_cast<i2s_port_t>(CONFIG_BSP_I2S_NUM), I2S_ROLE_MASTER);
-  chan.auto_clear = true;
-  chan.dma_desc_num = 4;   // 既定 6 → 4
-  chan.dma_frame_num = 240;
-  if (i2s_new_channel(&chan, nullptr, &s_i2s_rx) != ESP_OK ||
-      !s_i2s_rx) {
-    ESP_LOGE(TAG, "mic i2s channel alloc failed");
-    return abort();
+  if (!s_i2s_rx) {
+    ESP_LOGE(TAG, "mic i2s channel not reserved");
+    return nullptr;
   }
-  const i2s_std_config_t std_cfg = {
-      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(
-          watch::audio::kAdpcmSampleRate),
-      .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(
-          I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-      .gpio_cfg =
-          {
-              .mclk = BSP_I2S_MCLK,
-              .bclk = BSP_I2S_SCLK,
-              .ws = BSP_I2S_LCLK,
-              .dout = BSP_I2S_DOUT,
-              .din = BSP_I2S_DSIN,
-              .invert_flags =
-                  {
-                      .mclk_inv = false,
-                      .bclk_inv = false,
-                      .ws_inv = false,
-                  },
-          },
-  };
-  if (i2s_channel_init_std_mode(s_i2s_rx, &std_cfg) != ESP_OK ||
-      i2s_channel_enable(s_i2s_rx) != ESP_OK) {
-    ESP_LOGE(TAG, "mic i2s init/enable failed");
+  if (i2s_channel_enable(s_i2s_rx) != ESP_OK) {
+    ESP_LOGE(TAG, "mic i2s enable failed");
     return abort();
   }
   audio_codec_i2s_cfg_t i2s_cfg = {
@@ -197,7 +170,6 @@ esp_codec_dev_handle_t mic_open() {
     ESP_LOGE(TAG, "mic i2s data_if failed");
     return abort();
   }
-  ESP_LOGI(TAG, "mic i2s data_if ok");
   // 注意: addr は 8bit 表記。esp_codec_dev の I2C ctrl が内部で >>1 する
   // (0x40 を渡すと 0x20 に書きに行き、起動時の 7bit probe は成功するのに
   //  codec への全書き込みが NACK になる → 実機で観測済み)。
@@ -240,7 +212,6 @@ esp_codec_dev_handle_t mic_open() {
     audio_codec_delete_data_if(data_if);
     return abort();
   }
-  ESP_LOGI(TAG, "mic_open ok");
   return dev;
 }
 
@@ -283,8 +254,6 @@ void rec_task(void*) {
 
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // ジョブ待ち
-    ESP_LOGI(TAG, "rec_task: job id=%u -> %s",
-             (unsigned)s_rec.memo_id, s_rec.path);
 
     FILE* f = std::fopen(s_rec.path, "w+b");
     if (!f) {
@@ -305,7 +274,6 @@ void rec_task(void*) {
     codec_fs(&fs);
     esp_codec_dev_handle_t m = mic();
     const int open_rc = m ? esp_codec_dev_open(m, &fs) : -999;
-    ESP_LOGI(TAG, "rec_task: mic=%p open_rc=%d", (void*)m, open_rc);
     if (m && open_rc == ESP_CODEC_DEV_OK) {
       esp_codec_dev_set_in_gain(m, 24.0f);  // TODO(hw): 実機で確認
       int reads = 0;
@@ -313,14 +281,18 @@ void rec_task(void*) {
         if (s_rec.samples >= s_rec.max_sec * watch::audio::kAdpcmSampleRate) {
           break;
         }
+        // esp_codec_dev_read はステータス (ESP_CODEC_DEV_OK=0) を返し、
+        // バイト数は返さない (内部で bytes_read を捨てる)。成功時は
+        // pcm 全体を使う。部分読みのゴミを防ぐため先にゼロクリアする。
+        std::memset(pcm, 0, sizeof(pcm));
         const int rd = esp_codec_dev_read(m, pcm, sizeof(pcm));
-        if (rd <= 0) {
+        if (rd != ESP_CODEC_DEV_OK) {
           if (++reads == 40)  // ~200ms 読めないと 1 回だけ出す
             ESP_LOGW(TAG, "rec_task: still no data (rd=%d)", rd);
           vTaskDelay(pdMS_TO_TICKS(5));
           continue;
         }
-        const size_t got = static_cast<size_t>(rd) / sizeof(int16_t);
+        const size_t got = sizeof(pcm) / sizeof(int16_t);
         int16_t peak = 0;
         for (size_t i = 0; i < got; ++i) {
           const int v = pcm[i] < 0 ? -pcm[i] : pcm[i];
@@ -522,9 +494,6 @@ class EspAudio : public watch::AudioPort {
   }
 
   bool record_begin(uint32_t memo_id, uint32_t max_sec) override {
-    // T18 診断: どこで弾かれたか分かるよう各段を出す
-    ESP_LOGI(TAG, "record_begin id=%u ready=%d mounted=%d mic=%p",
-             (unsigned)memo_id, s_ready, s_mounted, (void*)mic());
     if (!s_ready || !s_mounted || !mic()) return false;
     lock();
     if (s_rec.active || s_play.active) {
@@ -773,6 +742,51 @@ bool init(const Deps& deps) {
              kEs7210Addr);
   } else if (!kMicEnabled) {
     ESP_LOGW(TAG, "mic disabled (WATCH_ENABLE_MIC=n)");
+  }
+
+  // T18: I2S RX チャネルと DMA バッファ (内蔵 RAM の連続領域) を
+  // ここで確保する。録音要求時には内蔵ヒープが ~8KB まで減っていて
+  // i2s_alloc_dma_desc が失敗していた (実機で観測)。enable は
+  // mic_open 側で行う (未使用時はクロックを止めたまま)。
+  if (s_mic_codec) {
+    i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(
+        static_cast<i2s_port_t>(CONFIG_BSP_I2S_NUM), I2S_ROLE_MASTER);
+    chan.auto_clear = true;
+    chan.dma_desc_num = 4;   // 既定 6 → 4
+    chan.dma_frame_num = 240;
+    if (i2s_new_channel(&chan, nullptr, &s_i2s_rx) != ESP_OK ||
+        !s_i2s_rx) {
+      ESP_LOGE(TAG, "mic i2s channel alloc failed");
+      s_i2s_rx = nullptr;
+      s_mic_codec = false;
+    } else {
+      const i2s_std_config_t std_cfg = {
+          .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(
+              watch::audio::kAdpcmSampleRate),
+          .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(
+              I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+          .gpio_cfg =
+              {
+                  .mclk = BSP_I2S_MCLK,
+                  .bclk = BSP_I2S_SCLK,
+                  .ws = BSP_I2S_LCLK,
+                  .dout = BSP_I2S_DOUT,
+                  .din = BSP_I2S_DSIN,
+                  .invert_flags =
+                      {
+                          .mclk_inv = false,
+                          .bclk_inv = false,
+                          .ws_inv = false,
+                      },
+              },
+      };
+      if (i2s_channel_init_std_mode(s_i2s_rx, &std_cfg) != ESP_OK) {
+        ESP_LOGE(TAG, "mic i2s init failed");
+        i2s_del_channel(s_i2s_rx);
+        s_i2s_rx = nullptr;
+        s_mic_codec = false;
+      }
+    }
   }
 
   esp_vfs_littlefs_conf_t conf{};

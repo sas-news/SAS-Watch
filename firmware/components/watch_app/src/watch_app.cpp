@@ -437,6 +437,19 @@ void serial_dbg_task(void*) {
         // スキン段階無効化 ('z'ero skin): 0=全部 1=bgなし 2=画面スキン全無し。
         // 次に画面を作り直した時点から効くので、続けて b で計測する。
         ESP_LOGI(TAG, "serial: skin_dbg=%u", (unsigned)ui::skin_dbg_next());
+      } else if (buf[i] == 'v' || buf[i] == 'V') {
+        // 録音経路の実機テスト ('v'oice): T18 の DMA 確保を確認するため
+        // AudioPort を直接叩く。5 秒録って捨てる (commit=false)。
+        watch::AudioPort* ap = audio::port();
+        if (!ap->record_begin(0x7FFFFFFE, 10)) {
+          ESP_LOGW(TAG, "serial: rec begin refused");
+        } else {
+          vTaskDelay(pdMS_TO_TICKS(5500));
+          uint32_t sec = 0, sz = 0;
+          const bool ok = ap->record_end(false, &sec, &sz);
+          ESP_LOGI(TAG, "serial: rec end ok=%d sec=%lu size=%lu", (int)ok,
+                   (unsigned long)sec, (unsigned long)sz);
+        }
       } else if (buf[i] == 'w' || buf[i] == 'W') {
         // WoM 再 arm — 初期値に強制できるかの切り分け ('w'om rearm)。
         board::imu::disarm_wake_on_motion();

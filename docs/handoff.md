@@ -6,7 +6,8 @@
 ## 要点
 
 - 対象個体: Waveshare ESP32-S3-Touch-AMOLED-2.06 (32MB flash / PSRAM 8MB)。スピーカーは無効、
-  マイクは I2S DMA の内蔵 RAM 不足で録音できない (T18 保留)。
+  マイクは録音できる (T18 解決: I2S RX/DMA を `audio::init` で予約し、
+  `esp_codec_dev_read` の戻り値解釈を修正。実機で 5.5s/88K サンプル確認)。
 - 同梱テーマ 4 つ (mame/cosmos/cute/cyber) と日本語フォント 3 つ (jp_20/26/32 の
   binfont、計 ~1.4MB) は assets パーティションに USB で書いてある (AGENTS.md)。
   フォントは起動時に `ui::init_display` で PSRAM へ読み、失敗時は内蔵の最小
@@ -40,7 +41,6 @@
 
 ## 未解決・注意
 
-- 録音できない (T18)。描画バッファの見直しで内蔵 SRAM が起動時に 8KB 増えたので、再挑戦の余地がある。
 - BLE のテーマ転送 (T25)。
 - 時計の設定画面からファイルテーマを選べない (T28)。
 - Home と文字盤の整理はユーザーの判断待ち (T22、`docs/home-face-proposal.md`)。
@@ -63,7 +63,9 @@
 - ポートは `/dev/ttyACM0` ↔ `/dev/ttyACM1` で変わる。毎回 `ls /dev/ttyACM*`。
 - `idf.py flash` は cmake を再実行する。`IDF_CCACHE_ENABLE=1` 無しだと全リビルド。
 - ログは `python -m esp_idf_monitor --port /dev/ttyACM0 build/sas_watch.elf` を `timeout` 付きで
-  ファイルに落とすのが安定。自動操作は pyserial で 1 文字コマンド (`b` `t` など) を送る。
+  ファイルに落とすのが安定。自動操作は pyserial で 1 文字コマンド (`b` `t` `v` など) を送る。
+  素の `cat` は制御線の扱いで受信できないことがある — 1 セッションで open→送信→受信まで行う
+  (DTR/RTS を自分でいじるとチップが download モードでリセットループするので触らない)。
 - 画面 OFF 中の入力 (シリアルの `t` もタッチ扱い) は「起こすだけ」で処理されない。
 - Android 13 以降のサイドロードでは「制限された設定」を許可しないと通知アクセスを ON にできない
   (設定 → アプリ → SAS-Watch → ⋮ → 制限された設定を許可)。
