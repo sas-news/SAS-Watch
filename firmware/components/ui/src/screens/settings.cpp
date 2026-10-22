@@ -62,6 +62,12 @@ lv_obj_t* pick_row(lv_obj_t* grp, const char* label, bool in_use,
   return r;
 }
 
+// テーマ行: zip テーマの id を SetTheme で適用する (適用と再構築は shell)。
+void set_theme_cb(lv_event_t* e) {
+  const char* id = static_cast<const char*>(lv_event_get_user_data(e));
+  if (id) ui::emit_text(watch::ActionType::SetTheme, id);
+}
+
 // 選択ビュー共通の先頭行 (‹ 戻るでメインに戻る)。
 void pick_back_row(lv_obj_t* grp) {
   ui::c::back_row(grp, [](lv_event_t*) { show_main(); });
@@ -212,8 +218,8 @@ lv_obj_t* build(lv_obj_t* scr) {
       nullptr));
 
   // ---- テーマ ----
-  // 内蔵 2 種は時計から切替可。BLE で入れた file テーマは
-  // 適用中だけ表示する (選び直すにはスマホから送る)。
+  // 内蔵 2 種 + assets の zip テーマ (T28)。ファイルテーマは選択で
+  // settings.theme に書かれ、shell が全画面を作り直して適用する。
   ui::c::caption(s_col, "テーマ");
   lv_obj_t* g_theme = ui::c::group(s_col);
   const char* cur = ui::theme_id();
@@ -231,7 +237,21 @@ lv_obj_t* build(lv_obj_t* scr) {
                ui::emit_text(watch::ActionType::SetTheme, "light");
              },
              nullptr);
-  if (!is_standard && !is_light) {
+  // zip テーマの id は行のコールバックが参照するので画面の生存期間だけ
+  // 保持する (テーマ切替時は shell が旧画面を同期破棄してから再構築する)。
+  constexpr int kMaxThemeRows = 12;
+  static char s_theme_ids[kMaxThemeRows][32];
+  const int theme_cnt = ui::theme_list_ids(s_theme_ids, kMaxThemeRows);
+  bool cur_listed = false;
+  for (int i = 0; i < theme_cnt; ++i) {
+    const bool in_use = std::strcmp(cur, s_theme_ids[i]) == 0;
+    cur_listed = cur_listed || in_use;
+    ui::c::row(g_theme, in_use ? ui::theme_name() : s_theme_ids[i],
+               in_use ? "使用中" : nullptr, nullptr, false, set_theme_cb,
+               s_theme_ids[i]);
+  }
+  // 適用中の zip が assets から消えている場合も「使用中」を出す。
+  if (!is_standard && !is_light && !cur_listed) {
     ui::c::row(g_theme, ui::theme_name(), "使用中", nullptr, false, nullptr,
                nullptr);
   }

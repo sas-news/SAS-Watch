@@ -95,6 +95,11 @@ const Theme& theme();
 const char* theme_id();
 const char* theme_name();
 
+// port::theme_assets_root() 直下の <id>.zip を列挙する (拡張子なし・昇順)。
+// 内蔵テーマ (standard/light) は含まない。out は id[32] の配列。
+// 戻り値は件数 (max で打ち切り)。LVGL コンテキスト内で呼ぶ。
+int theme_list_ids(char (*out)[32], int max);
+
 // [内部] 適用中テーマの id/name を記録する。theme_manager.cpp 専用。
 void theme_set_info(const char* id, const char* name);
 

@@ -15,6 +15,8 @@
 #define SAS_BIG_STATIC
 #endif
 
+#include <dirent.h>
+
 #include <cstdio>
 #include <cstring>
 
@@ -264,6 +266,49 @@ bool theme_apply(const char* id) {
            ok ? theme_id() : "standard(fallback)");
 #endif
   return ok;
+}
+
+// ---- 設定画面用: assets の zip テーマ一覧 (T28) ----
+
+int theme_list_ids(char (*out)[32], int max) {
+  if (!out || max <= 0) return 0;
+  DIR* d = opendir(port::theme_assets_root());
+  if (!d) return 0;
+  int n = 0;
+  struct dirent* e;
+  while (n < max && (e = readdir(d)) != nullptr) {
+    const char* dot = std::strrchr(e->d_name, '.');
+    if (!dot || std::strcmp(dot, ".zip") != 0) continue;
+    const size_t len = static_cast<size_t>(dot - e->d_name);
+    if (len == 0 || len >= 32) continue;
+    char id[32];
+    std::memcpy(id, e->d_name, len);
+    id[len] = '\0';
+    if (!watch::theme_id_ok(id)) continue;
+    bool dup = false;
+    for (int i = 0; i < n; ++i) {
+      if (std::strcmp(out[i], id) == 0) {
+        dup = true;
+        break;
+      }
+    }
+    if (dup) continue;
+    std::strcpy(out[n], id);
+    ++n;
+  }
+  closedir(d);
+  // 件数は少ないので挿入ソート (ヒープを使わない)。
+  for (int i = 1; i < n; ++i) {
+    char key[32];
+    std::strcpy(key, out[i]);
+    int j = i - 1;
+    while (j >= 0 && std::strcmp(out[j], key) > 0) {
+      std::strcpy(out[j + 1], out[j]);
+      --j;
+    }
+    std::strcpy(out[j + 1], key);
+  }
+  return n;
 }
 
 // ---- v2 スキン参照 ----

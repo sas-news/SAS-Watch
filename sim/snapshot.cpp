@@ -837,6 +837,28 @@ int main(int argc, char** argv) {
   back_home();
   nav_to(watch::Route::Settings);
   ok &= save(out, "11_settings");
+  // テーマ節 (T28) はスクロールしないと写らないので、見出しまで送って撮る。
+  // 位置は文字列で探す (行数が増減しても追従する)。
+  struct Finder {
+    static lv_obj_t* find(lv_obj_t* o, const char* t) {
+      if (lv_obj_check_type(o, &lv_label_class) && lv_label_get_text(o) &&
+          std::strcmp(lv_label_get_text(o), t) == 0) {
+        return o;
+      }
+      const uint32_t n = lv_obj_get_child_count(o);
+      for (uint32_t i = 0; i < n; ++i) {
+        if (lv_obj_t* r = find(lv_obj_get_child(o, i), t)) return r;
+      }
+      return nullptr;
+    }
+  };
+  if (lv_obj_t* lab = Finder::find(lv_screen_active(), "テーマ")) {
+    lv_obj_t* col = lv_obj_get_parent(lab);
+    lv_obj_scroll_to_y(col, lv_obj_get_y(lab) - 20, LV_ANIM_OFF);
+    pump(100);
+    ok &= save(out, "12_settings_theme");
+    lv_obj_scroll_to_y(col, 0, LV_ANIM_OFF);
+  }
 
   // 「文字盤」「数字フォント」は行タップで選択ビューに開く (掘り下げ)。
   // 実測: 文字盤行センター y≈338、数字フォント y≈399、選択ビューの戻る行 y≈106。
