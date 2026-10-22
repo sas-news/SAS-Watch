@@ -777,6 +777,34 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
 
 状態: 先送り (ユーザー判断)
 
+## T31. 音声メモの文字起こし (時計 + 電話) — 難度 M (実機)
+
+- 方針: 時計単体での音声認識は現実的でない (ESP32-S3 8MB PSRAM)。
+  電話側の STT (`AgentApi.transcribe` = OpenAI 互換 /audio/transcriptions) を使い、
+  時計は要求と結果の保存だけを持つ。
+- 時計: メモ詳細の「文字起こし」→ `ActionType::MemoTranscribe` →
+  EVT `memo.transcribe.request {id}`。電話が `memo.text.set {id,text}` を返すと
+  Voice メモの text に保存し、一覧・詳細に本文を出す。
+- 電話: EVT を受けたら `memo.audio.get` + BULK で音声を取得 → STT →
+  `memo.text.set`。メモ画面の「文字起こし」ボタンからも同じ処理を呼べる。
+- 検証: core 230 件、firmware build、Android の protocol/agent テストと assemble/lint。
+- 残り: 実機で (1) 時計のボタン → 電話 STT → 時計に本文、(2) アプリのボタン、
+  (3) T30 の音声取得エラーが解消していること。音声取得が失敗するとこの経路も止まる。
+
+状態: 実装済み・実機確認待ち (未コミット)
+
+## T32. 重いテーマで UI が固まる — 難度 H (実機・再現待ち)
+
+- 症状 (ユーザー報告 2026-10-22): 重いテーマで固まり、強制電源 OFF しないと復活しない。
+- 試したこと: テーマ巡回 (`t`) + bench (`b`) を 5 周 (mame/cosmos/cute/cyber/standard)
+  → 再現せず (panic/assert なし、各周で health 応答あり、監査も 0 件)。
+- 次に必要な情報: テーマ id、固まる操作 (画面遷移/スクロール/テーマ適用/BLE 接続)、
+  フリーズ中にシリアル `h` が応答するか、画面は最後の描画のままか黒か。
+- 候補: cute/cyber の bake (~850KB) 失敗経路、テーマ適用中の PSRAM 確保、
+  BLE からのテーマ転送 (T25) との複合。
+
+状態: 再現待ち
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。
