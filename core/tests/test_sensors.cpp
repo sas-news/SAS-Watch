@@ -291,6 +291,13 @@ TEST(StepsHw, SoftwareFallbackCountsBeforeSync) {
   EXPECT_GT(features::steps_today(), 0u);
 }
 
+TEST(StepsHw, ZeroSyncKeepsSoftwareCounting) {
+  StepsFixture f;
+  f.sync(0);    // エンジンが動かない個体の同期 (カウンタ 0 のまま)
+  f.walk(200);  // それでもソフト検出は止まらない
+  EXPECT_GT(features::steps_today(), 0u);
+}
+
 TEST(StepsHw, CounterWrapDelta) {
   StepsFixture f;
   f.sync(100);

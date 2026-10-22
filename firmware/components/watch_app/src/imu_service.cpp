@@ -43,6 +43,7 @@ constexpr uint64_t kHwRtcSyncUs = 5ull * 60 * 1000000;  // 画面OFF中5分周�
 
 TaskHandle_t s_task = nullptr;
 bool s_hw_ped = false;          // ハード歩数計が有効か
+bool s_hw_counted = false;      // STEP_CNT が実際に増えたか
 int64_t s_next_hw_sync_ms = 0;  // 次に STEP_CNT を読む時刻
 
 // queue 経由で app タスクへ ImuSample を投げる。
@@ -78,6 +79,14 @@ void maybe_sync_hw() {
   if (now < s_next_hw_sync_ms) return;
   uint32_t cnt = 0;
   if (board::imu::hw_pedometer_steps(&cnt) == ESP_OK) {
+    // カウンタが実際に増えたかを見る。増えていない間は HW を主経路と
+    // みなさず、ソフト検出用に 20Hz サンプリングを続ける。
+    static uint32_t s_last_cnt = 0;
+    if (cnt != s_last_cnt) {
+      if (cnt != 0) s_hw_counted = true;
+      s_last_cnt = cnt;
+      ESP_LOGI(TAG, "STEP_CNT=%lu", (unsigned long)cnt);
+    }
     push_hw_sync(cnt);
   } else {
     ESP_LOGW(TAG, "STEP_CNT read failed");
@@ -219,7 +228,9 @@ void imu_task(void*) {
       // 出ず検出が死ぬ。2Hz の trickle で基準を追従させる
       // (SW フォールバック時は歩数計数用に 20Hz 継続)。
       static int s_poll_div = 0;
-      const int div = s_hw_ped ? 10 : 1;  // 50ms × 10 = 500ms
+      // HW が実際に数え始めるまでは 20Hz を維持する (エンジンが動かない
+      // 個体では core のソフト検出が歩数を拾う)。数え始めたら 2Hz に落とす。
+      const int div = (s_hw_ped && s_hw_counted) ? 10 : 1;  // 50ms × 10
       if (++s_poll_div >= div) {
         s_poll_div = 0;
         int16_t x, y, z;
@@ -247,7 +258,9 @@ void imu_task(void*) {
         s_wom_seen = false;
         if (pending && !screen_on()) {
           uint8_t s1 = 0;
-          if (board::imu::wom_status(&s1) == ESP_OK && s1 != 0) {
+          // STATUS1.bit2 (WoM) だけを見る。bit4 は Pedometer イベントで
+          // 歩行中にも立つ — これを起床と誤ると歩くたび burst が走る。
+          if (board::imu::wom_status(&s1) == ESP_OK && (s1 & 0x04)) {
             ESP_LOGI(TAG, "imu int s1=%02x", s1);
             burst();
           }

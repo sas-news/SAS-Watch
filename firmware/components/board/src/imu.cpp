@@ -96,29 +96,42 @@ constexpr uint8_t kCtrl9CmdWriteWom        = 0x08;  // CTRL_CMD_WRITE_WOM_SETTIN
 constexpr uint8_t kCtrl9CmdConfigPedometer = 0x0D;  // CTRL_CMD_CONFIGURE_PEDOMETER
 constexpr uint8_t kCtrl9CmdResetPedometer  = 0x0F;  // CTRL_CMD_RESET_PEDOMETER
 constexpr uint8_t kCtrl8PedEnable          = 0x10;  // CTRL8.bit4
-constexpr uint8_t kStatusIntCmdDone        = 0x80;  // STATUSINT.bit7 (rev0.9)
+constexpr uint8_t kCtrl8HandshakeStatusInt = 0x80;  // CTRL8.bit7 (1=STATUSINT で完了通知)
+constexpr uint8_t kCtrl9CmdAck             = 0x00;  // CTRL_CMD_ACK (完了の ACK)
+constexpr uint8_t kStatusIntCmdDone        = 0x80;  // STATUSINT.bit7
 
 esp_err_t wreg(uint8_t reg, uint8_t v) {
     return qmi8658_write_register(&s_imu, reg, v);
 }
 
-// CTRL9 コマンド実行 + CmdDone 待ち。
-// 完了は STATUSINT.bit7 (rev0.9)。rev0.8 では STATUS1.bit0 とあるので
-// 両方ポーリングする。// TODO(hw): 実機でどちらが立つか確認
+// CTRL9 コマンド実行 + CmdDone 待ち (DS Rev A §5.10)。
+//   完了は STATUSINT.bit7。受けたら CTRL_CMD_ACK (0x00) を CTRL9 に書いて
+//   クリアする — ACK しないと bit7 が立ったままで、次以降の完了判定が即
+//   true になり実質ノーチェックになる (実機で踏んだ)。
+//   ハンドシェイクは STATUSINT ポーリングにする (CTRL8.bit7=1)。既定の
+//   INT1 ハンドシェイクのままだと CTRL9 完了で INT1(GPIO21) が駆動され、
+//   WoM 起床と区別できない。
+//   旧実装は STATUS1.bit0 を完了ビットとしても見ていたが、Rev A では
+//   STATUS1.bit0 は Reserved (常に 0) なので削除した。
 esp_err_t ctrl9_exec(uint8_t cmd)
 {
+    uint8_t ctrl8 = 0;
+    if (qmi8658_read_register(&s_imu, kRegCtrl8, &ctrl8, 1) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    if (!(ctrl8 & kCtrl8HandshakeStatusInt)) {
+        if (wreg(kRegCtrl8, ctrl8 | kCtrl8HandshakeStatusInt) != ESP_OK) {
+            return ESP_FAIL;
+        }
+    }
     esp_err_t ret = wreg(kRegCtrl9, cmd);
     if (ret != ESP_OK) return ret;
     for (int i = 0; i < 50; ++i) {  // 最大 ~100ms
-        uint8_t si = 0, s1 = 0;
+        uint8_t si = 0;
         if (qmi8658_read_register(&s_imu, kRegStatusInt, &si, 1) != ESP_OK) {
             return ESP_FAIL;
         }
-        if (si & kStatusIntCmdDone) return ESP_OK;  // 読取でクリア+INT1解除
-        if (qmi8658_read_register(&s_imu, 0x2F, &s1, 1) != ESP_OK) {
-            return ESP_FAIL;
-        }
-        if (s1 & 0x01) return ESP_OK;  // rev0.8 流儀 (STATUS1.bit0)
+        if (si & kStatusIntCmdDone) return wreg(kRegCtrl9, kCtrl9CmdAck);
         vTaskDelay(pdMS_TO_TICKS(2));
     }
     return ESP_ERR_TIMEOUT;
@@ -208,25 +221,23 @@ esp_err_t disarm_wake_on_motion()
 }
 
 // --- ハードウェア歩数計 -------------------------------------------------
-// QMI8658A DS §11: pedometer パラメータを CAL レジスタ経由で CTRL9 コマンド
+// QMI8658C DS Rev A §11: パラメータを CAL レジスタ経由で CTRL9 コマンド
 // 0x0D ×2回で投入 → CTRL8.bit4 でエンジン有効化 → STEP_CNT(0x5A-5C) 読み出し。
-// rev0.8 C datasheet には pedometer 節が無い (rev0.9 C は CTRL8.bit4 と
-// STATUS1.bit4 だけ確認可) → 値は A datasheet 準拠の推測。// TODO(hw): 実機で確認
+// パラメータは毎回書き直す: bit4 が既に 1 でも、過去にパラメータ投入が
+// 通っていないまま「有効」に見える状態があり得る (実機で STEP_CNT が 0 の
+// まま固まった)。bit4 は 0→1 のときだけカウントがリセットされるので、
+// 既に 1 なら触らない (deep sleep をまたいだカウントを維持する)。
+// TODO(hw): 21Hz 前提のスケーリング値 (DS 例は 50Hz) は歩数精度を実機で確認。
 
 esp_err_t hw_pedometer_init()
 {
     if (!s_ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    // deep sleep 復帰などで既に有効なら採用 (カウントはチップ側で継続)。
     uint8_t ctrl8 = 0;
     esp_err_t ret = qmi8658_read_register(&s_imu, kRegCtrl8, &ctrl8, 1);
     if (ret != ESP_OK) return ret;
-    if (ctrl8 & kCtrl8PedEnable) {
-        s_hw_ped = true;
-        ESP_LOGI(TAG, "pedometer already enabled (deep sleep 継続)");
-        return ESP_OK;
-    }
+    const bool already = (ctrl8 & kCtrl8PedEnable) != 0;
 
     // 設定は accel/gyro 停止中に行うこと (DS §11.2)。
     ret = qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL);
@@ -260,14 +271,24 @@ esp_err_t hw_pedometer_init()
     if (ret != ESP_OK) goto fail;
 
     // CTRL8.bit4=1 で Pedometer engine 有効化 + カウンタをクリア。
-    ret = wreg(kRegCtrl8, ctrl8 | kCtrl8PedEnable);
-    if (ret != ESP_OK) goto fail;
-    ret = ctrl9_exec(kCtrl9CmdResetPedometer);
-    if (ret != ESP_OK) goto fail;
+    // 既に 1 ならそのまま (0→1 の遷移だけがカウンタをリセットする)。
+    if (!already) {
+        ret = wreg(kRegCtrl8, ctrl8 | kCtrl8PedEnable |
+                                kCtrl8HandshakeStatusInt);
+        if (ret != ESP_OK) goto fail;
+        ret = ctrl9_exec(kCtrl9CmdResetPedometer);
+        if (ret != ESP_OK) goto fail;
+    }
 
     s_hw_ped = true;
     apply_normal_config();
-    ESP_LOGI(TAG, "hw pedometer on (odr=21Hz 前提のパラメータ)");
+    {
+        uint32_t cnt = 0;
+        hw_pedometer_steps(&cnt);
+        ESP_LOGI(TAG, "hw pedometer on (params reloaded, %s, cnt=%lu)",
+                 already ? "engine kept" : "engine enabled",
+                 (unsigned long)cnt);
+    }
     return ESP_OK;
 
 fail:

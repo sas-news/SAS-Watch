@@ -1,8 +1,8 @@
 // steps.cpp — 歩数 Feature。
 //   主経路: firmware の HW pedometer 読み出し → StepsHwSync Action (arg0 =
 //   チップの 24bit 累積カウンタ生値)。ここで delta 化して当日歩数に加算。
-//   HW が無効 (init 失敗 = チップ非対応) の間は ImuSample → StepDetector
-//   のソフト検出で数える (フォールバック)。
+//   HW が一度も増えない間は ImuSample → StepDetector のソフト検出で数える
+//   (フォールバック)。
 //   RaiseDetected は ImuSample → 検出器 → bus まで。画面ON/OFF制御はfirmware。
 // 永続化: "feat.steps" ({ver=2,day,steps,hw_last})。NVS 摩耗対策で
 // kPersistEvery 歩ごとに保存。日次リセット時は必ず保存。
@@ -40,7 +40,7 @@ int32_t s_day = -1;       // 現在のローカル日 (-1 = 未初期化)
 uint32_t s_steps = 0;     // 今日の歩数
 int64_t s_midnight_ms = 0;  // 次のローカル深夜 (now_ms 換算)
 uint32_t s_unsaved = 0;   // persist してから増えた分
-bool s_hw_active = false; // HW pedometer 経路が生きているか
+bool s_hw_active = false; // HW 経路が生きているか (歩数が増えた証拠あり)
 uint32_t s_hw_last = 0;   // 最後に受け取った HW カウンタ生値
 
 sensors::StepDetector s_step_det;
@@ -95,8 +95,6 @@ bool handle(const Action& a, FeatureContext& c) {
   const int64_t now = c.clock.now_ms();
   if (a.type == ActionType::StepsHwSync) {
     check_day(now, c);
-    // HW 同期が届いた = HW pedometer が有効 → ソフト検出は止める。
-    s_hw_active = true;
     // 24bit カウンタの差分 (ラップ吸収)。初回は hw_last=0 なので
     // cur そのままが差分になる (boot 直後なので実害なし)。
     uint32_t delta = (a.arg0 - s_hw_last) & 0xFFFFFFu;
@@ -105,7 +103,13 @@ bool handle(const Action& a, FeatureContext& c) {
       // カウンタリセット疑い (チップ電断等): 差分は信用しない。
       delta = 0;
     }
-    if (delta) add_steps(delta, c);
+    if (delta) {
+      // 実際に数え始めてから HW 経路を主にする。0 のままの同期で
+      // ソフト検出を止めると、エンジンが動かない個体で歩数が 0 に
+      // 固定される (実機で STEP_CNT が 0 のまま固まった)。
+      s_hw_active = true;
+      add_steps(delta, c);
+    }
     return true;
   }
   if (a.type != ActionType::ImuSample) return false;
