@@ -1,4 +1,4 @@
-# handoff.md — 現状 (2026-10-19)
+# handoff.md — 現状 (2026-10-22)
 
 次に作業する人が最初に読む「今どうなっているか」。残タスクと方針は `docs/roadmap.md`。
 過去の経緯 (2026-10-15 までの引き継ぎ文書、T14 監査など) は `docs/archive/handoff-2026-10-15.md`。
@@ -7,7 +7,12 @@
 
 - 対象個体: Waveshare ESP32-S3-Touch-AMOLED-2.06 (32MB flash / PSRAM 8MB)。スピーカーは無効、
   マイクは録音できる (T18 解決: I2S RX/DMA を `audio::init` で予約し、
-  `esp_codec_dev_read` の戻り値解釈を修正。実機で 5.5s/88K サンプル確認)。
+  `esp_codec_dev_read` の戻り値解釈を修正。実機で 5.5s/88K サンプル確認。
+  2026-10-22 にメモ画面からの録音・保存もユーザーが確認)。
+  音声メモのスマホ転送はエラーで、音声メモをほぼ使わないため先送り (T30)。
+- 設定画面のテーマ節に assets の zip テーマが出る (T28)。sim では行タップで
+  `settings.theme` が変わりテーマが適用されることを確認。実機は書き込み・起動・
+  設定画面生成 (bench 90ms) まで確認済みで、タップと再起動持続だけ未確認。
 - 同梱テーマ 4 つ (mame/cosmos/cute/cyber) と日本語フォント 3 つ (jp_20/26/32 の
   binfont、計 ~1.4MB) は assets パーティションに USB で書いてある (AGENTS.md)。
   フォントは起動時に `ui::init_display` で PSRAM へ読み、失敗時は内蔵の最小
@@ -42,7 +47,8 @@
 ## 未解決・注意
 
 - BLE のテーマ転送 (T25)。
-- 時計の設定画面からファイルテーマを選べない (T28)。
+- 音声メモをスマホへ送るとエラーになる (T30、ユーザー判断で先送り)。
+- 設定画面のファイルテーマ選択 (T28) は実装済み。実機はタップと再起動持続が未確認。
 - Home と文字盤の整理はユーザーの判断待ち (T22、`docs/home-face-proposal.md`)。
 - 起動時の `E sh8601: swap_xy is not supported by this panel` は vendor の
   esp_lvgl_port をパッチして消した (回転なしボードでは呼ぶ意味がない)。
