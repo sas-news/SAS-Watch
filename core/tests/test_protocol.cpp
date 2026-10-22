@@ -635,6 +635,11 @@ struct SvcMemoFixture : SvcFixture {
       static_cast<SvcMemoFixture*>(c)->audio_sent = id;
       return true;
     };
+    svc.memo_set_text = [](uint32_t id, const char* text, size_t len,
+                           void* c) {
+      return features::memo_set_text(
+          id, text, len, static_cast<SvcMemoFixture*>(c)->fctx);
+    };
   }
 
   // 音声メモを 1 件録音→確定する。id を返す。
@@ -778,6 +783,42 @@ TEST(DispatchMemo, AudioGetReportsAndStartsSend) {
 }
 
 // ---------- Dispatch: wifi.* / ota.* (Phase OTA) ----------
+
+TEST(DispatchMemo, TextSetStoresTranscript) {
+  SvcMemoFixture f;
+  const uint32_t id = f.record_voice(3);
+  ASSERT_GT(id, 0u);
+  uint8_t out[512];
+  const char* t = "明日の会議は10時";
+  const size_t n = f.req(
+      "memo.text.set",
+      [id, t](cbor::Writer& w) {
+        w.map(2).text("id").uint_v(id).text("text").text(t);
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  features::MemoEntry e;
+  ASSERT_TRUE(features::memo_find(id, &e));
+  EXPECT_EQ(e.kind, features::MemoKind::Voice);
+  EXPECT_STREQ(e.text, t);
+
+  // テキストメモには保存しない (not_found)。
+  const int32_t tid = features::memo_create("y", 1, f.fctx);
+  const size_t n2 = f.req(
+      "memo.text.set",
+      [tid](cbor::Writer& w) {
+        w.map(2)
+            .text("id")
+            .uint_v(static_cast<uint32_t>(tid))
+            .text("text")
+            .text("x");
+      },
+      out, sizeof(out));
+  const char* code = nullptr;
+  size_t cn = 0;
+  ASSERT_TRUE(f.res_err_code(out, n2, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "not_found");
+}
 
 namespace {
 
