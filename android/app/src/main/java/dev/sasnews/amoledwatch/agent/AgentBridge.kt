@@ -84,6 +84,10 @@ class AgentBridge(
         }
     }
 
+    /** WAV を文字起こしするだけ (時計の音声メモ, T31)。 */
+    suspend fun transcribeWav(wav: ByteArray): String? =
+        mutex.withLock { engine.transcribeOnly(wav) }
+
     private suspend fun reply(link: WatchLink, id: Int, ask: suspend () -> String) {
         _busy.value++
         val text = try {

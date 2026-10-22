@@ -58,6 +58,7 @@ uint32_t s_rec_id = 0;
 PowerPolicy::Lease s_rec_lease;
 bool s_playing = false;
 uint32_t s_play_id = 0;
+uint32_t s_transcribe_req = 0;  // 文字起こし依頼待ちの memo id (0=なし)
 PowerPolicy::Lease s_play_lease;
 
 void slot_key(uint16_t slot, char* out, size_t cap) {
@@ -180,6 +181,12 @@ bool handle(const Action& a, FeatureContext& ctx) {
     case ActionType::MemoStopPlay:
       memo_stop_play(ctx);
       return true;
+    case ActionType::MemoTranscribe: {
+      MemoEntry e{};
+      if (!memo_find(a.arg0, &e) || e.kind != MemoKind::Voice) return false;
+      s_transcribe_req = a.arg0;
+      return true;
+    }
     default:
       return false;
   }
@@ -370,6 +377,36 @@ void memo_stop_play(FeatureContext& ctx) {
   s_play_lease.release();
 }
 
+// ---- 文字起こし (T31) ----
+
+bool memo_set_text(uint32_t id, const char* text, size_t len,
+                   FeatureContext& ctx) {
+  if (!text || len == 0 || len > kMemoMaxText) return false;
+  for (size_t i = 0; i < g_count; ++i) {
+    const uint16_t slot =
+        static_cast<uint16_t>((g_head + i) % kMemoMaxEntries);
+    MemoEntry& e = g_entries[slot];
+    if (e.id != id) continue;
+    if (e.kind != MemoKind::Voice) return false;  // 音声メモだけ
+    std::memcpy(e.text, text, len);
+    e.text[len] = '\0';
+    e.len = static_cast<uint16_t>(len);
+    persist_slot(ctx.storage, slot);
+    ctx.bus.publish({EventType::MemoSaved, id});
+    return true;
+  }
+  return false;
+}
+
+void memo_request_transcribe(uint32_t id) { s_transcribe_req = id; }
+
+bool memo_take_transcribe_request(uint32_t* out) {
+  if (!out || s_transcribe_req == 0) return false;
+  *out = s_transcribe_req;
+  s_transcribe_req = 0;
+  return true;
+}
+
 size_t memo_count() { return g_count; }
 
 void memo_reset_state() {
@@ -383,6 +420,7 @@ void memo_reset_state() {
   s_playing = false;
   s_play_id = 0;
   s_play_lease.release();
+  s_transcribe_req = 0;
 }
 
 bool memo_at(size_t i, MemoEntry* out) {

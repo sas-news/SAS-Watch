@@ -416,6 +416,25 @@ DispatchError h_memo_audio_get(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// memo.text.set {id, text}: 音声メモの文字起こし結果 (電話の STT)。
+// text は kMemoMaxText まで (memo_set_text 側で検証)。
+DispatchError h_memo_text_set(const cbor::Value& params, Services& svc,
+                              cbor::Writer* r) {
+  if (!svc.memo_set_text) return DispatchError::Internal;
+  int64_t id = -1;
+  const char* text = nullptr;
+  size_t n = 0;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT32_MAX ||
+      !param_text(params, "text", &text, &n) || n == 0) {
+    return DispatchError::BadRequest;
+  }
+  if (!svc.memo_set_text(static_cast<uint32_t>(id), text, n, svc.ctx)) {
+    return DispatchError::NotFound;
+  }
+  r->map(0);
+  return DispatchError::Ok;
+}
+
 // text パラメタを固定バッファにコピーして NUL 終端させる。
 size_t copy_text(char* dst, size_t cap, const char* s, size_t n) {
   if (n >= cap) n = cap - 1;
@@ -678,6 +697,7 @@ constexpr Handler kHandlers[] = {
     {"timer.stop", h_timer_stop},     {"memo.create", h_memo_create},
     {"memo.list", h_memo_list},       {"memo.get", h_memo_get},
     {"memo.delete", h_memo_delete},   {"memo.audio.get", h_memo_audio_get},
+    {"memo.text.set", h_memo_text_set},
     {"notify.post", h_notify_post},   {"media.state", h_media_state},
     {"alarm.list", h_alarm_list},    {"alarm.set", h_alarm_set},
     {"alarm.delete", h_alarm_delete},

@@ -36,6 +36,7 @@ enum class ActionType : uint16_t {
   MemoRecordStop,
   MemoPlay,         // arg0 = 音声メモの id
   MemoStopPlay,     // 再生中の音声メモを止める
+  MemoTranscribe,   // arg0 = 音声メモ id の文字起こしを電話へ依頼する
   // Agent (AI)
   AgentRecordToggle,  // 「話しかける」録音の開始/停止 (停止で送信)
   AgentAsk,           // arg0 = 定型質問 index (settings agent.q<N+1>)

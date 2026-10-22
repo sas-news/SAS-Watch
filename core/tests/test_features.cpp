@@ -630,3 +630,50 @@ TEST(Agent, BusyIgnoresNewRequest) {
   ASSERT_TRUE(features::agent_pending(&p2));
   EXPECT_EQ(p2.id, p1.id);
 }
+
+// ---------- Memo 文字起こし (T31) ----------
+
+TEST(MemoTranscribe, StoresTextOnVoiceMemo) {
+  AgentFixture f;  // audio/power/settings 配線済み
+  const int32_t id = features::memo_record_toggle(f.ctx);
+  ASSERT_GT(id, 0);
+  f.audio.rec_elapsed_s = 4;
+  EXPECT_EQ(features::memo_record_toggle(f.ctx), id);  // 停止・確定
+  const char* t = "明日の会議は10時";
+  EXPECT_TRUE(features::memo_set_text(static_cast<uint32_t>(id), t,
+                                      std::strlen(t), f.ctx));
+  features::MemoEntry e;
+  ASSERT_TRUE(features::memo_find(static_cast<uint32_t>(id), &e));
+  EXPECT_EQ(e.kind, features::MemoKind::Voice);
+  EXPECT_STREQ(e.text, t);
+  EXPECT_EQ(e.len, std::strlen(t));
+  const auto* ev = f.rec.last_of(EventType::MemoSaved);
+  ASSERT_NE(ev, nullptr);
+  EXPECT_EQ(ev->arg0, static_cast<uint32_t>(id));
+}
+
+TEST(MemoTranscribe, RequestOnlyForVoiceAndConsumedOnce) {
+  AgentFixture f;
+  uint32_t got = 0;
+  EXPECT_FALSE(features::memo_take_transcribe_request(&got));
+
+  // テキストメモは対象外。
+  const int32_t tid = features::memo_create("text", 4, f.ctx);
+  ASSERT_GT(tid, 0);
+  Action a{};
+  a.type = ActionType::MemoTranscribe;
+  a.arg0 = static_cast<uint32_t>(tid);
+  EXPECT_FALSE(features::kMemo.handle(a, f.ctx));
+  EXPECT_FALSE(features::memo_take_transcribe_request(&got));
+
+  // 音声メモなら積まれ、1 回で消費される。
+  const int32_t vid = features::memo_record_toggle(f.ctx);
+  ASSERT_GT(vid, 0);
+  f.audio.rec_elapsed_s = 3;
+  features::memo_record_toggle(f.ctx);
+  a.arg0 = static_cast<uint32_t>(vid);
+  EXPECT_TRUE(features::kMemo.handle(a, f.ctx));
+  EXPECT_TRUE(features::memo_take_transcribe_request(&got));
+  EXPECT_EQ(got, static_cast<uint32_t>(vid));
+  EXPECT_FALSE(features::memo_take_transcribe_request(&got));
+}

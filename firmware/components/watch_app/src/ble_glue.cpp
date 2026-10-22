@@ -539,6 +539,10 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return bulk_out_begin(id, "memo", static_cast<uint16_t>(id & 0xFFFF),
                           nullptr);
   };
+  svc.memo_set_text = [](uint32_t id, const char* text, size_t len, void* c) {
+    return watch::features::memo_set_text(
+        id, text, len, *static_cast<watch::FeatureContext*>(c));
+  };
 #endif  // SAS_APP_MEMO
 #if SAS_APP_AGENT
   svc.agent_reply = [](uint16_t id, const char* text, size_t len, void* c) {
@@ -826,6 +830,26 @@ void ble_glue_poll() {
     s_pending_key = -1;
     ui::request_passkey(static_cast<uint32_t>(key));
   }
+#if SAS_APP_MEMO
+  // 時計の「文字起こし」→ EVT memo.transcribe.request (電話が STT して
+  // memo.text.set で返す)。未接続・送信失敗の間は保留を戻して再送する。
+  if (ble_link_is_connected()) {
+    uint32_t tid = 0;
+    core_lock();
+    const bool has = watch::features::memo_take_transcribe_request(&tid);
+    core_unlock();
+    if (has) {
+      uint8_t buf[64];
+      watch::cbor::Writer w(buf, sizeof(buf));
+      if (!(watch::proto::encode_evt(
+                &w, "memo.transcribe.request", write_evt_id,
+                reinterpret_cast<void*>(static_cast<uintptr_t>(tid))) &&
+            w.ok() && ble_link_send_event(buf, w.size()) == ESP_OK)) {
+        watch::features::memo_request_transcribe(tid);  // 次のループで再送
+      }
+    }
+  }
+#endif
 #if SAS_APP_AGENT
   agent_poll_send();
 #endif

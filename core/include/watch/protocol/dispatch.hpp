@@ -52,6 +52,9 @@ struct Services {
                           void* ctx) = nullptr;
   // memo.audio.get: RES のあとに BULK push 転送を開始する。失敗は false。
   bool (*memo_audio_send)(uint32_t id, void* ctx) = nullptr;
+  // memo.text.set: 音声メモの文字起こし結果 (電話の STT) を保存する。
+  bool (*memo_set_text)(uint32_t id, const char* text, size_t len,
+                        void* ctx) = nullptr;
 
   // ---- alarm.list / alarm.set / alarm.delete ----
   // alarm.list: 総件数 (>=0)。

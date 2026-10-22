@@ -56,6 +56,16 @@ uint32_t memo_playing_id();
 bool memo_play(uint32_t id, FeatureContext& ctx);
 void memo_stop_play(FeatureContext& ctx);
 
+// ---- 文字起こし (T31) ----
+// 音声メモの文字起こし結果を text に保存する (Voice の text フィールド)。
+// 電話側の STT が `memo.text.set` で返した本文を入れる。
+bool memo_set_text(uint32_t id, const char* text, size_t len,
+                   FeatureContext& ctx);
+// 時計の UI から文字起こしを依頼する。ble_glue が拾って
+// EVT `memo.transcribe.request` を送る。
+void memo_request_transcribe(uint32_t id);
+bool memo_take_transcribe_request(uint32_t* out);
+
 // 内部状態を初期値に戻す (主にテストと工場リセット用)。KV は消さない。
 void memo_reset_state();
 

@@ -233,6 +233,7 @@ class WatchLinkManager(private val app: WatchApp) {
                 )
             }
             is Evt.AgentRequest -> app.agentBridge.onRequest(l, evt.id, evt.text)
+            is Evt.MemoTranscribeRequest -> scope.launch { transcribeMemo(evt.id) }
             is Evt.Unknown -> {}
         }
     }
@@ -309,6 +310,24 @@ class WatchLinkManager(private val app: WatchApp) {
     suspend fun memoDelete(id: Int) {
         val res = send(Req.MemoDelete(id))
         if (res is Res.Ok) refreshMemos()
+    }
+
+    /** 音声メモを電話で STT して時計へ保存する (T31)。 */
+    suspend fun transcribeMemo(id: Int): Boolean {
+        val wav = memoWavFile(id) ?: return false
+        val text = app.agentBridge.transcribeWav(wav.readBytes())
+        if (text.isNullOrBlank()) {
+            _notice.value = "文字起こしできませんでした"
+            return false
+        }
+        val res = send(Req.MemoTextSet(id, text.trim()))
+        if (res is Res.Err) {
+            _notice.value = "文字起こしの保存に失敗: ${res.code}"
+            return false
+        }
+        _notice.value = "文字起こしを保存しました"
+        refreshMemos()
+        return true
     }
 
     // ---------------- アラーム ----------------

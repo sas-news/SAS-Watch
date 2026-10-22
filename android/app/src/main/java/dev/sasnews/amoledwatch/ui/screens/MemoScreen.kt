@@ -64,6 +64,7 @@ fun MemoScreen(
         onRefresh = vm::refreshMemos,
         onPlay = vm::memoPlayToggle,
         onDelete = vm::memoDelete,
+        onTranscribe = vm::memoTranscribe,
         onShare = { id ->
             vm.memoShare(id) { file ->
                 val uri = FileProvider.getUriForFile(
@@ -93,6 +94,7 @@ fun MemoContent(
     onRefresh: () -> Unit,
     onPlay: (Int) -> Unit,
     onDelete: (Int) -> Unit,
+    onTranscribe: (Int) -> Unit,
     onShare: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -174,6 +176,12 @@ fun MemoContent(
                                 enabled = busyId == null,
                             ) {
                                 Text(stringResource(R.string.memo_share))
+                            }
+                            OutlinedButton(
+                                onClick = { onTranscribe(m.id) },
+                                enabled = busyId == null,
+                            ) {
+                                Text(stringResource(R.string.memo_transcribe))
                             }
                             OutlinedButton(onClick = { onDelete(m.id) }) {
                                 Text(stringResource(R.string.memo_delete))

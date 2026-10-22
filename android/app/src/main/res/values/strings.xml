@@ -144,6 +144,8 @@
     <string name="memo_share">共有</string>
     <string name="memo_delete">削除</string>
     <string name="memo_refresh">再読み込み</string>
+    <string name="memo_transcribe">文字起こし</string>
+    <string name="memo_transcribing">文字起こししています…</string>
     <string name="memo_downloading">音声を取得しています…</string>
     <string name="memo_share_title">音声メモを共有</string>
 

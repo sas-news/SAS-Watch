@@ -43,9 +43,10 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `timer.stop` | `{}` | `{}` |
 | `memo.create` | `{text:<str>}` (空でない) | `{id:<int>}` |
 | `memo.list` | `{i:<開始index>, n:<最大件数 (1-16)>}` | `{total:<int>, memos:[{id, kind:"text"\|"voice", sec:<voice秒>, size:<voice byte>}]}` 新しい順 |
-| `memo.get` | `{id:<int>}` | `{id, kind, sec, size, text:<text メモの本文>}` |
+| `memo.get` | `{id:<int>}` | `{id, kind, sec, size, text:<本文 (音声メモは文字起こし結果、未処理なら空)>}` |
 | `memo.delete` | `{id:<int>}` | `{}` |
 | `memo.audio.get` | `{id:<int>}` | `{id, size, sha256:<bytes32>}` この直後に時計から BULK (kind=`"memo"`, id=メモid & 0xFFFF) が送られる |
+| `memo.text.set` | `{id:<int>, text:<str>}` (音声メモの文字起こし結果、1-256B) | `{}` (`not_found` = 音声メモが無い / text が長すぎる) |
 | `notify.post` | `{app:<str>, title:<str>, body:<str>}` | `{}` |
 | `media.state` | `{title:<str>, artist:<str>, playing:<bool>}` (`playing` は省略可、任意 `art:<u32>` = アルバムアート識別子。0/省略なら画像なし) | `{}` |
 | `alarm.list` | `{}` | `{alarms:[{id:<int>, hour:<0-23>, min:<0-59>, dow:<曜日bit bit0=日..bit6=土, 0=毎日>, on:<bool>}]}` (最大5件) |
@@ -154,6 +155,7 @@ event の一覧はこの表が唯一の正。
 | `timer.finished` | `{}` |
 | `memo.saved` | `{id, kind:"text"|"voice", sec:<voice秒>}` |
 | `memo.deleted` | `{id}` |
+| `memo.transcribe.request` | `{id}` 時計の「文字起こし」。電話は音声を取得して STT し、`memo.text.set` で返す (T31) |
 | `media.cmd` | `{cmd:"play_pause"|"next"|"prev"|"vol_up"|"vol_down"}` (時計→スマホで音楽操作) |
 | `alarm.ringing` | `{id}` (鳴動中のアラーム id) |
 | `agent.request` | `{id, text}` AI の定型質問。id は返答の `agent.reply` の id と同じ |
@@ -212,6 +214,17 @@ MediaArtReceived を出して media 画面に出す。切断で破棄する。
 - Watch → Phone (kind `"agent_audio"`): 「話しかける」の録音 (ADP1, 最大30秒)。
   kind `"memo"` と同じ手順だが REQ に紐付かない push 型で、id は AI の要求 id
   (時計側の連番)。返答は `agent.reply` REQ で同じ id とともに返す。
+
+## 音声メモの文字起こし (T31)
+時計単体では音声認識しない (ESP32-S3 のメモリでは現実的でない)。電話側の STT を使う。
+
+1. 時計のメモ詳細で「文字起こし」→ EVT `memo.transcribe.request{id}`。
+2. 電話は `memo.audio.get{id}` → BULK kind=`"memo"` で ADP1 を取得し、STT する。
+   アプリのメモ画面の「文字起こし」ボタンからも同じ処理を呼べる。
+3. 電話は `memo.text.set{id, text}` を送る。時計は音声メモの text に保存し、
+   `memo.saved{id, kind:"voice", sec}` を返す。一覧・詳細に本文が出る。
+
+text は UTF-8 で最大 256 バイト (時計の MemoEntry.text)。電話側で切り詰める。
 
 ## Agent (AI)
 時計はオフライン。スマホが OpenAI 互換 API に中継する。

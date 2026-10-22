@@ -20,6 +20,7 @@ struct M {
   lv_obj_t* detail_box = nullptr;
   lv_obj_t* detail_l = nullptr;
   lv_obj_t* play_btn = nullptr;
+  lv_obj_t* trans_btn = nullptr;
   uint32_t detail_id = 0;
   bool detail_voice = false;
 };
@@ -103,14 +104,24 @@ void rebuild_list() {
                           m.kind == watch::features::MemoKind::Voice;
                       if (s.detail_voice) {
                         char buf[48];
-                        std::snprintf(buf, sizeof(buf), "音声メモ %lu 秒",
-                                      static_cast<unsigned long>(m.sec));
+                        // 文字起こし済みなら秒数の下に本文を出す (T31)。
+                        if (m.len > 0) {
+                          std::snprintf(buf, sizeof(buf),
+                                        "音声メモ %lu 秒\n%s",
+                                        static_cast<unsigned long>(m.sec),
+                                        m.text);
+                        } else {
+                          std::snprintf(buf, sizeof(buf), "音声メモ %lu 秒",
+                                        static_cast<unsigned long>(m.sec));
+                        }
                         lv_label_set_text(s.detail_l, buf);
                         lv_obj_remove_flag(s.play_btn, LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_remove_flag(s.trans_btn, LV_OBJ_FLAG_HIDDEN);
                         refresh_play();
                       } else {
                         lv_label_set_text(s.detail_l, m.text);
                         lv_obj_add_flag(s.play_btn, LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_add_flag(s.trans_btn, LV_OBJ_FLAG_HIDDEN);
                       }
                       lv_obj_add_flag(s.list_box, LV_OBJ_FLAG_HIDDEN);
                       if (s.rec_card) {
@@ -174,6 +185,13 @@ lv_obj_t* build(lv_obj_t* scr) {
           ui::emit(watch::ActionType::MemoPlay, s.detail_id);
         }
       });
+
+  // 文字起こし (T31): 電話の STT に依頼し、結果は memo.text.set で戻る。
+  s.trans_btn = fit_btn(s.detail_box, "文字起こし",
+      [](lv_event_t*) {
+        ui::emit(watch::ActionType::MemoTranscribe, s.detail_id);
+      });
+  lv_obj_add_flag(s.trans_btn, LV_OBJ_FLAG_HIDDEN);
 
   // 破壊的な操作は確認ダイアログを経る (T14 操作ルール)。
   ui::c::button_danger(

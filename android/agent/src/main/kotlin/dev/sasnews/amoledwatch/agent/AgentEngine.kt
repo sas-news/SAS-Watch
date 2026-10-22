@@ -73,6 +73,21 @@ class AgentEngine(
         if (text.isBlank()) return "聞き取れませんでした"
         return answerText(text)
     }
+
+    /** WAV を STT するだけ (時計の音声メモ文字起こし, T31)。失敗は null。 */
+    suspend fun transcribeOnly(wav: ByteArray): String? {
+        val cfg = config ?: return null
+        if (!cfg.usable()) {
+            onError?.invoke(NO_KEY_MESSAGE)
+            return null
+        }
+        return try {
+            api.transcribe(cfg, wav).takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            onError?.invoke("stt: ${e.message}")
+            null
+        }
+    }
 }
 
 /** UTF-8 の文字の途中で切らないように maxBytes 以下に切り詰める。 */

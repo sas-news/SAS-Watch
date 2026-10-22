@@ -87,6 +87,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
         is Evt.OtaProgress -> "OTA進捗 ${evt.stage} ${evt.pct}%"
         is Evt.OtaResult -> if (evt.ok) "OTA完了" else "OTA失敗: ${evt.msg}"
         is Evt.AgentRequest -> "Agent要求 id=${evt.id}: ${evt.text}"
+        is Evt.MemoTranscribeRequest -> "文字起こし要求 id=${evt.id}"
         is Evt.Unknown -> "${evt.name}"
     }
 
@@ -263,6 +264,15 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
             val wav = manager.memoWavFile(id)
             _memoBusyId.value = null
             if (wav != null) onReady(wav)
+        }
+    }
+
+    /** 音声メモを文字起こしして時計へ保存する (T31)。 */
+    fun memoTranscribe(id: Int) {
+        viewModelScope.launch {
+            _memoBusyId.value = id
+            manager.transcribeMemo(id)
+            _memoBusyId.value = null
         }
     }
 

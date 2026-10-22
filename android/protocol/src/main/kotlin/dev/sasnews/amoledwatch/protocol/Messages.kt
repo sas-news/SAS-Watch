@@ -75,6 +75,14 @@ sealed interface Req {
         override fun params() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
     }
 
+    /** 音声メモの文字起こし結果 (電話の STT) を時計へ保存する (T31)。 */
+    data class MemoTextSet(val id: Int, val text: String) : Req {
+        override val method get() = "memo.text.set"
+        override fun params() = Cbor.Cmap(
+            mapOf("id" to Cbor.Cint(id.toLong()), "text" to Cbor.Ctext(text)),
+        )
+    }
+
     data class NotifyPost(val app: String, val title: String, val body: String) : Req {
         override val method get() = "notify.post"
         override fun params() = Cbor.Cmap(
@@ -292,6 +300,12 @@ sealed interface Evt {
         override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong()), "text" to Cbor.Ctext(text)))
     }
 
+    /** 時計の「文字起こし」: id の音声メモを STT して memo.text.set で返す (T31)。 */
+    data class MemoTranscribeRequest(val id: Int) : Evt {
+        override val name get() = "memo.transcribe.request"
+        override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
+    }
+
     data class Unknown(override val name: String, override val data: Cbor.Cmap) : Evt
 
     fun toCbor(): Cbor.Cmap = Cbor.Cmap(mapOf("e" to Cbor.Ctext(name), "d" to data))
@@ -315,6 +329,7 @@ sealed interface Evt {
                 "ota.progress" -> OtaProgress(d.int("pct").toInt(), d.text("stage"))
                 "ota.result" -> OtaResult(d.bool("ok"), d.text("msg"))
                 "agent.request" -> AgentRequest(d.int("id").toInt(), d.text("text"))
+                "memo.transcribe.request" -> MemoTranscribeRequest(d.int("id").toInt())
                 else -> Unknown(name, d)
             }
         }
