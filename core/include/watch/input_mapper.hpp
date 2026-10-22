@@ -36,7 +36,7 @@ class InputMapper {
   InputMapper() { reset_defaults(); }
 
   // 既定 (plan.md G章):
-  //   BOOT: short=primary / long=nav.dev / double=none (この個体は録音不可)
+  //   BOOT: short=primary / long=nav.dev / double=none (既定は未使用)
   //   PWR : short=back     / long=power_menu / double=none
   void reset_defaults();
 

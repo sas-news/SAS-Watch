@@ -69,8 +69,8 @@ const char* action_to_name(ActionType type, uint32_t arg0) {
 void InputMapper::reset_defaults() {
   map(PhysicalButton::Boot, PressType::Short, "primary");
   map(PhysicalButton::Boot, PressType::Long, "nav.dev");
-  // この個体は録音不可 (スピーカー/マイク非搭載) なので既定は none。
-  // none にすると単押しがダブル判定待ちせず即時に効く (board::buttons)。
+  // 既定では 2 連打に何も割り当てない。none にすると単押しが
+  // ダブル判定待ちせず即時に効く (board::buttons)。
   map(PhysicalButton::Boot, PressType::Double, "none");
   map(PhysicalButton::Pwr, PressType::Short, "screen_off");
   map(PhysicalButton::Pwr, PressType::Long, "power_menu");

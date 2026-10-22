@@ -23,7 +23,7 @@ struct Settings {
   // ボタン割り当て (Action 名)。既定は plan.md G章。
   char button_boot_short[24] = "primary";
   char button_boot_long[24] = "nav.dev";
-  char button_boot_double[24] = "none";  // この個体は録音不可のため
+  char button_boot_double[24] = "none";  // 既定は未使用
   char button_pwr_short[24] = "screen_off";
   char button_pwr_long[24] = "power_menu";
   char button_pwr_double[24] = "none";
