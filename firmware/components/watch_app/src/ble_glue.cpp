@@ -129,6 +129,7 @@ bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
   s_out.size = size;
   s_out.last_ms = clock()->now_ms();
   out_pm_acquire();  // 転送完了/中断 (stop) まで対
+  ble_link_bulk_tx_reset();  // 前回の TX クレジットを捨てる
   ESP_LOGI(TAG, "bulk out start kind=%s file=%lu size=%lu", kind,
            static_cast<unsigned long>(file_id),
            static_cast<unsigned long>(size));

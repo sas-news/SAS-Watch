@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_att.h"
@@ -136,12 +137,26 @@ void bulk_lock_sync() {
 // ---------- 送信 ----------
 
 // send_message() の emit: frame を char ハンドル attr に notify する。
+//
+// BULK は app タスクから 8 チャンク (=3 通知ずつ) をまとめて送る。
+// NimBLE の mbuf は 256B × 12 個しかないので、TX 完了を待たずに積むと
+// 13 個目で枯渇して bulk out が send failed になる (実機で確認 → T30)。
+// BULK だけ、確保に失敗したら NOTIFY_TX を待って再試行する。
+// ctrl/evt は NimBLE タスクからも呼ばれるので待たない (デッドロック防止)。
+static SemaphoreHandle_t s_tx_done = nullptr;
+
 bool notify_emit(const uint8_t* frame, size_t len, void* ctx) {
   const uint16_t attr = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(ctx));
   if (s_conn == BLE_HS_CONN_HANDLE_NONE) return false;
-  os_mbuf* om = ble_hs_mbuf_from_flat(frame, len);
-  if (!om) return false;
-  return ble_gatts_notify_custom(s_conn, attr, om) == 0;
+  const bool bulk = (attr == s_bulk_val_handle);
+  const int attempts = bulk ? 8 : 1;
+  for (int i = 0; i < attempts; ++i) {
+    os_mbuf* om = ble_hs_mbuf_from_flat(frame, len);
+    if (om) return ble_gatts_notify_custom(s_conn, attr, om) == 0;
+    if (!bulk || !s_tx_done) return false;
+    if (xSemaphoreTake(s_tx_done, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  }
+  return false;
 }
 
 void send_res_payload(uint16_t msg_id, const uint8_t* payload, size_t len) {
@@ -506,6 +521,11 @@ int gap_event(ble_gap_event* event, void* arg) {
       ESP_LOGI(kTag, "mtu=%u", s_mtu);
       break;
 
+    case BLE_GAP_EVENT_NOTIFY_TX:
+      // 1 通知分の mbuf が空いた。BULK のバックプレッシャに使う。
+      if (s_tx_done) xSemaphoreGive(s_tx_done);
+      break;
+
     case BLE_GAP_EVENT_SUBSCRIBE:
       if (event->subscribe.attr_handle == s_ctrl_val_handle) {
         s_ctrl_notify = event->subscribe.cur_notify;
@@ -615,6 +635,7 @@ extern "C" esp_err_t ble_link_start(const ble_link_config_t* cfg) {
 
   // light sleep 抑止の PM lock を起動時に確保しておく (acquire/release は
   // 実行時に対称に行う)。確保は初期化時のみのルール。
+  if (!s_tx_done) s_tx_done = xSemaphoreCreateCounting(64, 0);
   esp_err_t prc = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP,
                                      ESP_PM_CPU_FREQ_MAX, "ble_conn",
                                      &s_no_ls_conn);
@@ -748,6 +769,14 @@ extern "C" esp_err_t ble_link_confirm_passkey(bool accept) {
 
 extern "C" bool ble_link_bulk_ready(void) {
   return s_conn != BLE_HS_CONN_HANDLE_NONE && s_bulk_notify;
+}
+
+// 新しい BULK 転送の開始時に呼ぶ。前回までの NOTIFY_TX クレジットを
+// 捨てる (アイドル中の ctrl/evt 通知で溜まった分を当てにしない)。
+extern "C" void ble_link_bulk_tx_reset(void) {
+  if (!s_tx_done) return;
+  while (xSemaphoreTake(s_tx_done, 0) == pdTRUE) {
+  }
 }
 
 extern "C" esp_err_t ble_link_bulk_send(uint8_t frame_type, uint16_t msg_id,

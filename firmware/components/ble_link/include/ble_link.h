@@ -108,6 +108,10 @@ bool ble_link_conn_info(int8_t* out_rssi, uint16_t* out_itvl_ms);
 esp_err_t ble_link_bulk_send(uint8_t frame_type, uint16_t msg_id,
                              const uint8_t* payload, size_t len);
 
+// 転送開始時に呼ぶ。NOTIFY_TX の残クレジットを捨てる (送信バッファの
+// バックプレッシャ用)。
+void ble_link_bulk_tx_reset(void);
+
 #ifdef __cplusplus
 }
 #endif
