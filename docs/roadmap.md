@@ -775,7 +775,19 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
   BULK (kind `memo`)。まず電話側のエラーダイアログ/ログを取って切り分ける。
 - 受け入れ条件: 録音した音声メモが電話の一覧に出て再生できる。
 
-状態: 先送り (ユーザー判断)
+再開 (2026-10-23、T31 の文字起こし実機テストで再現):
+- 実機ログ: `bulk out start kind=memo file=2 size=29968` → 22ms 後に
+  `bulk out id=2 stopped: send failed`。STT まで到達していなかった。
+- 原因: 時計→電話 BULK の送信バッファ枯渇。NimBLE の mbuf は
+  MSYS_1 256B × 12 個。512B チャンクを 8 個まとめて送ると 244B 通知 ×24
+  必要になり、13 個目で `ble_hs_mbuf_from_flat` が失敗していた
+  (`notify_emit` は失敗を即 false にして転送を止めていた)。
+- 修正: `notify_emit` で BULK のときだけ、確保失敗時に
+  `BLE_GAP_EVENT_NOTIFY_TX` を待って再試行 (最大 8 回 × 20ms)。
+  転送開始時に古いクレジットを捨てる (`ble_link_bulk_tx_reset`)。
+- 残り: 実機で音声取得→STT→`memo.text.set` が通るか再確認。
+
+状態: 修正済み・実機再確認待ち
 
 ## T31. 音声メモの文字起こし (時計 + 電話) — 難度 M (実機)
 
