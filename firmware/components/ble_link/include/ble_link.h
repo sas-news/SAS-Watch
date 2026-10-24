@@ -108,9 +108,9 @@ bool ble_link_conn_info(int8_t* out_rssi, uint16_t* out_itvl_ms);
 esp_err_t ble_link_bulk_send(uint8_t frame_type, uint16_t msg_id,
                              const uint8_t* payload, size_t len);
 
-// 転送開始時に呼ぶ。NOTIFY_TX の残クレジットを捨てる (送信バッファの
-// バックプレッシャ用)。
-void ble_link_bulk_tx_reset(void);
+// 1 通知に収まる BULK チャンクの最大データ長 (MTU から算出)。
+// 転送側はこのサイズ以下で 1 チャンクを送る — mbuf 12 個を溢れさせない。
+uint16_t ble_link_bulk_chunk_max(void);
 
 #ifdef __cplusplus
 }

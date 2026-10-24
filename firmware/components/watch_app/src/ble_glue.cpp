@@ -64,6 +64,7 @@ struct BulkOut {
   uint32_t file_id = 0;   // AudioPort 上の音声ファイル id
   void (*done)(uint16_t id, bool ok) = nullptr;  // app タスクから呼ぶ
   uint32_t size = 0;
+  uint16_t chunk = 512;   // 1 チャンクのデータ長 (MTU から算出)
   uint32_t sent = 0;      // 送信したバイト位置
   uint32_t acked = 0;     // Phone が受理したバイト位置
   uint8_t inflight = 0;   // ACK 待ちのチャンク数
@@ -101,6 +102,9 @@ bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
   if (!fctx()->audio->memo_audio_size(file_id, &size) || size == 0) {
     return false;
   }
+  uint16_t chunk = ble_link_bulk_chunk_max();
+  if (chunk == 0) return false;
+  if (chunk > kBulkOutChunk) chunk = static_cast<uint16_t>(kBulkOutChunk);
   // ファイル全体の sha256 を流しながら計算する。
   watch::proto::Sha256 h;
   uint8_t buf[256];
@@ -118,7 +122,7 @@ bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
 
   uint8_t start[96];
   const size_t n = watch::proto::bulk_encode_start(
-      tid, kind, size, sha, kBulkOutChunk, start, sizeof(start));
+      tid, kind, size, sha, chunk, start, sizeof(start));
   if (n == 0) return false;
   if (ble_link_bulk_send(0x10, tid, start, n) != ESP_OK) return false;
   s_out = BulkOut{};
@@ -127,12 +131,12 @@ bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
   s_out.file_id = file_id;
   s_out.done = done;
   s_out.size = size;
+  s_out.chunk = chunk;
   s_out.last_ms = clock()->now_ms();
   out_pm_acquire();  // 転送完了/中断 (stop) まで対
-  ble_link_bulk_tx_reset();  // 前回の TX クレジットを捨てる
-  ESP_LOGI(TAG, "bulk out start kind=%s file=%lu size=%lu", kind,
+  ESP_LOGI(TAG, "bulk out start kind=%s file=%lu size=%lu chunk=%u", kind,
            static_cast<unsigned long>(file_id),
-           static_cast<unsigned long>(size));
+           static_cast<unsigned long>(size), static_cast<unsigned>(chunk));
   return true;
 }
 
@@ -179,7 +183,7 @@ void bulk_out_pump() {
   while (s_out.inflight < kBulkOutWindow && s_out.sent < s_out.size) {
     uint8_t frame[watch::proto::kBulkChunkHead + kBulkOutChunk];
     watch::proto::bulk_chunk_head(s_out.id, s_out.sent, frame);
-    size_t len = kBulkOutChunk;
+    size_t len = s_out.chunk;
     if (s_out.sent + len > s_out.size) len = s_out.size - s_out.sent;
     size_t got = len;
     if (!fctx()->audio->memo_audio_read(s_out.file_id, s_out.sent,

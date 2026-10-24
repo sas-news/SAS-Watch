@@ -780,11 +780,14 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
   `bulk out id=2 stopped: send failed`。STT まで到達していなかった。
 - 原因: 時計→電話 BULK の送信バッファ枯渇。NimBLE の mbuf は
   MSYS_1 256B × 12 個。512B チャンクを 8 個まとめて送ると 244B 通知 ×24
-  必要になり、13 個目で `ble_hs_mbuf_from_flat` が失敗していた
-  (`notify_emit` は失敗を即 false にして転送を止めていた)。
-- 修正: `notify_emit` で BULK のときだけ、確保失敗時に
-  `BLE_GAP_EVENT_NOTIFY_TX` を待って再試行 (最大 8 回 × 20ms)。
-  転送開始時に古いクレジットを捨てる (`ble_link_bulk_tx_reset`)。
+  必要になり、13 個目で `ble_hs_mbuf_from_flat` が失敗していた。
+- 修正 (2026-10-23、効果なし): `notify_emit` で `BLE_GAP_EVENT_NOTIFY_TX` を
+  待つ再試行を入れたが、このイベントは**送信試行時に同期的に**発火するため
+  待ち合わせになっていなかった。
+- 修正 (2026-10-24): チャンク長を MTU から算出 (`ble_link_bulk_chunk_max`、
+  MTU 247 → 232B) し、1 チャンク = 1 通知に収めた。8 チャンクのウィンドウ
+  でも mbuf は 8 個で済む。加えて BULK のみ、確保失敗時に 5ms 待って
+  最大 20 回再試行する。
 - 残り: 実機で音声取得→STT→`memo.text.set` が通るか再確認。
 
 状態: 修正済み・実機再確認待ち
