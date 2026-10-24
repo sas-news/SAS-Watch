@@ -31,6 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -189,7 +190,11 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 音声の取得・変換中のメモ id。 */
     private val _memoBusyId = MutableStateFlow<Int?>(null)
-    val memoBusyId: StateFlow<Int?> = _memoBusyId
+    // ローカル操作と、時計からの EVT 起点の文字起こし (manager.memoBusy) の
+    // どちらでも、メモ行に進行表示を出す。
+    val memoBusyId: StateFlow<Int?> =
+        combine(_memoBusyId, manager.memoBusy) { a, b -> a ?: b }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var player: android.media.MediaPlayer? = null
     private var textFetchJob: Job? = null
@@ -203,7 +208,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
                     _memoTexts.value = emptyMap()
                     return@collect
                 }
-                val missing = list.filter { it.kind == "text" && !_memoTexts.value.containsKey(it.id) }
+                val missing = list.filter { !_memoTexts.value.containsKey(it.id) }
                 if (missing.isEmpty()) return@collect
                 textFetchJob = viewModelScope.launch {
                     for (m in missing) {

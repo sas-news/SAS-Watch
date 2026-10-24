@@ -76,8 +76,8 @@ class AgentEngine(
 
     /** WAV を STT するだけ (時計の音声メモ文字起こし, T31)。失敗は null。 */
     suspend fun transcribeOnly(wav: ByteArray): String? {
-        val cfg = config ?: return null
-        if (!cfg.usable()) {
+        val cfg = config
+        if (cfg == null || !cfg.usable()) {
             onError?.invoke(NO_KEY_MESSAGE)
             return null
         }
@@ -91,7 +91,7 @@ class AgentEngine(
 }
 
 /** UTF-8 の文字の途中で切らないように maxBytes 以下に切り詰める。 */
-internal fun truncateUtf8(s: String, maxBytes: Int): String {
+fun truncateUtf8(s: String, maxBytes: Int): String {
     val b = s.toByteArray(Charsets.UTF_8)
     if (b.size <= maxBytes) return s
     var n = maxBytes

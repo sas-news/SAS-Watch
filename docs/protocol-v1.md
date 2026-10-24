@@ -225,6 +225,9 @@ MediaArtReceived を出して media 画面に出す。切断で破棄する。
    `memo.saved{id, kind:"voice", sec}` を返す。一覧・詳細に本文が出る。
 
 text は UTF-8 で最大 256 バイト (時計の MemoEntry.text)。電話側で切り詰める。
+本文は時計の NVS (`feat.memo` の音声メモスロット) に保存され、
+電話側は音声を `cacheDir/memo_audio/memo_<id>.adp` にキャッシュするだけで、
+本文の正は時計にある。
 
 ## Agent (AI)
 時計はオフライン。スマホが OpenAI 互換 API に中継する。

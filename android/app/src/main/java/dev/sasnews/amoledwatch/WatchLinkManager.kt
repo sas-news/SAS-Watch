@@ -2,6 +2,7 @@ package dev.sasnews.amoledwatch
 
 import android.bluetooth.BluetoothDevice
 import android.util.Log
+import dev.sasnews.amoledwatch.agent.truncateUtf8
 import dev.sasnews.amoledwatch.ble.BleWatchConnection
 import dev.sasnews.amoledwatch.connection.FakeWatchConnection
 import dev.sasnews.amoledwatch.connection.LinkState
@@ -67,6 +68,14 @@ class WatchLinkManager(private val app: WatchApp) {
         private const val THEME_RECONNECT_WAIT_MS = 35_000L
     }
 
+    init {
+        // STT/HTTP の失敗理由を画面と logcat に出す (未接続だと原因が見えない)。
+        app.agentBridge.onError = { msg ->
+            Log.w(TAG, msg)
+            _notice.value = msg
+        }
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val resumer = BulkResumer(maxAttempts = THEME_MAX_ATTEMPTS)
@@ -122,6 +131,10 @@ class WatchLinkManager(private val app: WatchApp) {
     /** 画面に出す一時メッセージ（エラー/成功）。 */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice
+
+    // 時計からの要求 (EVT) でもアプリ側の UI に「取得中」を出す。
+    private val _memoBusy = MutableStateFlow<Int?>(null)
+    val memoBusy: StateFlow<Int?> = _memoBusy
 
     fun consumeNotice() {
         _notice.value = null
@@ -314,20 +327,30 @@ class WatchLinkManager(private val app: WatchApp) {
 
     /** 音声メモを電話で STT して時計へ保存する (T31)。 */
     suspend fun transcribeMemo(id: Int): Boolean {
-        val wav = memoWavFile(id) ?: return false
-        val text = app.agentBridge.transcribeWav(wav.readBytes())
-        if (text.isNullOrBlank()) {
-            _notice.value = "文字起こしできませんでした"
-            return false
+        _memoBusy.value = id
+        _notice.value = "文字起こししています…"
+        try {
+            val wav = memoWavFile(id) ?: return false
+            val before = _notice.value
+            val text = app.agentBridge.transcribeWav(wav.readBytes())
+            if (text.isNullOrBlank()) {
+                // onError が具体的な理由を入れていればそれを残す。
+                if (_notice.value == before) {
+                    _notice.value = "文字起こしできませんでした"
+                }
+                return false
+            }
+            val res = send(Req.MemoTextSet(id, truncateUtf8(text.trim(), 256)))
+            if (res is Res.Err) {
+                _notice.value = "文字起こしの保存に失敗: ${res.code}"
+                return false
+            }
+            _notice.value = "文字起こしを保存しました"
+            refreshMemos()
+            return true
+        } finally {
+            _memoBusy.value = null
         }
-        val res = send(Req.MemoTextSet(id, text.trim()))
-        if (res is Res.Err) {
-            _notice.value = "文字起こしの保存に失敗: ${res.code}"
-            return false
-        }
-        _notice.value = "文字起こしを保存しました"
-        refreshMemos()
-        return true
     }
 
     // ---------------- アラーム ----------------
@@ -352,8 +375,13 @@ class WatchLinkManager(private val app: WatchApp) {
         if (res is Res.Ok) refreshAlarms()
     }
 
-    /** 音声メモの実体 (ADP1) をダウンロードして cache に書く。失敗なら null。 */
+    /** 音声メモの実体 (ADP1) を cache に書く。失敗なら null。 */
     private suspend fun memoAudioFile(id: Int): File? {
+        // 一度取得した音声は id ごとにキャッシュする (memo id は再利用されない)。
+        // 再生・文字起こし・共有の 2 回目以降は BLE 転送しない。
+        val dir = File(app.cacheDir, "memo_audio").apply { mkdirs() }
+        val cached = File(dir, "memo_${id}.adp")
+        if (cached.exists() && cached.length() > 0) return cached
         val l = _link.value ?: return null
         val res = send(Req.MemoAudioGet(id))
         if (res !is Res.Ok) return null
@@ -362,10 +390,8 @@ class WatchLinkManager(private val app: WatchApp) {
             _notice.value = "音声の転送に失敗しました"
             return null
         }
-        val dir = File(app.cacheDir, "memo_audio").apply { mkdirs() }
-        val f = File(dir, "memo_${info.id}.adp")
-        f.writeBytes(bytes)
-        return f
+        cached.writeBytes(bytes)
+        return cached
     }
 
     /** 音声メモを WAV に変換して共有用ファイルとして返す。 */

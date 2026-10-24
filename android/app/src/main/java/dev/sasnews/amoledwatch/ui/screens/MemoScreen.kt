@@ -144,6 +144,13 @@ fun MemoContent(
                             stringResource(R.string.memo_kind_voice, m.sec),
                             style = MaterialTheme.typography.titleSmall,
                         )
+                        val transcript = m.text
+                        if (!transcript.isNullOrBlank()) {
+                            Text(
+                                transcript,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                         if (busyId == m.id) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
