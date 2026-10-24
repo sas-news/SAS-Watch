@@ -68,6 +68,14 @@
   <button id="export">テーマ .zip を書き出す</button>
   <button id="import" class="sec">zip を読み込む</button>
   <input id="zipfile" type="file" accept=".zip" style="display:none">
+  <h2>theme.json</h2>
+  <p class="hint">tools/theme_build.py と同じ形式。style / mascot / skin など
+    未対応キーは zip 書き出しで失われるので、警告が出たら theme_build.py で組む。</p>
+  <div class="row">
+    <button id="json-export" class="sec">JSON を書き出す</button>
+    <button id="json-import" class="sec">JSON を読み込む</button>
+    <input id="jsonfile" type="file" accept=".json" style="display:none">
+  </div>
   <div id="status" class="row"></div>
 </div>
 <div id="right"></div>
@@ -207,7 +215,7 @@ Studio.buildZip = function (entries) {
     local.setUint32(0, 0x04034b50, true);
     local.setUint16(4, 20, true);   // version
     local.setUint16(6, 0x0800, true); // UTF-8 flag
-    local.setUint16(14, crc, true);
+    local.setUint32(14, crc, true);
     local.setUint32(18, e.data.length, true);
     local.setUint32(22, e.data.length, true);
     local.setUint16(26, name.length, true);
@@ -321,6 +329,70 @@ Studio.decodeManifest = function (bytes) {
   if (root.icons) for (const k in root.icons) st.icons[k] = { name: root.icons[k], data: null };
   if (root.assets) for (const k in root.assets) st.assets[k] = { name: root.assets[k], data: null };
   if (root.fonts) for (const k in root.fonts) st.fontfiles[k] = { name: root.fonts[k], data: null };
+  return st;
+};
+
+Studio.stateToJson = function (st) {
+  const j = { id: st.id, name: st.name, version: 1, tokens: {} };
+  for (const k of Studio.COLOR_KEYS.concat(Studio.METRIC_KEYS, Studio.FONT_KEYS)) {
+    if (st.tokens[k] !== undefined) j.tokens[k] = st.tokens[k];
+  }
+  const names = store => {
+    const o = {};
+    for (const k in store) if (store[k] && store[k].name) o[k] = store[k].name;
+    return o;
+  };
+  const img = names(st.images);
+  if (Object.keys(img).length) j.images = img;
+  const scr = {};
+  for (const k in st.screens) {
+    if (st.screens[k] && st.screens[k].name) scr[k] = { bg: st.screens[k].name };
+  }
+  if (Object.keys(scr).length) j.screens = scr;
+  const ico = names(st.icons);
+  if (Object.keys(ico).length) j.icons = ico;
+  const ast = names(st.assets);
+  if (Object.keys(ast).length) j.assets = ast;
+  const fnt = names(st.fontfiles);
+  if (Object.keys(fnt).length) j.fonts = fnt;
+  return j;
+};
+
+Studio.unsupportedJson = function (obj) {
+  const ok = ["id", "name", "version", "tokens", "images", "screens",
+    "icons", "assets", "fonts"];
+  const out = [];
+  for (const k in obj) if (!ok.includes(k)) out.push(k);
+  if (obj.screens) {
+    for (const k in obj.screens) {
+      const s = obj.screens[k];
+      if (s && (s.scrim !== undefined || s.tokens || s.deco))
+        out.push("screens." + k + " (bg 以外)");
+    }
+  }
+  return out;
+};
+
+Studio.jsonToState = function (obj) {
+  const st = Studio.defaults();
+  if (!obj || typeof obj !== "object") return st;
+  if (typeof obj.id === "string" && obj.id) st.id = obj.id;
+  if (typeof obj.name === "string" && obj.name) st.name = obj.name;
+  const tk = obj.tokens || {};
+  for (const k of Studio.COLOR_KEYS.concat(Studio.METRIC_KEYS, Studio.FONT_KEYS)) {
+    if (tk[k] !== undefined) st.tokens[k] = tk[k];
+  }
+  const put = (store, k, name) => {
+    if (typeof name === "string" && name) store[k] = { name: name, data: null };
+  };
+  if (obj.images) for (const k in obj.images) put(st.images, k, obj.images[k]);
+  if (obj.screens) for (const k in obj.screens) {
+    const spec = obj.screens[k];
+    if (spec && typeof spec.bg === "string") put(st.screens, k, spec.bg);
+  }
+  if (obj.icons) for (const k in obj.icons) put(st.icons, k, obj.icons[k]);
+  if (obj.assets) for (const k in obj.assets) put(st.assets, k, obj.assets[k]);
+  if (obj.fonts) for (const k in obj.fonts) put(st.fontfiles, k, obj.fonts[k]);
   return st;
 };
 
@@ -735,6 +807,40 @@ document.getElementById("zipfile").onchange = e => {
     }
   };
   rd.readAsArrayBuffer(f);
+};
+
+document.getElementById("json-export").onclick = () => {
+  const j = Studio.stateToJson(state);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(j, null, 2)],
+    { type: "application/json" }));
+  a.download = state.id + ".json";
+  a.click();
+  document.getElementById("status").textContent =
+    "JSON 書き出し: " + state.id + ".json";
+};
+document.getElementById("json-import").onclick = () =>
+  document.getElementById("jsonfile").click();
+document.getElementById("jsonfile").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    let obj;
+    try { obj = JSON.parse(rd.result); } catch (err) {
+      document.getElementById("status").textContent =
+        "JSON を読めません: " + err.message;
+      return;
+    }
+    const lost = Studio.unsupportedJson(obj);
+    state = Studio.jsonToState(obj);
+    document.getElementById("tid").value = state.id;
+    document.getElementById("tname").value = state.name;
+    rebuild();
+    document.getElementById("status").textContent = "JSON 読み込み: " + state.id +
+      (lost.length ? " / 未対応キー (zip で失われる): " + lost.join(", ") : "");
+  };
+  rd.readAsText(f);
 };
 
 rebuild();

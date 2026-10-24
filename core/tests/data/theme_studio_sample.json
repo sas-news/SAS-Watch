@@ -1,0 +1,45 @@
+{
+  "id": "studio-test",
+  "name": "スタジオ検証",
+  "version": 1,
+  "tokens": {
+    "bg": "0x000000",
+    "surface": "0x14161D",
+    "surface2": "0x1F222C",
+    "primary": "0x11AA22",
+    "on_primary": "0x1A0D00",
+    "text": "0xF4F4F6",
+    "text_dim": "0x8A8F9C",
+    "accent": "0x334455",
+    "danger": "0xFF5C6C",
+    "ok": "0x3DDC97",
+    "accent2": "0xE8D7B0",
+    "accent3": "0x00E0C6",
+    "accent4": "0x7A5CFF",
+    "accent5": "0xFF5C8A",
+    "bubble_bg": "0xFFFFFF",
+    "bubble_text": "0x2B1D45",
+    "line": "0x2A2E3A",
+    "primary2": "0xFFB27A",
+    "edge": "0x4A4F5C",
+    "radius_sm": 10,
+    "radius_lg": 22,
+    "space": 8,
+    "anim_ms": 0,
+    "font_body": 20,
+    "font_title": 26,
+    "font_digits": 96,
+    "font_digits_sm": 56
+  },
+  "images": {
+    "home_bg": "home_bg_sample.png"
+  },
+  "screens": {
+    "timer": {
+      "bg": "timer_bg_sample.png"
+    }
+  },
+  "icons": {
+    "timer": "ic_timer_sample.png"
+  }
+}

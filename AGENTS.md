@@ -11,6 +11,7 @@
 | `docs/protocol-v1.md` | BLE 仕様 (method 一覧はこの表が唯一の正) |
 | `docs/perf.md` | 描画パイプラインと性能計測 (`b` ベンチ) |
 | `docs/theme-format.md` / `docs/app-guide.md` | テーマ形式 / アプリの追加方法 |
+| `docs/theme-guide.md` | テーマ作成手順 (theme.json → ビルド → プレビュー → 実機) |
 | `firmware/README.md` | 書き込み・ログ・シリアルのデバッグコマンド・操作方法 |
 | `docs/archive/` | 終わった監査・提案・確認手順 (参照用。更新しない) |
 

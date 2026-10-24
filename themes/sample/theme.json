@@ -1,0 +1,45 @@
+{
+  "id": "sample",
+  "name": "サンプル",
+  "version": 1,
+  "tokens": {
+    "bg": "0x05070C",
+    "surface": "0x111826",
+    "surface2": "0x1A2436",
+    "line": "0x24324A",
+    "primary": "0x38D6C4",
+    "primary2": "0x7FF0E4",
+    "on_primary": "0x05201D",
+    "text": "0xEAF2F6",
+    "text_dim": "0x8FA3B8",
+    "accent": "0x38D6C4",
+    "danger": "0xFF6B7A",
+    "ok": "0x7BE495",
+    "accent2": "0xFFD166",
+    "accent3": "0x4FC3F7",
+    "accent4": "0x9B8CFF",
+    "accent5": "0xFF8FB1",
+    "bubble_bg": "0xFFFFFF",
+    "bubble_text": "0x102030",
+    "edge": "0x3C4C66",
+    "radius_sm": 8,
+    "radius_lg": 20,
+    "space": 8,
+    "anim_ms": 160,
+    "font_body": 20,
+    "font_title": 26,
+    "font_digits": 96,
+    "font_digits_sm": 56
+  },
+  "style": {
+    "card_opa": 170,
+    "border_w": 1,
+    "border": "0x2E4560",
+    "glow_color": "0x38D6C4",
+    "glow_w": 8
+  },
+  "screens": {
+    "*": { "scrim": 40 },
+    "settings": { "scrim": 90 }
+  }
+}

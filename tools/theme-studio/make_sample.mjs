@@ -42,6 +42,18 @@ for (const k in st.images) files.push({ name: st.images[k].name, data: st.images
 for (const k in st.screens) files.push({ name: st.screens[k].name, data: st.screens[k].data });
 for (const k in st.icons) files.push({ name: st.icons[k].name, data: st.icons[k].data });
 
+const json = Studio.stateToJson(st);
+const st2 = Studio.jsonToState(JSON.parse(JSON.stringify(json)));
+if (st2.id !== st.id || st2.tokens.primary !== st.tokens.primary ||
+    st2.images.home_bg.name !== st.images.home_bg.name ||
+    st2.screens.timer.name !== st.screens.timer.name ||
+    st2.icons.timer.name !== st.icons.timer.name) {
+  throw new Error("theme.json の往復が一致しない");
+}
+writeFileSync(join(repo, "core", "tests", "data", "theme_studio_sample.json"),
+              JSON.stringify(json, null, 2) + "\n");
+console.log("json round-trip ok");
+
 const zip = Studio.buildZip(files);
 
 const outDir = join(repo, "core", "tests", "data");

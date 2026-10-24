@@ -1,6 +1,8 @@
 # theme-format.md — テーマパッケージ形式 v3
 
 `docs/plan.md` H 章 (Theme) と I 章 (Asset) の実装形式。
+作成手順 (theme.json → ビルド → プレビュー → 実機) は
+[theme-guide.md](theme-guide.md) を参照。
 スマホから BLE BULK (`kind:"theme"`) で時計に送られ、`assets` パーティション
 (littlefs、VFS では `/assets` にマウント) の `themes/<id>.zip` に保存される
 (v2 からは**展開しないで zip のまま**保持。詳細は「転送・有効化フロー」)。
