@@ -127,6 +127,8 @@ void drain_events(void*) {
 // テーマ切替で即破棄するとき対象が重複しないよう引き算する)。
 lv_timer_t* s_del_timers[4] = {};
 
+static void check_tree(lv_obj_t* root, const char* where);
+
 void schedule_delete(lv_obj_t* old, uint32_t ms);
 
 void del_old_screen(lv_timer_t* t) {
@@ -143,11 +145,16 @@ void del_old_screen(lv_timer_t* t) {
   // 先に消すと次の refr の lv_obj_update_layout(prev_scr) が解放済み画面を
   // 踏んで LoadProhibited になる (実機の cute で発生)。
   lv_display_t* d = lv_display_get_default();
-  if (d && (d->prev_scr == old || d->scr_to_load == old)) {
+  if (d && (d->prev_scr == old || d->scr_to_load == old || d->act_scr == old)) {
     schedule_delete(old, 50);
     return;
   }
+  // 旧画面の遷移アニメが残ったまま削除すると、アニメが解放済みメモリへ
+  // 座標を書き続けて新しい画面の親子リンクを壊す (T32: 戻る2連打で
+  // lv_indev_search_obj が無限ループ → taskLVGL WDT)。必ずアニメを止める。
+  lv_anim_delete(old, NULL);
   lv_obj_delete(old);
+  check_tree(lv_screen_active(), "del");
 }
 
 void schedule_delete(lv_obj_t* old, uint32_t ms) {
@@ -170,6 +177,61 @@ void schedule_delete(lv_obj_t* old, uint32_t ms) {
 // テーマ切替用: 旧テーマ資源 (binfont/画像 dsc) を参照する全画面を
 // 同期破棄する。遷移アニメで旧画面が解放済みフォントを描くと落ちるので
 // ThemeChanged はアニメを捨てる (apply 中は描画されない)。
+// ---- T32 診断: 画面ツリーの親チェーン循環チェック ----
+// lv_obj_get_screen は parent をたどるため、循環があると LVGL タスクが
+// 無限ループする (実機で taskLVGL WDT)。テーマ変更の各段階で壊れた枝を
+// 見つけてログする。スタックを食わないよう作業用配列は static。
+static lv_obj_t* s_tree_stack[512];
+
+static void check_tree(lv_obj_t* root, const char* where) {
+  if (!root) {
+    watch::log_write(watch::LogLevel::Warn, "ui", "tree: null root");
+    return;
+  }
+  int sp = 0;
+  int n = 0;
+  int bad = 0;
+  s_tree_stack[sp++] = root;
+  while (sp > 0 && n < 4096) {
+    lv_obj_t* o = s_tree_stack[--sp];
+    ++n;
+    if (o != root) {
+      lv_obj_t* p = lv_obj_get_parent(o);
+      int d = 0;
+      while (p && p != root) {
+        p = lv_obj_get_parent(p);
+        if (++d > 64) break;
+      }
+      if (p != root) {
+        ++bad;
+        if (bad <= 4) {
+          char msg[128];
+          std::snprintf(msg, sizeof(msg),
+                        "tree %s BAD obj=%p parent=%p depth=%d", where,
+                        static_cast<void*>(o),
+                        static_cast<void*>(lv_obj_get_parent(o)), d);
+          watch::log_write(watch::LogLevel::Error, "ui", msg);
+        }
+        continue;  // 壊れた枝は辿らない
+      }
+    }
+    const uint32_t c = lv_obj_get_child_count(o);
+    for (uint32_t i = 0; i < c && sp < 512; ++i) {
+      s_tree_stack[sp++] = lv_obj_get_child(o, i);
+    }
+  }
+  if (bad) {
+    char msg[96];
+    std::snprintf(msg, sizeof(msg), "tree %s: %d bad / %d objs", where, bad,
+                  n);
+    watch::log_write(watch::LogLevel::Error, "ui", msg);
+  } else {
+    char msg[96];
+    std::snprintf(msg, sizeof(msg), "tree %s: ok (%d objs)", where, n);
+    watch::log_write(watch::LogLevel::Info, "ui", msg);
+  }
+}
+
 void drop_screens_now() {
   // アクティブ画面を直接削除すると、LVGL の画面参照が一時的に NULL に
   // なり、次のレイアウト更新で親チェーンが壊れて lv_obj_get_screen が
@@ -184,11 +246,20 @@ void drop_screens_now() {
     lv_obj_t* o = static_cast<lv_obj_t*>(lv_timer_get_user_data(s));
     lv_timer_delete(s);
     s = nullptr;
-    if (o && o != tmp) lv_obj_delete(o);
+    if (o && o != tmp) {
+      lv_anim_delete(o, NULL);
+      lv_obj_delete(o);
+    }
   }
-  if (s_home && s_home != tmp) lv_obj_delete(s_home);
+  if (s_home && s_home != tmp) {
+    lv_anim_delete(s_home, NULL);
+    lv_obj_delete(s_home);
+  }
   s_home = nullptr;
-  if (s_cur && s_cur != tmp) lv_obj_delete(s_cur);
+  if (s_cur && s_cur != tmp) {
+    lv_anim_delete(s_cur, NULL);
+    lv_obj_delete(s_cur);
+  }
   s_cur = nullptr;
   s_ops = nullptr;
   // LVGL は削除された画面の参照を act_scr しか消さない。
@@ -398,6 +469,7 @@ void swap_screen(watch::Route r, bool rebuild = false) {
     s_ops = ops;
     perf_mark_screen(route_name(r));
     if (prev && prev != s_home) schedule_delete(prev, t.anim_ms + 60);
+    check_tree(s_home, "home-fast");
     if (s_ops->on_event) {
       // 再表示時に時刻・状態を最新化するためダミーの Tick を流す。
       s_ops->on_event(s_home, {watch::EventType::ClockTick, 0});
@@ -427,6 +499,7 @@ void swap_screen(watch::Route r, bool rebuild = false) {
   s_ops = ops;
   perf_mark_screen(route_name(r));
   if (prev && prev != s_home) schedule_delete(prev, t.anim_ms + 60);
+  check_tree(scr, "swap");
 }
 
 // ---- タイマー終了アラート ---------------------------------------------------
@@ -866,8 +939,11 @@ void handle_event(const watch::Event& e) {
     // 同期破棄してから適用・再構築 (遷移アニメ中の描画で落ちるのを防ぐ)。
     const char* id = s_ctx.settings ? s_ctx.settings->theme : "standard";
     drop_screens_now();
+    check_tree(lv_screen_active(), "drop");
     theme_apply(id);
+    check_tree(lv_screen_active(), "apply");
     rebuild_current();
+    check_tree(s_cur, "rebuild");
     // アラート表示中なら画像差し替わりに合わせて閉じる。
     if (s_alert) hide_alert(nullptr);
   } else if (e.type == watch::EventType::FaceChanged) {

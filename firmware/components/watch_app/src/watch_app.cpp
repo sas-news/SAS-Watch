@@ -433,6 +433,50 @@ void serial_dbg_task(void*) {
         push_action(a);
         wake_task();
         ESP_LOGI(TAG, "serial: theme -> %s", id);
+      } else if (buf[i] == 'm' || buf[i] == 'M') {
+        // 'm': アプリ一覧 (More) へ遷移。
+        watch::Action a;
+        a.type = watch::ActionType::Navigate;
+        a.source = watch::ActionSource::Touch;
+        a.arg0 = static_cast<uint32_t>(watch::Route::More);
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: navigate More");
+      } else if (buf[i] == 'k' || buf[i] == 'K') {
+        // 'k': 戻る (戻るピルと同じ Back Action)。
+        watch::Action a;
+        a.type = watch::ActionType::Back;
+        a.source = watch::ActionSource::Touch;
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: back");
+      } else if (buf[i] == 'n' || buf[i] == 'N') {
+        // 'n': 設定画面へ遷移 (T32 の再現手順を決定的にする)。
+        watch::Action a;
+        a.type = watch::ActionType::Navigate;
+        a.source = watch::ActionSource::Touch;
+        a.arg0 = static_cast<uint32_t>(watch::Route::Settings);
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: navigate Settings");
+      } else if (buf[i] == 'g' || buf[i] == 'G') {
+        // 'g': Home へ戻る (戻る操作と同じ結果)。
+        watch::Action a;
+        a.type = watch::ActionType::Home;
+        a.source = watch::ActionSource::Touch;
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: home");
+      } else if (buf[i] == 'x' || buf[i] == 'X') {
+        // 'x': 同じテーマ (cyber) を再適用する。実機の「設定画面で現在の
+        // テーマ行をタップ」と同じ SetTheme 経路 (T32 の再現用)。
+        watch::Action a;
+        a.type = watch::ActionType::SetTheme;
+        a.source = watch::ActionSource::Touch;
+        a.set_text("cyber");
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: theme -> cyber (reapply)");
       } else if (buf[i] == 'z' || buf[i] == 'Z') {
         // スキン段階無効化 ('z'ero skin): 0=全部 1=bgなし 2=画面スキン全無し。
         // 次に画面を作り直した時点から効くので、続けて b で計測する。
