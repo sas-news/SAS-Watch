@@ -164,14 +164,15 @@ esp_err_t arm_wake_on_motion(bool init_high)
     if (ret != ESP_OK) return ret;
     ret = qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_LOWPOWER_21HZ);
     if (ret != ESP_OK) return ret;
-    // threshold 192mg。WoM は arm 時点のサンプル基準との差分で発火する
-    // ため、装着中は微振動の蓄積で 64/128mg では常時発火して deep sleep
-    // を往復する実測あり — 手首の静止ノイズを弾きつつ腕上げ程度の
-    // 大きな動き (数百mg〜) は十分拾える値。blanking も 4→8 サンプル
-    // (~380ms @21Hz) に伸ばして arm 直後の過渡を弾く。
-    wreg(kRegCal1L, 0xC0);
+    // threshold 224mg / blanking 12 サンプル (~570ms @21Hz)。
+    // WoM は「任意の動き」で発火するため、192mg/8 では机の振動や一瞬の
+    // 接触でも起きていた (実機: deg=2.3 / pass=0 で再入眠)。腕上げは
+    // ピークが数百mg〜1g 出るので、224mg でも取りこぼしは小さい見込み。
+    // TODO(hw): 装着して 1 日、「腕上げで画面が付くか」を確認する。
+    // 取りこぼすなら 208mg / 10 サンプルへ戻す。
+    wreg(kRegCal1L, 0xE0);
     // CAL1_H[7:6]: 00=INT1/init0, 10=INT1/init1; [5:0]=blanking サンプル数
-    wreg(kRegCal1H, init_high ? 0x88 : 0x08);
+    wreg(kRegCal1H, init_high ? 0x8C : 0x0C);
     ret = ctrl9_exec(kCtrl9CmdWriteWom);
     if (ret != ESP_OK) return ret;
     ret = qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL);

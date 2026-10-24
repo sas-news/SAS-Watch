@@ -48,7 +48,7 @@
 | 待機中の再描画 | 0 (無操作で redraw なし) | LVGL sysmon |
 | `deep_sleep_after_s` | BLE `settings.set` で即時反映 | core/protocol/dispatch.cpp |
 | touch の I2C NACK | 解消。FT3168 スリープ中のセーフティポーリングを INT (GPIO38) ゲートで止めた | vendor/esp_lvgl_port |
-| 起床ゲート (腕上げ) | `静止3連続 && deg>=30 && dir.z<=-0.65 && dir.x>=-0.35` (左手首で計測) | roadmap T27 |
+| 起床ゲート (腕上げ) | `静止3連続 && deg>=30 && dir.z<=-0.65 && dir.x>=-0.35` (左手首で計測)。WoM は 224mg + blanking 12 (~570ms) | roadmap T27 |
 
 ## 未解決・注意
 
