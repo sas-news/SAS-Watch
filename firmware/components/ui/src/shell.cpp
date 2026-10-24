@@ -171,17 +171,24 @@ void schedule_delete(lv_obj_t* old, uint32_t ms) {
 // 同期破棄する。遷移アニメで旧画面が解放済みフォントを描くと落ちるので
 // ThemeChanged はアニメを捨てる (apply 中は描画されない)。
 void drop_screens_now() {
+  // アクティブ画面を直接削除すると、LVGL の画面参照が一時的に NULL に
+  // なり、次のレイアウト更新で親チェーンが壊れて lv_obj_get_screen が
+  // 無限ループすることがある (cyber 適用後に戻る → taskLVGL が WDT)。
+  // 何も持たない一時画面を先に同期ロードしてから旧画面を消す。
+  lv_obj_t* tmp = lv_obj_create(nullptr);
+  lv_obj_remove_flag(tmp, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(tmp, LV_OPA_TRANSP, 0);
+  lv_screen_load(tmp);
   for (auto& s : s_del_timers) {
     if (!s) continue;
     lv_obj_t* o = static_cast<lv_obj_t*>(lv_timer_get_user_data(s));
-    if (o == s_cur || o == s_home) {
-      lv_timer_delete(s);
-      s = nullptr;
-    }
+    lv_timer_delete(s);
+    s = nullptr;
+    if (o && o != tmp) lv_obj_delete(o);
   }
-  if (s_home && s_home != s_cur) lv_obj_delete(s_home);
+  if (s_home && s_home != tmp) lv_obj_delete(s_home);
   s_home = nullptr;
-  if (s_cur) lv_obj_delete(s_cur);  // act_scr は NULL に戻る
+  if (s_cur && s_cur != tmp) lv_obj_delete(s_cur);
   s_cur = nullptr;
   s_ops = nullptr;
   // LVGL は削除された画面の参照を act_scr しか消さない。
@@ -191,7 +198,7 @@ void drop_screens_now() {
   if (d) {
     d->scr_to_load = nullptr;
     d->prev_scr = nullptr;
-    d->act_scr = nullptr;
+    d->act_scr = tmp;
   }
 }
 
