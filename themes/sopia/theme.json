@@ -28,7 +28,7 @@
     "anim_ms": 180,
     "font_body": 20,
     "font_title": 26,
-    "font_digits": 156,
+    "font_digits": 148,
     "font_digits_sm": 56
   },
   "style": {
@@ -65,7 +65,7 @@
     "face_chara": "face_chara.bin"
   },
   "fonts": {
-    "digits": "digits_156.bin"
+    "digits": "digits_148.bin"
   },
   "mascot": {
     "x": -36,
@@ -96,7 +96,9 @@
       "y": 30,
       "w": 78,
       "font": 20,
-      "color": "0xF2E9EC"
+      "color": "0xFFFFFF",
+      "outline": "0x171233",
+      "outline_w": 1
     },
     "battery_gauge": {
       "x": 282,
@@ -105,7 +107,7 @@
       "h": 30,
       "color": "0x57D6F2",
       "track": "0x2B3168",
-      "charging": "0xDCD85A",
+      "charging": "0xC79A20",
       "radius": 15,
       "cap": 1
     },
@@ -121,9 +123,9 @@
       "shadow_dy": 3
     },
     "time_h": {
-      "x": 207,
+      "x": 217,
       "y": 76,
-      "font": 156,
+      "font": 148,
       "color": "0x8E8AF0",
       "highlight": "0xEFE9FF",
       "highlight_dy": -16,
@@ -132,9 +134,9 @@
       "behind": 1
     },
     "time_m": {
-      "x": 207,
+      "x": 217,
       "y": 231,
-      "font": 156,
+      "font": 148,
       "color": "0x8E8AF0",
       "highlight": "0xEFE9FF",
       "highlight_dy": -16,
