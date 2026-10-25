@@ -27,6 +27,7 @@ struct St {
   lv_obj_t* lbl[watch::kThemeFaceElemCount] = {};
   lv_obj_t* shd[watch::kThemeFaceElemCount] = {};
   lv_obj_t* ring[watch::kThemeFaceElemCount][4] = {};
+  lv_obj_t* hl[watch::kThemeFaceElemCount] = {};
   lv_obj_t* gauge = nullptr;
   lv_obj_t* gauge_fill = nullptr;
   lv_obj_t* gauge_cap = nullptr;
@@ -86,7 +87,8 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
       (e.set & (1u << 4)) ? pick_font(t, e.font) : t.font_body;
   const bool has_shadow = (e.set & (1u << 9)) != 0;
   const bool has_ring = (e.set & (1u << 16)) != 0;
-  if (!has_shadow && !has_ring) {
+  const bool has_hl = (e.set & (1u << 19)) != 0;
+  if (!has_shadow && !has_ring && !has_hl) {
     lv_obj_t* l = ui::face::label(scr, "", f, pick_color(t, e));
     place(l, e);
     s.lbl[idx] = l;
@@ -117,6 +119,12 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
     return l;
   };
   if (has_shadow) s.shd[idx] = layer(dx, dy, lv_color_hex(e.shadow));
+  if (has_hl) {
+    // 上光: 本体より |dy| 上に同色系の明るい文字を置し、本体が
+    // それを覆う。見えるのは各ストロークの上端だけ (光が上から当たる)。
+    const int hdy = (e.set & (1u << 20)) ? e.highlight_dy : -4;
+    s.hl[idx] = layer(0, hdy, lv_color_hex(e.highlight));
+  }
   if (has_ring) {
     const lv_color_t rc = lv_color_hex(e.outline);
     s.ring[idx][0] = layer(0, -w, rc);
@@ -137,6 +145,7 @@ void set_text(int idx, const char* text) {
   for (int k = 0; k < 4; ++k) {
     if (s.ring[idx][k]) lv_label_set_text(s.ring[idx][k], text);
   }
+  if (s.hl[idx]) lv_label_set_text(s.hl[idx], text);
 }
 
 // "19:07" を時・分に割る (fmt_hm は常に HH:MM)。
@@ -326,14 +335,19 @@ lv_obj_t* build(lv_obj_t* scr) {
     }
   }
 
+  // gauge を先に作る (重ねた battery テキストを後から上に描く)。
+  for (int i = 0; i < watch::kThemeFaceElemCount; ++i) {
+    if (!(t.face_layout_set & (1u << i))) continue;
+    if (i != watch::kThemeFaceElemBatteryGauge) continue;
+    if (t.face_elem[i].set & (1u << 18)) continue;
+    build_gauge(scr, t, t.face_elem[i]);
+  }
+
   for (int i = 0; i < watch::kThemeFaceElemCount; ++i) {
     if (!(t.face_layout_set & (1u << i))) continue;
     if (t.face_elem[i].set & (1u << 18)) continue;
     if (i == watch::kThemeFaceElemChara) continue;
-    if (i == watch::kThemeFaceElemBatteryGauge) {
-      build_gauge(scr, t, t.face_elem[i]);
-      continue;
-    }
+    if (i == watch::kThemeFaceElemBatteryGauge) continue;
     build_text_elem(scr, t, i);
   }
 

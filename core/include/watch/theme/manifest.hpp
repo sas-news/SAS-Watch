@@ -191,11 +191,13 @@ struct ThemeFaceElem {
   uint32_t outline = 0;      // テキストの縁取り色 (v6.1)
   uint8_t outline_w = 2;     // 縁取り幅 0..8 (v6.1)
   uint8_t behind = 0;        // chara の背後に描く (v6.1)
+  uint32_t highlight = 0;    // 文字の上光色 (v6.2)
+  int8_t highlight_dy = -4;  // 上光のオフセット (v6.2)
   uint32_t set = 0;          // bit0 x,1 y,2 w,3 h,4 font,5 color,6 img,
                              // 7 track,8 charging,9 shadow,10 radius,
                              // 11 vertical,12 cap,14 shadow_dx,
                              // 15 shadow_dy,16 outline,17 outline_w,
-                             // 18 behind
+                             // 18 behind,19 highlight,20 highlight_dy
 };
 
 struct ThemeManifest {

@@ -16,7 +16,31 @@ fonttools が必要 (pip install fonttools)。
 """
 import argparse
 
+from fontTools.pens.transformPen import TransformPen
+from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
+
+
+def stretch_vertical(path: str, ys: float) -> None:
+    f = TTFont(path)
+    glyf = f["glyf"]
+    glyph_set = f.getGlyphSet()
+    for name in f.getGlyphOrder():
+        if name not in glyf:
+            continue
+        pen = TTGlyphPen(glyf)
+        glyph_set[name].draw(TransformPen(pen, (1, 0, 0, ys, 0, 0)))
+        glyf[name] = pen.glyph()
+    for tag, field in (("hhea", "ascent"), ("hhea", "descent"),
+                       ("OS/2", "sTypoAscender"), ("OS/2", "sTypoDescender"),
+                       ("OS/2", "sTypoLineGap"), ("OS/2", "usWinAscent"),
+                       ("OS/2", "usWinDescent")):
+        if tag in f:
+            setattr(f[tag], field, round(getattr(f[tag], field) * ys))
+    for name in f.getGlyphOrder():
+        if name in glyf:
+            glyf[name].recalcBounds(glyf)
+    f.save(path)
 
 
 def main() -> int:
@@ -26,6 +50,8 @@ def main() -> int:
     ap.add_argument("chars", nargs="?", default="0123456789:")
     ap.add_argument("--pad", type=int, default=6,
                     help="共通送り幅 = 最大インク幅 + pad (font units)")
+    ap.add_argument("--yscale", type=float, default=1.0,
+                    help="グリフを縦に伸ばす倍率 (1.15 = 15%% 背高)")
     a = ap.parse_args()
 
     f = TTFont(a.src)
@@ -58,6 +84,8 @@ def main() -> int:
         print(f"{ch}: ink {ink[g]:4d} -> adv {target} lsb {center}")
 
     f.save(a.dst)
+    if a.yscale != 1.0:
+        stretch_vertical(a.dst, a.yscale)
     print(f"wrote {a.dst}")
     return 0
 

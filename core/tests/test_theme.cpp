@@ -443,9 +443,9 @@ TEST(Theme, ManifestV2Keys) {
 }
 
 TEST(Theme, ManifestFaceLayoutV6) {
-  uint8_t hh[160];
+  uint8_t hh[200];
   cbor::Writer hw(hh, sizeof(hh));
-  hw.map(9)
+  hw.map(11)
       .text("x").uint_v(250)
       .text("y").uint_v(22)
       .text("font").uint_v(96)
@@ -454,7 +454,9 @@ TEST(Theme, ManifestFaceLayoutV6) {
       .text("shadow_dy").int_v(-6)
       .text("outline").text("0x6FE9F2")
       .text("outline_w").uint_v(3)
-      .text("behind").uint_v(1);
+      .text("behind").uint_v(1)
+      .text("highlight").text("0xFFF6D8")
+      .text("highlight_dy").int_v(-9);
   ASSERT_TRUE(hw.ok());
 
   uint8_t gg[192];
@@ -499,6 +501,8 @@ TEST(Theme, ManifestFaceLayoutV6) {
   EXPECT_EQ(h.outline, 0x6FE9F2u);
   EXPECT_EQ(h.outline_w, 3);
   EXPECT_EQ(h.behind, 1);
+  EXPECT_EQ(h.highlight, 0xFFF6D8u);
+  EXPECT_EQ(h.highlight_dy, -9);
   const ThemeFaceElem& g = out.face_elem[kThemeFaceElemBatteryGauge];
   EXPECT_EQ(g.w, 52);
   EXPECT_EQ(g.h, 20);

@@ -728,17 +728,20 @@ bool face_elem_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
     e.set |= 1u << 6;
     return true;
   }
-  // v6: 色キー (track/charging/shadow/outline)。"@name" は palette 参照。
+  // v6: 色キー (track/charging/shadow/outline/highlight)。"@name" は palette 参照。
   if (key_eq(k, "track") || key_eq(k, "charging") ||
-      key_eq(k, "shadow") || key_eq(k, "outline")) {
+      key_eq(k, "shadow") || key_eq(k, "outline") ||
+      key_eq(k, "highlight")) {
     uint32_t* dst = key_eq(k, "track")      ? &e.track
                     : key_eq(k, "charging") ? &e.charging
                     : key_eq(k, "shadow")   ? &e.shadow
-                                            : &e.outline;
+                    : key_eq(k, "outline")  ? &e.outline
+                                            : &e.highlight;
     const uint32_t bit = key_eq(k, "track")      ? 7
                          : key_eq(k, "charging") ? 8
                          : key_eq(k, "shadow")   ? 9
-                                                 : 16;
+                         : key_eq(k, "outline")  ? 16
+                                                 : 19;
     const char* p = nullptr;
     size_t n = 0;
     if (cbor::as_text(v, &p, &n) && n > 1 && p[0] == '@') {
@@ -756,7 +759,8 @@ bool face_elem_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
   // v6: 数値キー (radius/vertical/cap/shadow_dx/shadow_dy/outline_w/behind)。
   if (key_eq(k, "radius") || key_eq(k, "vertical") || key_eq(k, "cap") ||
       key_eq(k, "shadow_dx") || key_eq(k, "shadow_dy") ||
-      key_eq(k, "outline_w") || key_eq(k, "behind")) {
+      key_eq(k, "outline_w") || key_eq(k, "behind") ||
+      key_eq(k, "highlight_dy")) {
     if (!cbor::as_int(v, &d)) {
       c->err = ThemeManifestError::kBadValue;
       return false;
@@ -796,6 +800,13 @@ bool face_elem_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
       }
       e.behind = static_cast<uint8_t>(d);
       e.set |= 1u << 18;
+    } else if (key_eq(k, "highlight_dy")) {
+      if (d < -64 || d > 64) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      e.highlight_dy = static_cast<int8_t>(d);
+      e.set |= 1u << 20;
     } else {
       if (d < -64 || d > 64) {
         c->err = ThemeManifestError::kBadValue;

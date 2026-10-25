@@ -32,13 +32,13 @@ SKIN_PARTS = ["card", "list_group", "row", "divider", "button_primary",
               "switch_track", "switch_knob", "slider_track", "slider_fill",
               "slider_knob", "icon_tile", "toast", "bubble", "caption_line"]
 SKIN_STATES = ["pressed", "checked", "disabled"]
-FONT_SIZES = {20, 26, 56, 96}
+FONT_SIZES = {20, 26, 56, 96, 112}
 FONT_SLOTS = ["body", "title", "digits", "digits_sm"]
 FACE_ELEMS = ["time", "date", "steps", "battery", "notify", "bubble",
               "chara", "time_h", "time_m", "battery_gauge"]
 FACE_TEXT_KEYS = ("color", "img", "track", "charging", "shadow",
-                  "outline")
-FACE_INT_KEYS = ("x", "y", "shadow_dx", "shadow_dy")
+                  "outline", "highlight")
+FACE_INT_KEYS = ("x", "y", "shadow_dx", "shadow_dy", "highlight_dy")
 FACE_UINT_KEYS = ("w", "h", "font", "radius", "vertical", "cap",
                   "outline_w", "behind")
 FACE_KEYS = FACE_TEXT_KEYS + FACE_INT_KEYS + FACE_UINT_KEYS
@@ -215,7 +215,7 @@ def validate(m, theme_dir):
             uint(v, f"tokens.{k}", errors, 0, hi)
         elif k in FONT_KEYS:
             if v not in FONT_SIZES:
-                fail(errors, f"tokens.{k}: 20/26/56/96 のどれか (got {v!r})")
+                fail(errors, f"tokens.{k}: 20/26/56/96/112 のどれか (got {v!r})")
         else:
             fail(errors, f"tokens.{k}: 未知のトークン")
     images = m.get("images", {})
@@ -375,7 +375,8 @@ def validate(m, theme_dir):
                      -512, 512)
                 if "font" in spec and spec["font"] not in FONT_SIZES:
                     fail(errors, f"face_layout.{elem}.font: 20/26/56/96")
-                for ck in ("color", "track", "charging", "shadow", "outline"):
+                for ck in ("color", "track", "charging", "shadow", "outline",
+                           "highlight"):
                     if ck in spec:
                         color(spec[ck], f"face_layout.{elem}.{ck}", errors,
                               palette)
@@ -384,7 +385,8 @@ def validate(m, theme_dir):
                                    ("cap", 0, 1), ("outline_w", 0, 8),
                                    ("behind", 0, 1),
                                    ("shadow_dx", -64, 64),
-                                   ("shadow_dy", -64, 64)):
+                                   ("shadow_dy", -64, 64),
+                                   ("highlight_dy", -64, 64)):
                     if ik in spec:
                         uint(spec[ik], f"face_layout.{elem}.{ik}", errors,
                              lo, hi)
