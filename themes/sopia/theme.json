@@ -28,7 +28,7 @@
     "anim_ms": 180,
     "font_body": 20,
     "font_title": 26,
-    "font_digits": 96,
+    "font_digits": 112,
     "font_digits_sm": 56
   },
   "style": {
@@ -71,7 +71,7 @@
     "face_chara": "face_chara.bin"
   },
   "fonts": {
-    "digits": "digits_96.bin"
+    "digits": "digits_112.bin"
   },
   "mascot": {
     "x": -36,
@@ -89,56 +89,64 @@
   },
   "face_layout": {
     "date": {
-      "x": 36,
-      "y": 31,
+      "x": 34,
+      "y": 32,
       "font": 26,
-      "color": "0x8FE9FF",
+      "color": "0xE6E1FF",
       "shadow": "0x101030",
       "shadow_dx": 2,
       "shadow_dy": 3
     },
     "battery": {
-      "x": 270,
+      "x": 300,
       "y": 32,
       "font": 20,
-      "color": "0xC9C1EF"
+      "color": "0xFFFFFF",
+      "outline": "0x10122B",
+      "outline_w": 1
     },
     "battery_gauge": {
-      "x": 326,
-      "y": 34,
-      "w": 38,
-      "h": 18,
-      "color": "0x6FE9F2",
-      "track": "0x2C2758",
-      "charging": "0xFFD84D",
-      "radius": 4,
+      "x": 282,
+      "y": 28,
+      "w": 78,
+      "h": 30,
+      "color": "0x8FE3E0",
+      "track": "0x24204A",
+      "charging": "0xFFD34D",
+      "radius": 15,
       "cap": 1
     },
     "steps": {
-      "x": 262,
-      "y": 446,
+      "x": 236,
+      "y": 447,
       "font": 20,
-      "color": "0xF7F4FF",
-      "shadow": "0x101030",
+      "color": "0xFFFFFF",
+      "outline": "0x171233",
+      "outline_w": 2,
+      "shadow": "0x0B0A1E",
       "shadow_dx": 2,
       "shadow_dy": 3
     },
     "time_h": {
-      "x": 243,
-      "y": 92,
-      "font": 96,
-      "color": "0xFFD84D",
-      "outline": "0x6FE9F2",
-      "outline_w": 2,
+      "x": 232,
+      "y": 74,
+      "font": 112,
+      "color": "0xF2B33D",
+      "highlight": "0xFFE9B0",
+      "highlight_dy": -8,
+      "outline": "0xF3F8FF",
+      "outline_w": 3,
       "behind": 1
     },
     "time_m": {
-      "x": 243,
-      "y": 196,
-      "font": 96,
-      "color": "0xFFD84D",
-      "outline": "0x6FE9F2",
-      "outline_w": 2,
+      "x": 232,
+      "y": 186,
+      "font": 112,
+      "color": "0xF2B33D",
+      "highlight": "0xFFE9B0",
+      "highlight_dy": -8,
+      "outline": "0xF3F8FF",
+      "outline_w": 3,
       "behind": 1
     },
     "chara": {
