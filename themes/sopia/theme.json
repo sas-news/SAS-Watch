@@ -28,7 +28,7 @@
     "anim_ms": 180,
     "font_body": 20,
     "font_title": 26,
-    "font_digits": 112,
+    "font_digits": 156,
     "font_digits_sm": 56
   },
   "style": {
@@ -53,12 +53,6 @@
       "scrim": 20,
       "deco": [
         {
-          "img": "deco_spark1.png",
-          "x": 330,
-          "y": 40,
-          "z": "front"
-        },
-        {
           "img": "deco_spark2.png",
           "x": 32,
           "y": 196,
@@ -71,7 +65,7 @@
     "face_chara": "face_chara.bin"
   },
   "fonts": {
-    "digits": "digits_112.bin"
+    "digits": "digits_156.bin"
   },
   "mascot": {
     "x": -36,
@@ -89,64 +83,63 @@
   },
   "face_layout": {
     "date": {
-      "x": 34,
-      "y": 32,
+      "x": 40,
+      "y": 28,
       "font": 26,
-      "color": "0xE6E1FF",
+      "color": "0xD9E6FF",
       "shadow": "0x101030",
       "shadow_dx": 2,
       "shadow_dy": 3
     },
     "battery": {
-      "x": 300,
-      "y": 32,
+      "x": 282,
+      "y": 30,
+      "w": 78,
       "font": 20,
-      "color": "0xFFFFFF",
-      "outline": "0x10122B",
-      "outline_w": 1
+      "color": "0xF2E9EC"
     },
     "battery_gauge": {
       "x": 282,
       "y": 28,
       "w": 78,
       "h": 30,
-      "color": "0x8FE3E0",
-      "track": "0x24204A",
-      "charging": "0xFFD34D",
+      "color": "0x57D6F2",
+      "track": "0x2B3168",
+      "charging": "0xDCD85A",
       "radius": 15,
       "cap": 1
     },
     "steps": {
-      "x": 236,
-      "y": 447,
+      "x": -32,
+      "y": -32,
       "font": 20,
-      "color": "0xFFFFFF",
-      "outline": "0x171233",
+      "color": "0xF2E9EC",
+      "outline": "0x241C46",
       "outline_w": 2,
       "shadow": "0x0B0A1E",
       "shadow_dx": 2,
       "shadow_dy": 3
     },
     "time_h": {
-      "x": 232,
-      "y": 74,
-      "font": 112,
-      "color": "0xF0AE3A",
-      "highlight": "0xFFF3CC",
-      "highlight_dy": -14,
-      "outline": "0xFFF4E0",
-      "outline_w": 2,
+      "x": 181,
+      "y": 76,
+      "font": 156,
+      "color": "0x8E8AF0",
+      "highlight": "0xEFE9FF",
+      "highlight_dy": -16,
+      "outline": "0x7FE4F7",
+      "outline_w": 3,
       "behind": 1
     },
     "time_m": {
-      "x": 232,
-      "y": 186,
-      "font": 112,
-      "color": "0xF0AE3A",
-      "highlight": "0xFFF3CC",
-      "highlight_dy": -14,
-      "outline": "0xFFF4E0",
-      "outline_w": 2,
+      "x": 181,
+      "y": 231,
+      "font": 156,
+      "color": "0x8E8AF0",
+      "highlight": "0xEFE9FF",
+      "highlight_dy": -16,
+      "outline": "0x7FE4F7",
+      "outline_w": 3,
       "behind": 1
     },
     "chara": {
