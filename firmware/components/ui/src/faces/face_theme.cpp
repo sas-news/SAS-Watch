@@ -13,6 +13,7 @@
 #include "faces.hpp"
 
 #include <cstdio>
+#include <cstring>
 
 #include "../components.hpp"
 #include "../theme.hpp"
@@ -182,12 +183,17 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
 
 void set_text(int idx, const char* text) {
   if (!s.lbl[idx]) return;
+  if (std::strcmp(lv_label_get_text(s.lbl[idx]), text) == 0) return;
   lv_label_set_text(s.lbl[idx], text);
   if (s.shd[idx]) lv_label_set_text(s.shd[idx], text);
   for (int k = 0; k < 4; ++k) {
     if (s.ring[idx][k]) lv_label_set_text(s.ring[idx][k], text);
   }
   if (s.hl[idx]) lv_label_set_text(s.hl[idx], text);
+  // 立ち絵の半透明部分は背後の文字と混ざる。文字だけを部分再描画すると、
+  // 混ざり合った 1px 列が古いまま残る (実機で縦の点線) ので、文字盤の
+  // 文字が変わったときは画面全体を描き直す。
+  lv_obj_invalidate(lv_screen_active());
 }
 
 // "19:07" を時・分に割る (fmt_hm は常に HH:MM)。
