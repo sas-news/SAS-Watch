@@ -82,6 +82,13 @@ bool Runtime::dispatch(const Action& a, FeatureContext& ctx) {
         before == PowerState::DeepSleepCandidate) {
       return true;
     }
+    // Dim (輝度20%) 中の消灯要求は「点ける」に読み替える。Dim は暗くて
+    // 消灯に見えるため、ここで消すと「PWR を押しても画面がつかない」に
+    // なる (タッチは Dim で点灯するので、PWR も同じ挙動に揃える)。
+    // 明るい Active からの消灯は従来どおり。
+    if (before == PowerState::Dim && a.type == ActionType::ScreenOff) {
+      return true;
+    }
   }
 
   // 画面の主アクション/画面長押し: 現在の Route に結び付いた Feature へ。

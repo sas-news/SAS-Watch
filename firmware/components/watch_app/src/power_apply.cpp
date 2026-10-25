@@ -18,15 +18,23 @@ static constexpr int kDimPercent = 20;  // plan.md L章: Dim = 輝度20%
 
 void power_apply(watch::PowerState st, const watch::Settings& settings) {
   if (st == s_applied) return;
-  s_applied = st;
-  ESP_LOGI(TAG, "power -> %d", static_cast<int>(st));
 
   // LVGL を触るのは LVGL タスク内かロックの中だけ (AGENTS.md)。
+  // ロックが取れなかったら s_applied を進めずに次ループで再試行する。
+  // 以前は s_applied を Active にして諦めていたので、点灯の適用が
+  // 一度でも失敗すると「状態は Active なのにパネルは消えたまま」になり、
+  // PWR を押しても消灯要求だけが走って画面が点かなくなっていた。
   if (!ui::port::lock(200)) {
-    ESP_LOGW(TAG, "lvgl lock timeout; apply deferred");
-    s_applied = watch::PowerState::Active;  // 次の変化で再適用させる
+    static uint32_t s_lock_fail;
+    if ((s_lock_fail++ % 50) == 0) {
+      ESP_LOGW(TAG, "lvgl lock timeout; retry (%lu)",
+               static_cast<unsigned long>(s_lock_fail));
+    }
     return;
   }
+  ESP_LOGI(TAG, "power %d -> %d", static_cast<int>(s_applied),
+           static_cast<int>(st));
+  s_applied = st;
   switch (st) {
     case watch::PowerState::Active:
       lv_timer_enable(true);

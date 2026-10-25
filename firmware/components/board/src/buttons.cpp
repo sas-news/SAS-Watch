@@ -3,6 +3,7 @@
 
 #include "esp_log.h"
 #include "esp_check.h"
+#include "driver/gpio.h"
 #include "iot_button.h"
 #include "button_gpio.h"
 
@@ -24,8 +25,28 @@ static Button btn_of(void* usr) {
     return static_cast<Button>(reinterpret_cast<intptr_t>(usr));
 }
 
+// 実機の「PWR を押しても反応しない」を切り分けるためのログ。押下は稀なので
+// 毎回出す (down/up で生の極性も残す — 外部プルや配線の確認用)。
+static const char* name_of(Button b)
+{
+    return b == Button::Boot ? "BOOT" : "PWR";
+}
+static gpio_num_t pin_of(Button b)
+{
+    return b == Button::Boot ? pins::kButtonBoot : pins::kButtonPwr;
+}
+static void log_event(Button b, const char* what)
+{
+    ESP_LOGI(TAG, "%s %s level=%d", name_of(b), what,
+             static_cast<int>(gpio_get_level(pin_of(b))));
+}
+
 static void fire(Button b, ButtonEvent e)
 {
+    const char* ev = e == ButtonEvent::ShortPress ? "short"
+                     : e == ButtonEvent::LongPress ? "long"
+                                                   : "double";
+    log_event(b, ev);
     if (s_cb) {
         s_cb(b, e);
     }
@@ -37,10 +58,16 @@ static bool double_enabled(Button b)
     return s_dbl_pred == nullptr || s_dbl_pred(b);
 }
 
-static void cb_press_down(void*, void* usr) { s_long_fired[idx_of(btn_of(usr))] = false; }
+static void cb_press_down(void*, void* usr)
+{
+    const Button b = btn_of(usr);
+    s_long_fired[idx_of(b)] = false;
+    log_event(b, "down");
+}
 static void cb_press_up(void*, void* usr)
 {
     const Button b = btn_of(usr);
+    log_event(b, "up");
     // 長押し済みでなく、2回押しが無効なボタンは即 ShortPress。
     // 2回押し有効なボタンは従来どおり SINGLE_CLICK/DOUBLE_CLICK を待つ。
     if (!s_long_fired[idx_of(b)] && !double_enabled(b)) {

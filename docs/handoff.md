@@ -51,6 +51,12 @@
   他画面のテキストは従来どおり 32px 余白。
   **注意**: 実機の assets に入っている cute.zip は、リポジトリの `android/.../themes/cute.zip`
   より古い (bg.png が b6dd640 以前のもの)。必要なら assets イメージを作り直して書く。
+- PWR 短押しの画面 ON/OFF は 2026-10-25 に実機で確認。押下ごとに
+  `board.buttons: PWR down level=1` / `up level=0` / `short level=0` が出て、
+  画面OFF 中の押下は `power 2 -> 0`、点灯中の押下は `power 0 -> 2`
+  (押下から適用まで ~130ms)。**Dim (輝度20%) 中の押下は消灯ではなく点灯**に倒す
+  (`core/src/runtime.cpp`。Dim は暗くて消灯に見えるため)。消灯中の押下は
+  割り当てに関係なく `Wake` を積む (`watch_app/src/input.cpp`)。
 - 2026-10-19 に描画を作り直した (T29)。standard テーマで全面再描画 85〜112ms → 40〜68ms。
   経緯と数値は `docs/perf.md`。
 - 外部コンポーネントへのパッチは `firmware/vendor/` にある (BSP / esp_lvgl_port / sh8601)。
@@ -111,6 +117,12 @@
   素の `cat` は制御線の扱いで受信できないことがある — 1 セッションで open→送信→受信まで行う
   (DTR/RTS を自分でいじるとチップが download モードでリセットループするので触らない)。
 - 画面 OFF 中の入力 (シリアルの `t` もタッチ扱い) は「起こすだけ」で処理されない。
+  物理ボタンも同じで、消灯中の押下は割り当てに関係なく `Wake` だけを積む
+  (`watch_app/src/input.cpp`)。Dim 中の PWR 短押しは消灯ではなく点灯。
+- ボタンは押すたびに `board.buttons: PWR down level=1` / `up level=0` /
+  `short level=0` を出す。PWR が効かないときは、まずこの 3 行が出るかで
+  「ボタンが読めていない」か「Action が届いていない (`watch_app.input` /
+  `watch_app.power: power N -> M`)」を切り分ける。
 - Android 13 以降のサイドロードでは「制限された設定」を許可しないと通知アクセスを ON にできない
   (設定 → アプリ → SAS-Watch → ⋮ → 制限された設定を許可)。
 

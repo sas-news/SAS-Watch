@@ -4,12 +4,15 @@
 #include <cstring>
 
 #include "board/board.hpp"
+#include "esp_log.h"
 #include "watch/input_mapper.hpp"
 #include "watch_app/watch_app.hpp"
 
 #include "internal.hpp"
 
 namespace watch_app {
+
+static const char* TAG = "watch_app.input";
 
 static watch::InputMapper* s_mapper = nullptr;
 
@@ -34,9 +37,23 @@ static void on_button(board::Button b, board::ButtonEvent ev) {
     default: return;
   }
   watch::Action a;
+  // 消灯中は「起こすだけ」。割り当てが none でも必ず起こす (core の
+  // dispatch は Action が届いて初めて kick するので、none だとボタンでは
+  // 画面が点かない穴があった)。core 側も同じ規則で二重に守る。
+  const watch::PowerState ps = power().state();
+  if (ps == watch::PowerState::ScreenOff ||
+      ps == watch::PowerState::DeepSleepCandidate) {
+    a.type = watch::ActionType::Wake;
+    a.source = watch::ActionSource::Button;
+    push_action(a);
+    return;
+  }
   if (s_mapper->translate(be, &a)) {
     a.source = watch::ActionSource::Button;
     push_action(a);
+  } else {
+    ESP_LOGI(TAG, "button %d press %d unmapped", static_cast<int>(be.button),
+             static_cast<int>(be.press));
   }
 }
 

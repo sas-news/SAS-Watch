@@ -459,6 +459,25 @@ TEST(Runtime, ScreenOffSwallowsWakeInput) {
   EXPECT_EQ(f.nav.current(), Route::Home);
 }
 
+TEST(Runtime, PwrShortWhileDimWakesInsteadOfSleeping) {
+  // Dim (輝度20%) は消灯に見えるので、PWR 短押し (screen_off) でさらに
+  // 暗くするのではなく点灯に読み替える。タッチ時の挙動と揃える。
+  RuntimeFixture f;
+  f.power.kick_activity(0);
+  f.power.update(9'000);  // dim_after_s=8 通過、screen_off_after_s=12 前
+  ASSERT_EQ(f.power.state(), PowerState::Dim);
+  Action a;
+  a.type = ActionType::ScreenOff;
+  a.source = ActionSource::Button;
+  f.runtime.queue().push(a);
+  f.clock.set_now_ms(9'100);
+  f.runtime.step(9'100, f.ctx);
+  EXPECT_EQ(f.power.state(), PowerState::Active);
+  // 消灯要求は飲まれ、次の tick でも明るいまま。
+  f.runtime.step(9'200, f.ctx);
+  EXPECT_EQ(f.power.state(), PowerState::Active);
+}
+
 TEST(Runtime, BackAtHomeTurnsScreenOff) {
   RuntimeFixture f;
   Action a;
