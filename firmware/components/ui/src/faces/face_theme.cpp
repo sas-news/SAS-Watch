@@ -119,14 +119,18 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
   const bool has_shadow = (e.set & (1u << 9)) != 0;
   const bool has_ring = (e.set & (1u << 16)) != 0;
   const bool has_hl = (e.set & (1u << 19)) != 0;
-  if (!has_shadow && !has_ring && !has_hl) {
-    lv_obj_t* l = face_label(scr, f, pick_color(t, e));
-    place(l, e);
+  // w を指定したテキストはその幅の枠で中央寄せ (ゲージに重ねる数値など)。
+  // 影/縁取り/上光の各層にも同じ幅を入れて、層同士がずれないようにする。
+  auto boxed = [&](lv_obj_t* l) {
     if (e.w > 0) {
-      // w を指定したテキストはその幅の中で中央寄せ (ゲージに重ねる % など)。
       lv_obj_set_width(l, e.w);
       lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     }
+    return l;
+  };
+  if (!has_shadow && !has_ring && !has_hl) {
+    lv_obj_t* l = boxed(face_label(scr, f, pick_color(t, e)));
+    place(l, e);
     s.root[idx] = l;
     s.lbl[idx] = l;
     return l;
@@ -141,13 +145,13 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
   auto layer = [&](int ox, int oy, lv_color_t col) {
     lv_obj_t* l;
     if (!parent) {
-      l = face_label(scr, f, col);
+      l = boxed(face_label(scr, f, col));
       lv_obj_add_flag(l, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
       place(l, e);
       lv_obj_set_pos(l, lv_obj_get_x(l) + ox, lv_obj_get_y(l) + oy);
       s.root[idx] = l;
     } else {
-      l = face_label(parent, f, col);
+      l = boxed(face_label(parent, f, col));
       lv_obj_add_flag(parent, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
       lv_obj_set_pos(l, ox - px, oy - py);
     }
@@ -170,7 +174,7 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
     s.ring[idx][2] = layer(w, 0, rc);
     s.ring[idx][3] = layer(-w, 0, rc);
   }
-  lv_obj_t* l = face_label(parent, f, pick_color(t, e));
+  lv_obj_t* l = boxed(face_label(parent, f, pick_color(t, e)));
   lv_obj_set_pos(l, -px, -py);
   s.lbl[idx] = l;
   return l;
