@@ -159,24 +159,43 @@ struct ThemeSkinPart {
 };
 
 // "face_layout": テーマ文字盤 (id "theme") の要素配置。
-// elem = time/date/steps/battery/notify/bubble/chara。
-constexpr int kThemeFaceElemCount = 7;
+// elem = time/date/steps/battery/notify/bubble/chara + v6 の
+//        time_h/time_m (時刻の時・分を別要素で置く) と
+//        battery_gauge (電池のグラフィックゲージ)。
+constexpr int kThemeFaceElemCount = 10;
 extern const char* const kThemeFaceElemNames[kThemeFaceElemCount];
 // face_layout_set / ThemeFaceElem の添字 (kThemeFaceElemNames と同順)。
+// 既存テーマとの互換のため、新しい要素は必ず末尾に追加する。
 enum ThemeFaceElemId : uint8_t {
   kThemeFaceElemTime = 0, kThemeFaceElemDate, kThemeFaceElemSteps,
   kThemeFaceElemBattery, kThemeFaceElemNotify, kThemeFaceElemBubble,
   kThemeFaceElemChara,
+  kThemeFaceElemTimeH, kThemeFaceElemTimeM, kThemeFaceElemBatteryGauge,
 };
 struct ThemeFaceElem {
   int16_t x = 0;
   int16_t y = 0;
-  int16_t w = 0;             // 幅 (0=内容に合わせる)
+  int16_t w = 0;             // 幅 (0=内容に合わせる / gauge は必須)
   int16_t h = 0;
   int16_t font = 0;          // 数字フォント px (0=既定)
-  uint32_t color = 0;        // 0xRRGGBB
+  uint32_t color = 0;        // 0xRRGGBB (gauge では塗り色)
   char img[kThemeImageNameMax] = {};  // chara 用画像 (省略時 images.face_chara)
-  uint8_t set = 0;           // bit0 x,1 y,2 w,3 h,4 font,5 color,6 img
+  uint32_t track = 0;        // gauge の下地色 (v6)
+  uint32_t charging = 0;     // 充電中の塗り色 (v6)
+  uint32_t shadow = 0;       // テキストの影色 (v6)
+  int8_t shadow_dx = 4;      // 影のオフセット (v6)
+  int8_t shadow_dy = 5;
+  uint8_t radius = 0;        // gauge の角丸 0..255 (v6)
+  uint8_t vertical = 0;      // gauge を縦向きにする (v6)
+  uint8_t cap = 0;           // gauge の電池突起を描く (v6)
+  uint32_t outline = 0;      // テキストの縁取り色 (v6.1)
+  uint8_t outline_w = 2;     // 縁取り幅 0..8 (v6.1)
+  uint8_t behind = 0;        // chara の背後に描く (v6.1)
+  uint32_t set = 0;          // bit0 x,1 y,2 w,3 h,4 font,5 color,6 img,
+                             // 7 track,8 charging,9 shadow,10 radius,
+                             // 11 vertical,12 cap,14 shadow_dx,
+                             // 15 shadow_dy,16 outline,17 outline_w,
+                             // 18 behind
 };
 
 struct ThemeManifest {
@@ -233,7 +252,7 @@ struct ThemeManifest {
   // face_layout[elem] が埋まった = face_layout_set bit i。
   // 全て空なら "theme" 文字盤は既定レイアウト。
   ThemeFaceElem face_elem[kThemeFaceElemCount];
-  uint8_t face_layout_set = 0;
+  uint16_t face_layout_set = 0;
 
   // skin[part] が埋まった (img 指定済み) = skin_set bit i。
   ThemeSkinPart skin_part[kThemeSkinPartCount];

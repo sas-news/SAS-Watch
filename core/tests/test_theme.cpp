@@ -442,6 +442,72 @@ TEST(Theme, ManifestV2Keys) {
   EXPECT_FALSE(out.face_layout_set & 2);           // date 未指定
 }
 
+TEST(Theme, ManifestFaceLayoutV6) {
+  uint8_t hh[160];
+  cbor::Writer hw(hh, sizeof(hh));
+  hw.map(9)
+      .text("x").uint_v(250)
+      .text("y").uint_v(22)
+      .text("font").uint_v(96)
+      .text("color").text("0xFFD84D")
+      .text("shadow").text("0x6FE9F2")
+      .text("shadow_dy").int_v(-6)
+      .text("outline").text("0x6FE9F2")
+      .text("outline_w").uint_v(3)
+      .text("behind").uint_v(1);
+  ASSERT_TRUE(hw.ok());
+
+  uint8_t gg[192];
+  cbor::Writer gw(gg, sizeof(gg));
+  gw.map(8)
+      .text("x").uint_v(36)
+      .text("y").uint_v(60)
+      .text("w").uint_v(52)
+      .text("h").uint_v(20)
+      .text("color").text("0x6FE9F2")
+      .text("track").text("0x2C2758")
+      .text("charging").text("0xFFD84D")
+      .text("cap").uint_v(1);
+  ASSERT_TRUE(gw.ok());
+
+  uint8_t fl[256];
+  cbor::Writer flw(fl, sizeof(fl));
+  flw.map(2)
+      .text("time_h").raw(hh, hw.size())
+      .text("battery_gauge").raw(gg, gw.size());
+  ASSERT_TRUE(flw.ok());
+
+  uint8_t buf[512];
+  cbor::Writer w(buf, sizeof(buf));
+  w.map(3)
+      .text("id").text("v6")
+      .text("api").uint_v(1)
+      .text("face_layout").raw(fl, flw.size());
+  ASSERT_TRUE(w.ok());
+
+  ThemeManifest out;
+  ASSERT_EQ(theme_manifest_parse(buf, w.size(), &out),
+            ThemeManifestError::kOk);
+  EXPECT_TRUE(out.face_layout_set & (1u << kThemeFaceElemTimeH));
+  EXPECT_TRUE(out.face_layout_set & (1u << kThemeFaceElemBatteryGauge));
+  EXPECT_FALSE(out.face_layout_set & (1u << kThemeFaceElemTime));
+  const ThemeFaceElem& h = out.face_elem[kThemeFaceElemTimeH];
+  EXPECT_EQ(h.font, 96);
+  EXPECT_EQ(h.color, 0xFFD84Du);
+  EXPECT_EQ(h.shadow, 0x6FE9F2u);
+  EXPECT_EQ(h.shadow_dy, -6);
+  EXPECT_EQ(h.outline, 0x6FE9F2u);
+  EXPECT_EQ(h.outline_w, 3);
+  EXPECT_EQ(h.behind, 1);
+  const ThemeFaceElem& g = out.face_elem[kThemeFaceElemBatteryGauge];
+  EXPECT_EQ(g.w, 52);
+  EXPECT_EQ(g.h, 20);
+  EXPECT_EQ(g.track, 0x2C2758u);
+  EXPECT_EQ(g.charging, 0xFFD84Du);
+  EXPECT_EQ(g.cap, 1);
+  EXPECT_EQ(g.vertical, 0);
+}
+
 TEST(Theme, ManifestV2Errors) {
   ThemeManifest out;
   // .png 以外の拡張子は拒否 (実行ファイル誤検査対策で厳密に)

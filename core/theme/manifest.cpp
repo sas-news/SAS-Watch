@@ -48,6 +48,7 @@ const char* const kThemeScreenNames[kThemeScreenCount] = {
 // face_layout の要素名表 (ThemeFaceElem と同じ順)。
 const char* const kThemeFaceElemNames[kThemeFaceElemCount] = {
     "time", "date", "steps", "battery", "notify", "bubble", "chara",
+    "time_h", "time_m", "battery_gauge",
 };
 
 // skin のパーツ名表 (ThemeSkinPartId と同じ順)。
@@ -725,6 +726,89 @@ bool face_elem_cb(const cbor::Value& k, const cbor::Value& v, void* c_) {
     std::memcpy(e.img, p, n);
     e.img[n] = '\0';
     e.set |= 1u << 6;
+    return true;
+  }
+  // v6: 色キー (track/charging/shadow/outline)。"@name" は palette 参照。
+  if (key_eq(k, "track") || key_eq(k, "charging") ||
+      key_eq(k, "shadow") || key_eq(k, "outline")) {
+    uint32_t* dst = key_eq(k, "track")      ? &e.track
+                    : key_eq(k, "charging") ? &e.charging
+                    : key_eq(k, "shadow")   ? &e.shadow
+                                            : &e.outline;
+    const uint32_t bit = key_eq(k, "track")      ? 7
+                         : key_eq(k, "charging") ? 8
+                         : key_eq(k, "shadow")   ? 9
+                                                 : 16;
+    const char* p = nullptr;
+    size_t n = 0;
+    if (cbor::as_text(v, &p, &n) && n > 1 && p[0] == '@') {
+      if (!theme_palette_color(*c->out, p + 1, n - 1, dst)) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+    } else if (!parse_color(v, dst)) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    e.set |= (1u << bit);
+    return true;
+  }
+  // v6: 数値キー (radius/vertical/cap/shadow_dx/shadow_dy/outline_w/behind)。
+  if (key_eq(k, "radius") || key_eq(k, "vertical") || key_eq(k, "cap") ||
+      key_eq(k, "shadow_dx") || key_eq(k, "shadow_dy") ||
+      key_eq(k, "outline_w") || key_eq(k, "behind")) {
+    if (!cbor::as_int(v, &d)) {
+      c->err = ThemeManifestError::kBadValue;
+      return false;
+    }
+    if (key_eq(k, "radius")) {
+      if (d < 0 || d > 255) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      e.radius = static_cast<uint8_t>(d);
+      e.set |= 1u << 10;
+    } else if (key_eq(k, "vertical")) {
+      if (d < 0 || d > 1) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      e.vertical = static_cast<uint8_t>(d);
+      e.set |= 1u << 11;
+    } else if (key_eq(k, "cap")) {
+      if (d < 0 || d > 1) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      e.cap = static_cast<uint8_t>(d);
+      e.set |= 1u << 12;
+    } else if (key_eq(k, "outline_w")) {
+      if (d < 0 || d > 8) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      e.outline_w = static_cast<uint8_t>(d);
+      e.set |= 1u << 17;
+    } else if (key_eq(k, "behind")) {
+      if (d < 0 || d > 1) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      e.behind = static_cast<uint8_t>(d);
+      e.set |= 1u << 18;
+    } else {
+      if (d < -64 || d > 64) {
+        c->err = ThemeManifestError::kBadValue;
+        return false;
+      }
+      if (key_eq(k, "shadow_dx")) {
+        e.shadow_dx = static_cast<int8_t>(d);
+        e.set |= 1u << 14;
+      } else {
+        e.shadow_dy = static_cast<int8_t>(d);
+        e.set |= 1u << 15;
+      }
+    }
     return true;
   }
   return true;

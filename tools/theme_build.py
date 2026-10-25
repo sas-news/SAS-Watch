@@ -34,7 +34,14 @@ SKIN_PARTS = ["card", "list_group", "row", "divider", "button_primary",
 SKIN_STATES = ["pressed", "checked", "disabled"]
 FONT_SIZES = {20, 26, 56, 96}
 FONT_SLOTS = ["body", "title", "digits", "digits_sm"]
-FACE_ELEMS = ["time", "date", "steps", "battery", "notify", "bubble", "chara"]
+FACE_ELEMS = ["time", "date", "steps", "battery", "notify", "bubble",
+              "chara", "time_h", "time_m", "battery_gauge"]
+FACE_TEXT_KEYS = ("color", "img", "track", "charging", "shadow",
+                  "outline")
+FACE_INT_KEYS = ("x", "y", "shadow_dx", "shadow_dy")
+FACE_UINT_KEYS = ("w", "h", "font", "radius", "vertical", "cap",
+                  "outline_w", "behind")
+FACE_KEYS = FACE_TEXT_KEYS + FACE_INT_KEYS + FACE_UINT_KEYS
 IMAGE_SLOTS = {"home_bg": (410, 502), "stand": (240, 360),
                "timer_done": (410, 320), "face_chara": (240, 410)}
 STYLE_KEYS = ["card_radius", "card_opa", "border_w", "border", "glow_color",
@@ -360,7 +367,7 @@ def validate(m, theme_dir):
                     fail(errors, f"face_layout.{elem}: object")
                     continue
                 for k in spec:
-                    if k not in ("x", "y", "font", "color", "w", "h", "img"):
+                    if k not in FACE_KEYS:
                         fail(errors, f"face_layout.{elem}.{k}: 未知のキー")
                 uint(spec.get("x", 0), f"face_layout.{elem}.x", errors,
                      -512, 512)
@@ -368,9 +375,19 @@ def validate(m, theme_dir):
                      -512, 512)
                 if "font" in spec and spec["font"] not in FONT_SIZES:
                     fail(errors, f"face_layout.{elem}.font: 20/26/56/96")
-                if "color" in spec:
-                    color(spec["color"], f"face_layout.{elem}.color", errors,
-                          palette)
+                for ck in ("color", "track", "charging", "shadow", "outline"):
+                    if ck in spec:
+                        color(spec[ck], f"face_layout.{elem}.{ck}", errors,
+                              palette)
+                for ik, lo, hi in (("w", 0, 1024), ("h", 0, 1024),
+                                   ("radius", 0, 255), ("vertical", 0, 1),
+                                   ("cap", 0, 1), ("outline_w", 0, 8),
+                                   ("behind", 0, 1),
+                                   ("shadow_dx", -64, 64),
+                                   ("shadow_dy", -64, 64)):
+                    if ik in spec:
+                        uint(spec[ik], f"face_layout.{elem}.{ik}", errors,
+                             lo, hi)
                 if "img" in spec:
                     check_image(theme_dir, spec["img"],
                                 f"face_layout.{elem}.img", errors, files)
@@ -494,10 +511,12 @@ def encode_manifest(m):
         for elem, spec in m["face_layout"].items():
             em = {}
             for k, v in spec.items():
-                if k in ("color", "img"):
+                if k in FACE_TEXT_KEYS:
                     em[k] = c_text(v)
+                elif k in FACE_INT_KEYS:
+                    em[k] = c_int(v)
                 else:
-                    em[k] = c_int(v) if k in ("x", "y") else c_uint(v)
+                    em[k] = c_uint(v)
             fl[elem] = c_map(em)
         out["face_layout"] = c_map(fl)
     if m.get("skin"):
