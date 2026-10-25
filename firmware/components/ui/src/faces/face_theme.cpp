@@ -58,6 +58,14 @@ void clamp_rect(int& x, int& y, int w, int h) {
   }
 }
 
+// 文字盤のラベル。USER_1 は「画面端まで使える表示用テキスト」の印で、
+// sim の余白監査 (既定 32px) がこの要素だけ 6px になる。
+lv_obj_t* face_label(lv_obj_t* parent, const lv_font_t* f, lv_color_t col) {
+  lv_obj_t* l = ui::face::label(parent, "", f, col);
+  lv_obj_add_flag(l, LV_OBJ_FLAG_USER_1);
+  return l;
+}
+
 // 座標/端基準の align 計算。clamp=true なら、マニフェストの座標が
 // 丸角の安全域外になるとき内側へ寄せる (装飾の chara 立ち絵は対象外)。
 void place(lv_obj_t* o, const watch::ThemeFaceElem& e, bool clamp = true) {
@@ -112,7 +120,7 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
   const bool has_ring = (e.set & (1u << 16)) != 0;
   const bool has_hl = (e.set & (1u << 19)) != 0;
   if (!has_shadow && !has_ring && !has_hl) {
-    lv_obj_t* l = ui::face::label(scr, "", f, pick_color(t, e));
+    lv_obj_t* l = face_label(scr, f, pick_color(t, e));
     place(l, e);
     if (e.w > 0) {
       // w を指定したテキストはその幅の中で中央寄せ (ゲージに重ねる % など)。
@@ -133,13 +141,13 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
   auto layer = [&](int ox, int oy, lv_color_t col) {
     lv_obj_t* l;
     if (!parent) {
-      l = ui::face::label(scr, "", f, col);
+      l = face_label(scr, f, col);
       lv_obj_add_flag(l, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
       place(l, e);
       lv_obj_set_pos(l, lv_obj_get_x(l) + ox, lv_obj_get_y(l) + oy);
       s.root[idx] = l;
     } else {
-      l = ui::face::label(parent, "", f, col);
+      l = face_label(parent, f, col);
       lv_obj_add_flag(parent, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
       lv_obj_set_pos(l, ox - px, oy - py);
     }
@@ -162,7 +170,7 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
     s.ring[idx][2] = layer(w, 0, rc);
     s.ring[idx][3] = layer(-w, 0, rc);
   }
-  lv_obj_t* l = ui::face::label(parent, "", f, pick_color(t, e));
+  lv_obj_t* l = face_label(parent, f, pick_color(t, e));
   lv_obj_set_pos(l, -px, -py);
   s.lbl[idx] = l;
   return l;

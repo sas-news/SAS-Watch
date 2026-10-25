@@ -161,7 +161,8 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip, bool in_scroll) {
             const bool in_clip = cx[i] >= clip.x1 && cx[i] <= clip.x2 &&
                                  cy[i] >= clip.y1 && cy[i] <= clip.y2;
             if (in_clip && cx[i] >= 0 && cx[i] < kW && cy[i] >= 0 &&
-                cy[i] < kH && !watch::point_in_safe_area(cx[i], cy[i])) {
+                cy[i] < kH && !watch::point_in_safe_area(cx[i], cy[i]) &&
+                !lv_obj_has_flag(o, LV_OBJ_FLAG_USER_1)) {
               bad = true;
             }
           }
@@ -178,13 +179,16 @@ void audit_walk(lv_obj_t* o, const lv_area_t& clip, bool in_scroll) {
                       (int)a.x2, (int)a.y2, head);
         }
         // 左右余白: テキスト bbox がコンテンツ余白 kPad(32) を越えたら警告。
+        // 文字盤の表示用テキスト (USER_1) は画面端まで使えるので 6px。
         // スクロール領域の内側 (clip が画面全体でない) は行幅に制限済み
         // なので除外し、自由配置の面だけを見る。
         const bool free_pos =
             clip.x1 <= 0 && clip.y1 <= 0 && clip.x2 >= kW - 1 &&
             clip.y2 >= kH - 1;
+        const int pad =
+            lv_obj_has_flag(o, LV_OBJ_FLAG_USER_1) ? 6 : 32;
         if (free_pos && text && text[0] &&
-            (a.x1 < 32 || a.x2 > kW - 1 - 32)) {
+            (a.x1 < pad || a.x2 > kW - 1 - pad)) {
           char head[40] = "";
           std::snprintf(head, sizeof(head), "%.30s", text);
           for (char* q = head; *q; ++q)
