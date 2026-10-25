@@ -536,6 +536,22 @@ v6 は `face_layout` の要素とキーを増やすだけで、未指定なら�
 - LVGL の `text_outline` は vector graphics が必要で本機では無効。
   このキーはそれをラベル重ねで代替する。
 
+### `highlight` / `highlight_dy` — 文字の上光 (v6.2)
+
+`highlight` に色を書くと、同じ文字を `highlight_dy` (既定 -4、-64..64) だけ
+上にずらしたものを本体の背面に置く。本体がそれを覆うので、
+**各ストロークの上端だけが明るい色で見える** (上から光が当たった二色塗り)。
+単色のべた塗りがのっぺりしないための指定。
+
+```jsonc
+"time_h": {"x": 232, "y": 74, "font": 112, "color": "0xF2B33D",
+           "highlight": "0xFFF6D8", "highlight_dy": -8,
+           "outline": "0xF3F8FF", "outline_w": 3}
+```
+
+- `shadow` と違い、上光は本体の**内側**に残る (外側は `outline` が担う)。
+- 太さは `highlight_dy` の絶対値 (px)。フォントが大きいほど太めにする。
+
 ### `behind` — 立ち絵の後ろに描く (v6.1)
 
 `chara` より背面に描たい要素に `"behind": 1` を付ける。

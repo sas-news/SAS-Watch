@@ -91,7 +91,11 @@ powermenu alarm notifications media agent alert` と `"*"`。
   `"fonts": {"digits": "digits.bin"}`
 - **数字を等幅に**: 書体の数字が等幅でないと、分が変わるたびに 2 桁の幅が変わって
   数字が揺れる。`python3 tools/font_mono.py in.ttf out.ttf` で等幅化してから
-  binfont にする (例: Bungee → sopia の digits_96.bin)
+  binfont にする (例: Bungee → sopia の digits_112.bin)
+- **数字を縦に伸ばす**: `font_mono.py --yscale 1.14` でグリフだけ背高にできる
+  (幅は変わらないので、大きくしても横に広がらない)。その後 `--size 112` で
+  binfont 化し、`face_layout` の `font` に **112** を書く
+  (`font` は 20/26/56/96/112 のいずれか。96 以下は従来のスロット、112 は数字用の大きいスロット)
 - **マスコット / 文字盤**: `mascot` / `face_layout` (書式は theme-format.md)
 - **時刻を分けて組む**: `face_layout` の `time_h` / `time_m` に分けると
   「19」と「07」を別々の位置・大きさで置ける (縦積みも可)

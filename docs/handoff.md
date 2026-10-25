@@ -34,6 +34,12 @@
   `ThemeFaceElem::set` は uint32 (bit16..18)。最初の適用先は `themes/sopia/`
   (Bungee 数字 + 立ち絵の後ろに時刻)。実機書き込み済み (2026-10-25)。
   縁取りは 1 要素あたり最大 5 ラベル増えるので、96px 級に多用するときは `b` で確認。
+- v6.2 (2026-10-25): `highlight`/`highlight_dy` (本体を `highlight_dy` 上に
+  ずらして背面に置き、ストローク上端だけ明るく見せる上光) を追加。
+  数字フォントのサイズ許可値に **112** を追加 (tokens と `face_layout.*.font`)。
+  `tools/font_mono.py --yscale` でグリフを縦に伸ばせる (Bungee 112px + 1.14
+  → 縦長数字)。電池は `battery` (テキスト) を `battery_gauge` の矩形に重ねて
+  % を内側に出す (gauge を先に作るのでテキストが上になる)。
   **注意**: 実機の assets に入っている cute.zip は、リポジトリの `android/.../themes/cute.zip`
   より古い (bg.png が b6dd640 以前のもの)。必要なら assets イメージを作り直して書く。
 - 2026-10-19 に描画を作り直した (T29)。standard テーマで全面再描画 85〜112ms → 40〜68ms。
