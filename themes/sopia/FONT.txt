@@ -1,0 +1,2 @@
+digits_96.bin: M PLUS Rounded 1c Bold (Google Fonts, SIL Open Font License 1.1)
+0-9, 0x3A (colon) を 96px / bpp4 で lv_font_conv により生成 (--no-compress)。
