@@ -214,8 +214,8 @@ def validate(m, theme_dir):
             hi = 2000 if k == "anim_ms" else (255 if k.startswith("radius") else 64)
             uint(v, f"tokens.{k}", errors, 0, hi)
         elif k in FONT_KEYS:
-            if v not in FONT_SIZES:
-                fail(errors, f"tokens.{k}: 20/26/56/96/112 のどれか (got {v!r})")
+            if not isinstance(v, int) or not 8 <= v <= 200:
+                fail(errors, f"tokens.{k}: 8..200 の px (got {v!r})")
         else:
             fail(errors, f"tokens.{k}: 未知のトークン")
     images = m.get("images", {})
@@ -373,8 +373,11 @@ def validate(m, theme_dir):
                      -512, 512)
                 uint(spec.get("y", 0), f"face_layout.{elem}.y", errors,
                      -512, 512)
-                if "font" in spec and spec["font"] not in FONT_SIZES:
-                    fail(errors, f"face_layout.{elem}.font: 20/26/56/96")
+                if "font" in spec:
+                    v = spec["font"]
+                    if not isinstance(v, int) or not 8 <= v <= 200:
+                        fail(errors,
+                             f"face_layout.{elem}.font: 8..200 の px")
                 for ck in ("color", "track", "charging", "shadow", "outline",
                            "highlight"):
                     if ck in spec:
