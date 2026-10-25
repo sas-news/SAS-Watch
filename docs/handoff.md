@@ -24,6 +24,16 @@
   フォントは起動時に `ui::init_display` で PSRAM へ読み、失敗時は内蔵の最小
   フォント (ASCII+かな+記号) にフォールバックする (T24)。
   BLE でのテーマ転送は不安定で先送り (T25)。
+- テーマ文字盤の v6 拡張 (2026-10-25): `face_layout` に `time_h`/`time_m`
+  (時刻の時・分を別要素で置く)、`shadow`/`shadow_dx`/`shadow_dy` (文字の影)、
+  `battery_gauge` (残量バー + 充電色 + 突起) を追加。既存テーマは未指定なら
+  従来どおり。仕様は docs/theme-format.md の「v6 キー詳細」。LVGL の
+  `text_outline` は vector graphics 無効で使えないため影で実装している。
+- v6.1 (2026-10-25): `outline`/`outline_w` (全周の縁取り、同フォントのラベルを
+  上下左右にずらして重ねる) と `behind` (chara より背面に描く) を追加。
+  `ThemeFaceElem::set` は uint32 (bit16..18)。最初の適用先は `themes/sopia/`
+  (Bungee 数字 + 立ち絵の後ろに時刻)。実機書き込み済み (2026-10-25)。
+  縁取りは 1 要素あたり最大 5 ラベル増えるので、96px 級に多用するときは `b` で確認。
   **注意**: 実機の assets に入っている cute.zip は、リポジトリの `android/.../themes/cute.zip`
   より古い (bg.png が b6dd640 以前のもの)。必要なら assets イメージを作り直して書く。
 - 2026-10-19 に描画を作り直した (T29)。standard テーマで全面再描画 85〜112ms → 40〜68ms。

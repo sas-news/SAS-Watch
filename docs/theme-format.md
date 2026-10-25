@@ -266,11 +266,15 @@ v2 は zip 自体をそのまま配置するので上限 = パーティション
 }
 ```
 
-- 要素: `time` `date` `steps` `battery` `notify` `bubble` `chara`。
+- 要素: `time` `date` `steps` `battery` `notify` `bubble` `chara`
+  (+ v6: `time_h` `time_m` `battery_gauge`。下の「v6 キー詳細」参照)。
 - `x`/`y` は要素左上の座標。**負値は右端/下端基準** (`x:-30` = 右から30px)。
 - `font` は px サイズ (`fonts.digits` 等の差替えフォントがあればそれが優先)。
 - `w`/`h` で枠サイズを固定できる (0/省略 = 内容に合わせる)。
 - `chara.img` で立ち絵を指定 (省略時 `images.face_chara`)。
+  `chara` の画像は**最初に描かれる**ので、テキスト要素は立ち絵の上に重なる
+  (2026-10-25 以降)。立ち絵は `face_layout.chara.img` なら最大 410x502 まで
+  使え、画面端で切れる前提の構図 (左に寄せて見切らせる等) も作れる。
 - 全要素省略なら既定レイアウトにフォールバック。
 - 座標は丸角の内側 (安全域) に収めるのが無難。**外れた座標は適用時に
   安全域内へクランプされる** (`chara` の立ち絵だけ装飾として例外)。
@@ -481,7 +485,88 @@ offset  size  内容
 ```
 最大 8 個。`face_layout` の `color` に `"@pink"` と書くと参照できる。
 
-## 画面名一覧 (screens / mascot.screens / deco で共通)
+## v6 キー詳細 (時刻の分割・影・電池ゲージ)
 
+v6 は `face_layout` の要素とキーを増やすだけで、未指定なら従来どおりに描画される
+(既存テーマの見た目は変わらない)。
+
+### `time_h` / `time_m` — 時刻を時・分に分ける
+
+`time` の代わりに置くと、時と分を別々の位置・サイズ・色で描ける。
+「19」と「07」を縦に積むレイアウトはこれで作る。
+
+```jsonc
+"face_layout": {
+  "time_h": {"x": 248, "y": 34,  "font": 96, "color": "0xFFD84D", "shadow": "0x6FE9F2"},
+  "time_m": {"x": 248, "y": 108, "font": 96, "color": "0xFFD84D", "shadow": "0x6FE9F2"}
+}
+```
+
+- 表示は `HH` / `MM` の 2 桁 (0 埋め)。`ClockTick` で更新される。
+- `time` と併用すると両方が描かれる (通常はどちらか一方だけ使う)。
+
+### `shadow` / `shadow_dx` / `shadow_dy` — 文字の影
+
+テキスト要素 (`time` `time_h` `time_m` `date` `steps` `battery` `notify`) に
+影を付けられる。影は本体の背面に同フォントで描き、`shadow_dx`/`shadow_dy`
+(既定 4/5、-64..64) だけずらす。
+
+```jsonc
+"date": {"x": 44, "y": 36, "font": 26, "color": "0x8FE9FF",
+         "shadow": "0x2A1B5E", "shadow_dx": 3, "shadow_dy": 3}
+```
+
+- 影は本体の親として実装されている (本体を動かすと一緒に動く)。
+- 影の分だけ要素が大きくなる。隣の要素とは 5〜6px 空けること。
+
+### `outline` / `outline_w` — 文字の縁取り (v6.1)
+
+本物の全周縁取り。`outline` に色、`outline_w` (0..8、既定 2) に太さを書く。
+同フォントの文字を上下左右へ `outline_w` だけずらして背面に重ねるので、
+影 (`shadow`) と違って四方にふちが回る。
+
+```jsonc
+"time_h": {"x": 243, "y": 92, "font": 96, "color": "0xFFD84D",
+           "outline": "0x6FE9F2", "outline_w": 2}
+```
+
+- 縁取りと影は併用可 (影 → 縁取り → 本体 の順に重なる)。
+- 1 要素につき最大 6 個のラベルができる。大きいフォントの要素に多用すると
+  描画が重くなる (時計の 2 要素までが目安。`b` で確認する)。
+- LVGL の `text_outline` は vector graphics が必要で本機では無効。
+  このキーはそれをラベル重ねで代替する。
+
+### `behind` — 立ち絵の後ろに描く (v6.1)
+
+`chara` より背面に描たい要素に `"behind": 1` を付ける。
+立ち絵の髪や小物が数字の手前に重なる、ステッカー風の見た目になる。
+
+- 対象: テキスト要素と `battery_gauge` (それ以外は無視)。
+- 後ろになるので、読みやすさは縁取り (`outline`) で補う。
+
+### `battery_gauge` — 電池のグラフィックゲージ
+
+数字の代わりに、残量に比例して伸びるバーで電池を描く。
+`battery` (数値テキスト) と併用してもよい。
+
+```jsonc
+"battery_gauge": {
+  "x": 36, "y": 68, "w": 58, "h": 22,
+  "color": "0x6FE9F2",     // 残量の塗り
+  "track": "0x2C2758",     // 下地 (省略時 surface2 + edge の枠)
+  "charging": "0xFFD84D",  // 充電中の塗り (省略時 color)
+  "radius": 4,             // 角丸 0..255
+  "cap": 1                 // 右端の電池の突起を描く
+}
+```
+
+- `w`/`h` はゲージの外形 (必須)。`vertical: 1` で下から上へ伸びる縦ゲージ。
+- 残量は `ui::port::battery_percent()` (0..100、-1 = 不明は空表示)。
+  充電中は `battery_charging()` が真のとき `charging` 色になる
+  (`BatteryChanged` で再描画)。
+- 突起 (`cap`) は外形の右に付く。`x + w + 8` が安全域内に収まる位置に置くこと。
+- 画像を重ねたいときは `screens.<画面>.deco` を使う (ゲージ本体は塗りバー)。
+
+## 画面名一覧 (screens / mascot.screens / deco で共通)
 `home timer stopwatch counter steps memo alarm notify media agent
 settings applist more quick alert *` の 16+1。

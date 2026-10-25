@@ -15,3 +15,5 @@ android/local.properties
 android/**/bin/
 sim/build*/
 docs/screenshots/safe_area_report.txt
+sim/screenshots/
+sim/themes/

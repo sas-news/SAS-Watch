@@ -862,6 +862,32 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
 
 状態: 修正済み (2026-10-24、実機の手動2連打確認待ち)
 
+## T33. テーマ文字盤「そぴあ」(ユーザー依頼 2026-10-25) — 難度 H
+
+- 依頼: 参考イラストに寄せる — 立ち絵 (宇宙飛行士の女の子) を大きく左に、
+  大きな数字を縦に積み、数字は立ち絵の後ろ、フォントは角張ったポップ体で等幅。
+- 字盤テーマ `themes/sopia/`:
+  - `bg.png` (全画面共通の星空) / `home_bg.png` (Home 専用の星域) / `chara_big.bin`
+    (全身イラストから胴上を切り出して透過、410x502) / マスコット 3 表情。
+  - 数字は `digits_96.bin` (Bungee 96px)。Bungee の数字は等幅でないため
+    `tools/font_mono.py` で hmtx を共通送り幅に直してから binfont にした。
+  - `face_layout`: `time_h`/`time_m` (96px, 縦積み, `behind:1`, `outline`)、
+    `date` (shadow)、`battery` + `battery_gauge` (上右)、`steps` (下右)
+- v6.1 キー (LVGL 側の追加実装):
+  - `outline` / `outline_w`: 全周縁取り。同フォントのラベルを上下左右に
+    `outline_w` だけずらして本体の親チェーンに積む (影→縁取り→本体)。
+    LVGL の `text_outline` は vector graphics 無効で使えないための代替。
+  - `behind`: chara より背面に描く (時計の数字の上に麦やリングが重なる)。
+  - `set` を uint32 に広げて bit16..18 を使用 (manifest.hpp / manifest.cpp /
+    tools/theme_build.py)。
+- sim: テーマ巡回の `90_theme_custom_home` が `SetFace("bold")` のままで
+  テーマ文字盤を撮れていなかったため `"theme"` に直し、アプリ一覧 (92) と
+  タイマー (93) も撮るようにした。
+- 検証: core 232 件、sim 監査 0 件 (docs/screenshots/96..99)、firmware build
+  (app 空き 31%)、実機へアプリ + assets を書き込み済み。
+
+状態: 実機で見た目確認待ち
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。

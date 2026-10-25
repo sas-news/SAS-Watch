@@ -15,8 +15,10 @@ python3 tools/theme_build.py themes/mytheme --preview
 
 | 出力先 | 用途 |
 |---|---|
-| `sim/screenshots/theme_mytheme/90_theme_custom_home.png` | Home の確認 |
+| `sim/screenshots/theme_mytheme/90_theme_custom_home.png` | Home (文字盤) の確認 |
 | `sim/screenshots/theme_mytheme/91_theme_custom_settings.png` | 設定画面の確認 |
+| `sim/screenshots/theme_mytheme/92_theme_custom_applist.png` | アプリ一覧 (背景とスキン) |
+| `sim/screenshots/theme_mytheme/93_theme_custom_timer.png` | タイマー (スキン) |
 | `sim/themes/mytheme.zip` | sim が読む |
 | `tools/themes/mytheme.zip` | 配布用 |
 | `android/app/src/main/assets/themes/mytheme.zip` | アプリ同梱 + 書き込み用 |
@@ -87,7 +89,21 @@ powermenu alarm notifications media agent alert` と `"*"`。
   `skin` に直接ファイル名を書き、`theme_build.py` で zip にできる
 - **フォント**: `python3 tools/gen_fonts.py --binfont <ttf> --size 96` →
   `"fonts": {"digits": "digits.bin"}`
+- **数字を等幅に**: 書体の数字が等幅でないと、分が変わるたびに 2 桁の幅が変わって
+  数字が揺れる。`python3 tools/font_mono.py in.ttf out.ttf` で等幅化してから
+  binfont にする (例: Bungee → sopia の digits_96.bin)
 - **マスコット / 文字盤**: `mascot` / `face_layout` (書式は theme-format.md)
+- **時刻を分けて組む**: `face_layout` の `time_h` / `time_m` に分けると
+  「19」と「07」を別々の位置・大きさで置ける (縦積みも可)
+- **文字の影**: テキスト要素に `"shadow": "0xRRGGBB"` を書く (位置は
+  `shadow_dx`/`shadow_dy`)。
+- **文字の縁取り**: `"outline": "0xRRGGBB", "outline_w": 2` で全周に
+  `outline_w`px のふちが付く (影と併用可)。
+- **立ち絵の後ろに描く**: 要素に `"behind": 1` を付けると chara より背面になる
+  (数字の上に髪がかぶるステッカー風)。
+- **電池ゲージ**: `"battery_gauge": {"x":36,"y":68,"w":58,"h":22,
+  "color":..., "track":..., "charging":..., "cap":1}` で数字ではなく
+  残量バーで描ける (充電中は `charging` 色)
 - **palette**: 名前付き色。`face_layout` の `color` で `"@pink"` と参照できる
 
 ## プレビューと検証

@@ -1210,12 +1210,22 @@ int main(int argc, char** argv) {
       std::strcmp(only_theme, "cyber") != 0 &&
       std::strcmp(only_theme, "cute") != 0) {
     back_home();
-    ui::emit_text(watch::ActionType::SetFace, "bold");
+    // face はテーマ任せ ("theme" = theme.json の face_layout を使う)。
+    ui::emit_text(watch::ActionType::SetFace, "theme");
     ui::emit_text(watch::ActionType::SetTheme, only_theme);
     pump(800);
     ok &= save(out, "90_theme_custom_home");
     nav_to(watch::Route::Settings);
     ok &= save(out, "91_theme_custom_settings");
+    nav_to(watch::Route::More);
+    pump(200);
+    ok &= save(out, "92_theme_custom_applist");
+#if SAS_APP_TIMER
+    back_home();
+    nav_to(watch::Route::Timer);
+    pump(200);
+    ok &= save(out, "93_theme_custom_timer");
+#endif
     back_home();
     parts_gallery(out, only_theme, 95, &ok);
   }
