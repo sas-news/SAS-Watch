@@ -115,13 +115,13 @@
       "font": 20,
       "color": "0xF2E9EC",
       "outline": "0x241C46",
-      "outline_w": 2,
+      "outline_w": 3,
       "shadow": "0x0B0A1E",
       "shadow_dx": 2,
       "shadow_dy": 3
     },
     "time_h": {
-      "x": 181,
+      "x": 207,
       "y": 76,
       "font": 156,
       "color": "0x8E8AF0",
@@ -132,7 +132,7 @@
       "behind": 1
     },
     "time_m": {
-      "x": 181,
+      "x": 207,
       "y": 231,
       "font": 156,
       "color": "0x8E8AF0",
