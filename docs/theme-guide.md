@@ -103,6 +103,8 @@ powermenu alarm notifications media agent alert` と `"*"`。
   `shadow_dx`/`shadow_dy`)。
 - **文字の縁取り**: `"outline": "0xRRGGBB", "outline_w": 2` で全周に
   `outline_w`px のふちが付く (影と併用可)。
+- **べた塗りを避ける**: `"highlight": "0xRRGGBB", "highlight_dy": -14` で
+  ストローク上端だけ明るい二色になる (数字が大きいほど厚めに)。
 - **立ち絵の後ろに描く**: 要素に `"behind": 1` を付けると chara より背面になる
   (数字の上に髪がかぶるステッカー風)。
 - **電池ゲージ**: `"battery_gauge": {"x":36,"y":68,"w":58,"h":22,
