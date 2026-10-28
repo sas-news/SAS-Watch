@@ -101,23 +101,23 @@
       "shadow_dy": 2
     },
     "battery": {
-      "x": 334,
-      "y": 60,
-      "w": 56,
+      "x": 314,
+      "y": 56,
+      "w": 76,
       "font": 20,
       "color": "0xFFFFFF",
       "outline": "0x0A1224",
       "outline_w": 1
     },
     "battery_gauge": {
-      "x": 334,
-      "y": 58,
-      "w": 56,
-      "h": 20,
+      "x": 314,
+      "y": 54,
+      "w": 76,
+      "h": 26,
       "color": "0x6FDCFF",
       "track": "0x18244A",
       "charging": "0xC79A20",
-      "radius": 10,
+      "radius": 13,
       "cap": 1
     },
     "steps": {
