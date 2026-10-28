@@ -33,10 +33,16 @@ const char* lodepng_error_text(unsigned code);
 #include "freertos/semphr.h"
 #include "png_stream.hpp"
 
+#endif
+
 namespace {
 constexpr const char* kTag = "theme_res";
-}  // namespace
+#ifndef ESP_PLATFORM
+#define ESP_LOGW(tag, ...) ((void)(tag))
+#define ESP_LOGI(tag, ...) ((void)(tag))
+#define ESP_LOGE(tag, ...) ((void)(tag))
 #endif
+}  // namespace
 
 namespace theme_res {
 namespace {
@@ -441,37 +447,48 @@ const lv_image_dsc_t* img_load(const char* id, const char* file,
     slot->used = true;
     return dsc;
   }
-  // .png: tmp にデコード → アリーナへ転写
+  // .png: アリーナを出力先にしてストリーミングでデコードする。
+  // (旧実装は lodepng を直に呼び、410x502 で RGBA ~820KB を LVGL ヒープに
+  //  確保しようとして err=83 で失敗 → 立ち絵が出なかった。今は作業 ~50KB)
   uint32_t sz = 0;
   if (!ui::port::theme_entry_stat(id, file, &sz) || sz == 0 ||
       sz > kPngSrcMax) {
+    ESP_LOGW(kTag, "img_load %s/%s: stat ng sz=%lu", id, file,
+             (unsigned long)sz);
     return nullptr;
   }
-  uint8_t* src = ui::port::theme_tmp_alloc(sz);
-  if (!src) return nullptr;
-  const lv_image_dsc_t* ret = nullptr;
-  if (ui::port::theme_entry_read(id, file, src, sz)) {
-    // decode_png 同様、LVGL 版 lodepng の *out は lv_draw_buf_t*。
-    uint8_t* raw = nullptr;
-    unsigned w = 0, h = 0;
-    const unsigned err = lodepng_decode32(&raw, &w, &h, src, sz);
-    if (err == 0 && raw) {
-      lv_draw_buf_t* buf = reinterpret_cast<lv_draw_buf_t*>(raw);
-      const uint32_t need = static_cast<uint32_t>(w) * h * 3u + 12u;
-      if (buf->data && w > 0 && w <= max_w && h > 0 && h <= max_h) {
-        uint8_t* dst = ui::port::theme_asset_alloc(need);
-        if (dst &&
-            png_to_lv(buf->data, static_cast<uint16_t>(w),
-                      static_cast<uint16_t>(h), dst, need, dsc)) {
-          slot->used = true;
-          ret = dsc;
-        }
-      }
-      lv_draw_buf_destroy(buf);
-    }
+  uint8_t hdr[26];
+  if (!ui::port::theme_entry_head(id, file, hdr, sizeof(hdr)) || hdr[1] != 'P' ||
+      hdr[2] != 'N' || hdr[3] != 'G') {
+    ESP_LOGW(kTag, "img_load %s/%s: no IHDR", id, file);
+    return nullptr;
   }
-  ui::port::theme_tmp_free(src);
-  return ret;
+  const uint32_t iw = (static_cast<uint32_t>(hdr[16]) << 24) |
+                      (static_cast<uint32_t>(hdr[17]) << 16) |
+                      (static_cast<uint32_t>(hdr[18]) << 8) | hdr[19];
+  const uint32_t ih = (static_cast<uint32_t>(hdr[20]) << 24) |
+                      (static_cast<uint32_t>(hdr[21]) << 16) |
+                      (static_cast<uint32_t>(hdr[22]) << 8) | hdr[23];
+  if (iw == 0 || ih == 0 || iw > max_w || ih > max_h) {
+    ESP_LOGW(kTag, "img_load %s/%s: %lux%lu > %ux%u", id, file,
+             (unsigned long)iw, (unsigned long)ih, max_w, max_h);
+    return nullptr;
+  }
+  const uint32_t cap = 16u + iw * ih * 3u;
+  uint8_t* dst = ui::port::theme_asset_alloc(cap);
+  if (!dst) {
+    ESP_LOGW(kTag, "img_load %s/%s: arena %lu failed", id, file,
+             (unsigned long)cap);
+    return nullptr;
+  }
+  if (!decode_png(id, file, dst, cap, max_w, max_h, dsc)) {
+    ESP_LOGW(kTag, "img_load %s/%s: png decode failed", id, file);
+    return nullptr;
+  }
+  slot->used = true;
+  ESP_LOGI(kTag, "img_load %s/%s -> ok %ux%lu", id, file,
+           (unsigned long)dsc->header.w, (unsigned long)dsc->header.h);
+  return dsc;
 }
 
 const lv_font_t* font_load(const char* id, const char* file) {
