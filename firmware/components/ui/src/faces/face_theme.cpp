@@ -33,8 +33,23 @@ struct St {
   lv_obj_t* gauge = nullptr;
   lv_obj_t* gauge_fill = nullptr;
   lv_obj_t* gauge_cap = nullptr;
+  lv_obj_t* chara = nullptr;
 };
 St s;
+
+// 文字盤のタップで切り替える立ち絵 (assets の id が "chara" で始まるもの)。
+constexpr int kMaxChara = 4;
+const char* s_chara_ids[kMaxChara] = {};
+int s_chara_n = 0;
+int s_chara_idx = 0;
+char s_chara_theme[24] = {};
+
+void chara_tap_cb(lv_event_t*) {
+  if (s_chara_n < 2 || !s.chara) return;
+  s_chara_idx = (s_chara_idx + 1) % s_chara_n;
+  const lv_image_dsc_t* d = ui::theme_image(s_chara_ids[s_chara_idx]);
+  if (d) lv_image_set_src(s.chara, d);
+}
 
 // font px ヒント → Theme のフォントスロット。
 const lv_font_t* pick_font(const ui::Theme& t, int16_t px) {
@@ -372,13 +387,37 @@ lv_obj_t* build(lv_obj_t* scr) {
 
   if (t.face_layout_set & (1u << watch::kThemeFaceElemChara)) {
     const watch::ThemeFaceElem& e = t.face_elem[watch::kThemeFaceElemChara];
-    const lv_image_dsc_t* img = t.face_chara_dsc ? t.face_chara_dsc
-                                : t.img_face_chara ? t.img_face_chara
-                                                   : t.img_stand;
+    // テーマが変わったら先頭の絵に戻す。
+    const char* tid = ui::theme_id();
+    if (!tid) tid = "";
+    if (std::strcmp(s_chara_theme, tid) != 0) {
+      std::snprintf(s_chara_theme, sizeof(s_chara_theme), "%s", tid);
+      s_chara_idx = 0;
+    }
+    s_chara_n = 0;
+    for (int i = 0; i < t.asset_count && s_chara_n < kMaxChara; ++i) {
+      if (std::strncmp(t.assets[i].id, "chara", 5) == 0) {
+        s_chara_ids[s_chara_n++] = t.assets[i].id;
+      }
+    }
+    if (s_chara_idx >= s_chara_n) s_chara_idx = 0;
+    const lv_image_dsc_t* img = s_chara_n ? ui::theme_image(s_chara_ids[s_chara_idx])
+                                            : nullptr;
+    if (!img) {
+      img = t.face_chara_dsc ? t.face_chara_dsc
+            : t.img_face_chara ? t.img_face_chara
+                               : t.img_stand;
+    }
     if (img) {
       lv_obj_t* im = lv_image_create(scr);
       lv_image_set_src(im, img);
       lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
+      if (s_chara_n > 1) {
+        // タップで次の絵へ。ジェスチャーは親 (画面) に通す。
+        lv_obj_add_flag(im, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(im, chara_tap_cb, LV_EVENT_CLICKED, nullptr);
+      }
+      s.chara = im;
       place(im, e, false);  // 立ち絵は装飾: 角で切れてよい
     }
   }

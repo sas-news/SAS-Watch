@@ -1,0 +1,155 @@
+{
+  "id": "mol",
+  "name": "星夜もる",
+  "version": 1,
+  "tokens": {
+    "bg": "0x05070E",
+    "surface": "0x0E1730",
+    "surface2": "0x16224A",
+    "line": "0x24325E",
+    "primary": "0x6FDCFF",
+    "primary2": "0xA8F0FF",
+    "on_primary": "0x04121C",
+    "text": "0xE6F0FF",
+    "text_dim": "0x93A6CC",
+    "accent": "0xB58CFF",
+    "danger": "0xFF7AA8",
+    "ok": "0x74F2C8",
+    "accent2": "0xFF9AD5",
+    "accent3": "0x6FDCFF",
+    "accent4": "0xB58CFF",
+    "accent5": "0xFF9AD5",
+    "bubble_bg": "0xEAEFFF",
+    "bubble_text": "0x14203C",
+    "edge": "0x3A4A7A",
+    "radius_sm": 10,
+    "radius_lg": 22,
+    "space": 8,
+    "anim_ms": 180,
+    "font_body": 20,
+    "font_title": 26,
+    "font_digits": 84,
+    "font_digits_sm": 56
+  },
+  "style": {
+    "card_radius": 22,
+    "card_opa": 190,
+    "border_w": 1,
+    "border": "0x2A3A66",
+    "glow_color": "0x6FDCFF",
+    "glow_w": 8,
+    "btn_radius": 18
+  },
+  "screens": {
+    "*": {
+      "bg": "bg.png",
+      "scrim": 30
+    },
+    "settings": {
+      "scrim": 60
+    },
+    "home": {
+      "bg": "bg.png",
+      "scrim": 20,
+      "deco": [
+        {
+          "img": "ic_crystal.png",
+          "x": 346,
+          "y": 96,
+          "z": "front"
+        },
+        {
+          "img": "ic_tube.png",
+          "x": 346,
+          "y": 162,
+          "z": "front"
+        },
+        {
+          "img": "ic_kipp.png",
+          "x": 346,
+          "y": 228,
+          "z": "front"
+        },
+        {
+          "img": "ic_serotonin.png",
+          "x": 346,
+          "y": 294,
+          "z": "front"
+        }
+      ]
+    }
+  },
+  "fonts": {
+    "digits": "digits_84.bin"
+  },
+  "assets": {
+    "chara1": "chara1.png",
+    "chara2": "chara2.png"
+  },
+  "face_layout": {
+    "chara": {
+      "x": 0,
+      "y": 0
+    },
+    "date": {
+      "x": -16,
+      "y": 26,
+      "font": 26,
+      "color": "0xCFE0FF",
+      "shadow": "0x05070E",
+      "shadow_dx": 2,
+      "shadow_dy": 3
+    },
+    "battery": {
+      "x": 300,
+      "y": 62,
+      "w": 92,
+      "font": 20,
+      "color": "0xFFFFFF",
+      "outline": "0x0A1224",
+      "outline_w": 1
+    },
+    "battery_gauge": {
+      "x": 300,
+      "y": 60,
+      "w": 92,
+      "h": 26,
+      "color": "0x6FDCFF",
+      "track": "0x18244A",
+      "charging": "0xC79A20",
+      "radius": 13,
+      "cap": 1
+    },
+    "steps": {
+      "x": -16,
+      "y": -26,
+      "font": 20,
+      "color": "0xE6F0FF",
+      "outline": "0x0A1224",
+      "outline_w": 2,
+      "shadow": "0x05070E",
+      "shadow_dx": 2,
+      "shadow_dy": 3
+    },
+    "time_h": {
+      "x": 8,
+      "y": 96,
+      "font": 84,
+      "color": "0xE8F4FF",
+      "highlight": "0xFFFFFF",
+      "highlight_dy": -6,
+      "outline": "0x3A2E7A",
+      "outline_w": 2
+    },
+    "time_m": {
+      "x": 8,
+      "y": 186,
+      "font": 84,
+      "color": "0xE8F4FF",
+      "highlight": "0xFFFFFF",
+      "highlight_dy": -6,
+      "outline": "0x3A2E7A",
+      "outline_w": 2
+    }
+  }
+}
