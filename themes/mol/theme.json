@@ -53,27 +53,27 @@
       "scrim": 20,
       "deco": [
         {
-          "img": "ic_crystal.png",
-          "x": 346,
-          "y": 96,
-          "z": "front"
-        },
-        {
           "img": "ic_tube.png",
-          "x": 346,
-          "y": 162,
+          "x": 56,
+          "y": 18,
           "z": "front"
         },
         {
           "img": "ic_kipp.png",
-          "x": 346,
-          "y": 228,
+          "x": 96,
+          "y": 18,
           "z": "front"
         },
         {
           "img": "ic_serotonin.png",
-          "x": 346,
-          "y": 294,
+          "x": 136,
+          "y": 18,
+          "z": "front"
+        },
+        {
+          "img": "ic_crystal.png",
+          "x": 176,
+          "y": 18,
           "z": "front"
         }
       ]
@@ -92,44 +92,44 @@
       "y": 0
     },
     "date": {
-      "x": -16,
-      "y": 26,
-      "font": 26,
-      "color": "0xCFE0FF",
+      "x": 8,
+      "y": 284,
+      "font": 20,
+      "color": "0xD6E6FF",
       "shadow": "0x05070E",
-      "shadow_dx": 2,
-      "shadow_dy": 3
+      "shadow_dx": 1,
+      "shadow_dy": 2
     },
     "battery": {
-      "x": 300,
-      "y": 62,
-      "w": 92,
+      "x": 334,
+      "y": 60,
+      "w": 56,
       "font": 20,
       "color": "0xFFFFFF",
       "outline": "0x0A1224",
       "outline_w": 1
     },
     "battery_gauge": {
-      "x": 300,
-      "y": 60,
-      "w": 92,
-      "h": 26,
+      "x": 334,
+      "y": 58,
+      "w": 56,
+      "h": 20,
       "color": "0x6FDCFF",
       "track": "0x18244A",
       "charging": "0xC79A20",
-      "radius": 13,
+      "radius": 10,
       "cap": 1
     },
     "steps": {
-      "x": -16,
-      "y": -26,
+      "x": 10,
+      "y": -20,
       "font": 20,
       "color": "0xE6F0FF",
       "outline": "0x0A1224",
       "outline_w": 2,
       "shadow": "0x05070E",
-      "shadow_dx": 2,
-      "shadow_dy": 3
+      "shadow_dx": 1,
+      "shadow_dy": 2
     },
     "time_h": {
       "x": 8,
