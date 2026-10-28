@@ -19,6 +19,7 @@
 LV_FONT_DECLARE(font_num_72);
 
 #include <cstdio>
+#include <cstring>
 
 namespace ui {
 
@@ -905,6 +906,16 @@ void drain_passkey(void*) {
   show_passkey(static_cast<uint32_t>(k));
 }
 
+// テーマが文字盤 (face_layout) を持つなら、その文字盤に切り替える。
+// これをしないと「テーマを選んでもトップは bold のまま」で、テーマの
+// 立ち絵が出てこない (実機で混乱した)。設定値は Action 経由で保存する。
+void adopt_theme_face() {
+  if (!s_ctx.settings) return;
+  if (!ui::theme().face_layout_set) return;
+  if (std::strcmp(s_ctx.settings->face, "theme") == 0) return;
+  ui::emit_text(watch::ActionType::SetFace, "theme");
+}
+
 // テーマ切替で現在画面を作り直す (Home は作り直して差し替える)。
 void rebuild_current() {
   const watch::Route r =
@@ -942,6 +953,7 @@ void handle_event(const watch::Event& e) {
     check_tree(lv_screen_active(), "drop");
     theme_apply(id);
     check_tree(lv_screen_active(), "apply");
+    adopt_theme_face();
     rebuild_current();
     check_tree(s_cur, "rebuild");
     // アラート表示中なら画像差し替わりに合わせて閉じる。
@@ -1043,6 +1055,11 @@ bool create(const Ctx& c) {
   }
   // 設定されたテーマを最初の画面構築より先に適用する。
   if (s_ctx.settings) theme_apply(s_ctx.settings->theme);
+  // 工場出荷の face="bold" のままテーマが文字盤を持っているなら、
+  // 初回起動でそのテーマの文字盤を採用する (明示的に選び直せば上書きされる)。
+  if (s_ctx.settings && std::strcmp(s_ctx.settings->face, "bold") == 0) {
+    adopt_theme_face();
+  }
   // 最初のアクティブ画面は破棄して Home に置き換える。
   lv_obj_t* initial = lv_screen_active();
   swap_screen(watch::Route::Home);
