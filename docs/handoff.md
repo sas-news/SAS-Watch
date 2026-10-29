@@ -1,10 +1,32 @@
-# handoff.md — 現状 (2026-10-22)
+# handoff.md — 現状 (2026-10-29)
 
 次に作業する人が最初に読む「今どうなっているか」。残タスクと方針は `docs/roadmap.md`。
 過去の経緯 (2026-10-15 までの引き継ぎ文書、T14 監査など) は `docs/archive/handoff-2026-10-15.md`。
 
 ## 要点
 
+- 歩く大会モード (ウォーク、T37) を追加 (2026-10-29)。**スマホがルート・測位・
+  進捗/ETA の正**で、時計は表示だけ。時計はウォーク画面が Active で見えている間だけ
+  10 秒に 1 回 EVT `walk.query` を送り、スマホが REQ `walk.state` で返す
+  (Dim / ScreenOff / 別画面では送らない)。スマホは歩行セッション中だけ GPS (10s/10m)
+  + Foreground Service。設計・使い方・大会当日の手順は `docs/walk-event.md`、
+  BLE 仕様は `docs/protocol-v1.md` の「歩く大会 (walk)」節。
+  - 時計: `apps/walk/` (表示専用アプリ)。applist に「ウォーク」行 (サブ行に進捗%)。
+    `walk.state` は core の dispatch でパースし、`ble_glue` が Feature へ渡す。
+  - スマホ: `android/walk` (GPX・投影・ETA の純 Kotlin) + WalkRepository /
+    WalkTracker / WalkService / WalkScreen (デバイスタブの「ウォーク」カードから開く)。
+  - 検証済み (PC): core 255 テスト、sim 安全域監査 0 件、`:walk:test` など
+    Android 121 テスト + lint 0 errors、firmware build (app 空き 30%)。
+    周回/折返しルートの進捗 (始点=終点でも 0% から増える) は JVM テストで再現・修正済み。
+  - **実機未確認**: 時計⇄スマホの walk.query / walk.state 往復、0xE50A (hiking)
+    アイコンの描画、10 秒ポーリングの電池影響、Android 14 の FGS(location) 起動・
+    再生成と GPS 10s/10m の実挙動、SAF で他アプリの GPX を読む権限。
+    背景での START_STICKY 再生成時に Android の FGS 開始制限で測位が再開しない
+    可能性 (アプリを開けば復帰) も実機で確認。
+- 既存バグ修正 (2026-10-29): `shell.cpp` の `kRouteScreen[]` が Route 0..18 の
+  19 要素しかなく、自動採番アプリ (Route::App0 = 32) の画面で範囲外参照していた。
+  40 要素 (App0..App7 = -1) に拡張し、`route_name()` がアプリ id (例 "walk") を返す。
+- 2026-10-28: テーマの大きな PNG アセットが実機で読めない不具合を修正。
 - 対象個体: Waveshare ESP32-S3-Touch-AMOLED-2.06 (32MB flash / PSRAM 8MB)。スピーカーは無効、
   マイクは録音できる (T18 解決: I2S RX/DMA を `audio::init` で予約し、
   `esp_codec_dev_read` の戻り値解釈を修正。実機で 5.5s/88K サンプル確認。

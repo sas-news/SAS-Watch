@@ -32,6 +32,7 @@
 #include "watch/features/memo.hpp"
 #include "watch/features/notify.hpp"
 #include "watch/features/steps.hpp"
+#include "watch/features/walk.hpp"
 #include "watch/protocol/bulk.hpp"
 #include "watch/protocol/dispatch.hpp"
 #include "watch/protocol/frame.hpp"
@@ -370,6 +371,12 @@ void on_bus_evt(const watch::Event& e, void*) {
           &w, "media.cmd", write_evt_media_cmd,
           reinterpret_cast<void*>(static_cast<uintptr_t>(e.arg0)));
       break;
+    case watch::EventType::WalkQueryRequested:
+      // ウォーク画面が「今の状態をください」と要求した (docs/walk-event.md)。
+      // TODO(hw): 実機で walk.query (EVT) → walk.state (REQ) → 画面更新の
+      // 往復を確認する (sim は walk_set_state を直接叩いている)。
+      ok = watch::proto::encode_evt(&w, "walk.query", nullptr, nullptr);
+      break;
     case watch::EventType::OtaProgress:
       s_ota_snap = ota::status();
       // 終端ステージでは ota.result、途中は ota.progress。
@@ -603,6 +610,14 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return watch::features::steps_today();
   };
 #endif
+#if SAS_APP_WALK
+  // walk.state: dispatch が組み立てた表示状態を Feature へ渡す
+  // (画面は WalkStateChanged で再描画する)。
+  svc.walk_state = [](const watch::features::WalkState& s, void* c) {
+    watch::features::walk_set_state(
+        s, *static_cast<watch::FeatureContext*>(c));
+  };
+#endif
   svc.ctx = fctx();
   // settings.set {theme:...} → 適用待ちに登録 (app タスクが SetTheme を投げる)。
   // face / clock_font も同じ経路 (dispatch 側で既に Settings へ保存済み、
@@ -809,6 +824,9 @@ void ble_glue_init() {
   bus().subscribe(watch::EventType::AlarmRinging, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::MediaCmdRequested, on_bus_evt, nullptr);
   bus().subscribe(watch::EventType::OtaProgress, on_bus_evt, nullptr);
+#if SAS_APP_WALK
+  bus().subscribe(watch::EventType::WalkQueryRequested, on_bus_evt, nullptr);
+#endif
 }
 
 // app タスクのループで保留分を処理する。

@@ -258,3 +258,90 @@ class FakeWatchTest {
         watch.close()
     }
 }
+
+/**
+ * 歩く大会 (walk.state / walk.query) のエンコード検査。
+ * キー順・型は docs/protocol-v1.md §歩く大会 の表が正。
+ */
+class WalkProtocolTest {
+    private val keys = listOf(
+        "state", "route", "total_m", "done_m", "remain_m", "permille", "elapsed_s",
+        "eta_epoch", "pace_s_per_km", "started_epoch", "next_cp", "next_cp_m",
+        "off_route_m", "accuracy_m", "updated_epoch", "msg",
+    )
+
+    @Test
+    fun `walk state encodes keys in documented order`() {
+        val req = Req.WalkState(
+            state = "walking",
+            route = "○○街道 20km",
+            totalM = 20_400,
+            doneM = 12_680,
+            remainM = 7_720,
+            permille = 622,
+            elapsedS = 5_400,
+            etaEpoch = 1_761_702_900,
+            paceSPerKm = 720,
+            startedEpoch = 1_761_697_500,
+            nextCp = "第3関門",
+            nextCpM = 320,
+            offRouteM = 0,
+            accuracyM = 8,
+            updatedEpoch = 1_761_702_950,
+            msg = "",
+        )
+        val decoded = CborCodec.decode(CborCodec.encode(req.toCbor())) as Cbor.Cmap
+        assertEquals("walk.state", decoded.text("m"))
+        val p = decoded.sub("p")!!
+        assertEquals(keys, p.value.keys.toList())
+        assertEquals("walking", p.text("state"))
+        assertEquals(20_400L, p.int("total_m"))
+        assertEquals(1_761_702_900L, p.int("eta_epoch"))
+        assertEquals(1_761_697_500L, p.int("started_epoch"))
+        assertEquals(1_761_702_950L, p.int("updated_epoch"))
+        assertTrue(p.value["state"] is Cbor.Ctext)
+        assertTrue(p.value["permille"] is Cbor.Cint)
+    }
+
+    @Test
+    fun `walk state truncates strings to watch buffer bytes`() {
+        val req = Req.WalkState(
+            state = "walking",
+            route = "あ".repeat(20), // 60 bytes
+            nextCp = "い".repeat(20), // 60 bytes
+            msg = "う".repeat(30), // 90 bytes
+            updatedEpoch = 1,
+        )
+        val p = (CborCodec.decode(CborCodec.encode(req.toCbor())) as Cbor.Cmap).sub("p")!!
+        val route = p.text("route")
+        val nextCp = p.text("next_cp")
+        val msg = p.text("msg")
+        assertTrue(route.toByteArray(Charsets.UTF_8).size <= Req.WalkState.ROUTE_MAX_BYTES)
+        assertTrue(nextCp.toByteArray(Charsets.UTF_8).size <= Req.WalkState.NEXT_CP_MAX_BYTES)
+        assertTrue(msg.toByteArray(Charsets.UTF_8).size <= Req.WalkState.MSG_MAX_BYTES)
+        // 文字の途中で切っていない (置換文字が現れない)
+        assertFalse(route.contains('\uFFFD'))
+        assertFalse(nextCp.contains('\uFFFD'))
+        assertFalse(msg.contains('\uFFFD'))
+    }
+
+    @Test
+    fun `walk state clamps negative u32 fields`() {
+        val req = Req.WalkState(
+            state = "walking",
+            totalM = -1,
+            doneM = -5,
+            updatedEpoch = 1,
+        )
+        val p = (CborCodec.decode(CborCodec.encode(req.toCbor())) as Cbor.Cmap).sub("p")!!
+        assertEquals(0L, p.int("total_m"))
+        assertEquals(0L, p.int("done_m"))
+    }
+
+    @Test
+    fun `walk query event is parsed`() {
+        val evt = Evt.fromCbor(CborCodec.decode(CborCodec.encode(Evt.WalkQuery.toCbor())))
+        assertEquals(Evt.WalkQuery, evt)
+        assertEquals("walk.query", (evt as Evt.WalkQuery).name)
+    }
+}

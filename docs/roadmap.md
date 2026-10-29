@@ -953,6 +953,38 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
   face を `theme` に切り替える。工場出荷の bold のままなら起動時も採用。
 状態: 実機で見た目とタップ切替の確認待ち
 
+## T37. 歩く大会モード (ウォーク) — ユーザー依頼 2026-10-29 — 難度 H
+
+- 依頼: 決まった道を歩く大会用のアプリ。進捗 % と開始時刻からの到着予想時刻を
+  時計に出す。ルートは何かで設定し、基本はスマホアプリで管理する。
+  測位を動かし続けると電池が切れるので、時計を開いたときだけ時計がデータを
+  要求する形にする (時計側の電池持ちを優先)。
+- 方針: **スマホがルート・測位・進捗/ETA の正**。時計は表示だけで、GNSS も
+  常時通信もしない。時計は「ウォーク画面が Active で見えている間」だけ
+  10 秒に 1 回 EVT `walk.query` を送り、スマホが REQ `walk.state` で返す。
+  Dim / ScreenOff / 別画面では送らない。画面を開いた瞬間は即時要求。
+  測位はスマホのみ・歩行セッション中だけ (GPS 10s/10m、Foreground Service)。
+- 実装:
+  - 時計: `apps/walk/` (Feature + 画面 + テスト)、`core/include/watch/features/walk.hpp`。
+    `walk.state` を protocol に追加 (`dispatch.cpp`、`hello` caps に `walk`)。
+    アプリ一覧のサブ行に「62% ・ 到着 14:35」を出す。アイコンは Material
+    Symbols "hiking" (0xE50A) をアイコンフォントに追加。
+  - スマホ: `android/walk` (純 Kotlin: GPX パーサ・投影・ETA) + `WalkRepository`
+    / `WalkTracker` / `WalkService` (FGS location) / `WalkScreen`
+    (GPX 取込・ルート選択・Canvas スケッチ・開始/終了)。デバイスタブの
+    カードから開く (ボトムタブは増やさない)。
+  - 仕様・使い方・電池の説明: `docs/walk-event.md`。BLE 仕様は
+    `docs/protocol-v1.md` の「歩く大会 (walk)」節。
+  - 既存バグ修正: `shell.cpp` の `kRouteScreen[]` が Route 0..18 の 19 要素で、
+    自動採番アプリ (App0 = 32) の画面で範囲外参照になっていた。40 要素に拡張し、
+    `route_name()` がアプリ id を返すようにした。
+- 受け入れ条件: core 全テスト / sim の安全域監査 0 / `:walk:test :protocol:test
+  :agent:test :app:assembleDebug :app:lint` 成功 / firmware build 成功。
+- 実機確認待ち: 時計⇄スマホの walk.query / walk.state 往復、hiking アイコンの
+  描画、10 秒ポーリングの電池影響、Android 14 の FGS(location) と GPS の実挙動。
+
+状態: 完了 (2026-10-29、実機確認待ち)
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。

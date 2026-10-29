@@ -218,4 +218,68 @@
     <string name="wifi_pass_hint">パスワードは時計に保存されるだけで読み出せません。空欄はオープン接続。</string>
     <string name="wifi_save">時計に保存</string>
     <string name="wifi_back">戻る</string>
+
+    <!-- ウォーク（歩く大会）画面 -->
+    <string name="walk_title">ウォーク</string>
+    <string name="walk_back">戻る</string>
+    <string name="walk_card_title">ウォーク（歩く大会）</string>
+    <string name="walk_card_body">ルートの進捗・残り・到着予想を時計に表示します。スマホが測位と計算を担当します。</string>
+    <string name="walk_open">ウォークを開く</string>
+    <string name="walk_perm_title">位置情報の許可が必要です</string>
+    <string name="walk_perm_body">歩行中の測位と進捗の計算に使います。測位は歩行中だけ動きます。</string>
+    <string name="walk_perm_grant">位置情報を許可</string>
+    <string name="walk_permission_needed">位置情報を許可すると開始できます。</string>
+    <string name="walk_retry">測位を再試行</string>
+    <string name="walk_route_title">ルート</string>
+    <string name="walk_import">GPX を取り込む</string>
+    <string name="walk_sample">サンプルルート</string>
+    <string name="walk_importing">読み込み中…</string>
+    <string name="walk_no_routes">ルートがありません。GPX を取り込むか、サンプルルートを追加してください。</string>
+    <string name="walk_route_total">全長 %1$s</string>
+    <string name="walk_selected">選択中</string>
+    <string name="walk_select">選ぶ</string>
+    <string name="walk_delete">削除</string>
+    <string name="walk_delete_confirm_title">ルートを削除しますか？</string>
+    <string name="walk_delete_confirm_body">このルートの進捗データも消えます（歩行中のルートは削除できません）。</string>
+    <string name="walk_delete_confirm_yes">削除する</string>
+    <string name="walk_sketch_title">ルートのスケッチ</string>
+    <string name="walk_sketch_legend">緑=始点 / 赤=終点 / 橙=チェックポイント / 紫=現在地（地図タイルは使いません）</string>
+    <string name="walk_status_title">進捗</string>
+    <string name="walk_progress">%1$d%%</string>
+    <string name="walk_progress_distance">%1$s / %2$s</string>
+    <string name="walk_remain">残り</string>
+    <string name="walk_eta">到着予想</string>
+    <string name="walk_pace">ペース</string>
+    <string name="walk_elapsed">経過</string>
+    <string name="walk_accuracy">精度 %1$d m</string>
+    <string name="walk_next_cp">次のチェックポイント: %1$s（あと %2$s）</string>
+    <string name="walk_updated">更新 %1$s</string>
+    <string name="walk_off_route">ルートから外れています（%1$d m）</string>
+    <string name="walk_state_idle">スマホで「開始」を押してください</string>
+    <string name="walk_state_walking">歩行中</string>
+    <string name="walk_state_finished">到着しました。おつかれさまでした</string>
+    <string name="walk_state_no_route">ルートを取り込んでください</string>
+    <string name="walk_state_no_fix">測位を待っています</string>
+    <string name="walk_start">開始</string>
+    <string name="walk_stop">終了</string>
+    <string name="walk_stop_confirm_title">歩行を終了しますか？</string>
+    <string name="walk_stop_confirm_body">現在の進捗で到着として記録し、結果を残します。</string>
+    <string name="walk_stop_confirm_yes">終了する</string>
+    <string name="walk_cancel">キャンセル</string>
+    <string name="walk_not_selected">ルートを選んでください。</string>
+    <string name="walk_close">閉じる</string>
+    <string name="walk_msg_waiting_fix">測位を待っています</string>
+    <string name="walk_msg_off_route">ルートから外れています</string>
+    <string name="walk_import_error">GPX を読み込めませんでした: %1$s</string>
+    <string name="walk_routes_full">ルートは最大 %1$d 件です。いらないルートを削除してから取り込んでください。</string>
+    <string name="walk_err_permission">位置情報が許可されていません</string>
+    <string name="walk_err_no_route">先にルートを選んでください</string>
+    <string name="walk_err_route_locked">歩行中はルートを変更できません</string>
+
+    <!-- ウォークの Foreground Service 通知 -->
+    <string name="walk_channel_name">ウォークの測位</string>
+    <string name="walk_fgs_title">ウォーク中</string>
+    <string name="walk_fgs_progress">%1$d%% ・ 残り %2$s ・ 到着 %3$s</string>
+    <string name="walk_fgs_finished">到着しました</string>
+    <string name="walk_fgs_idle">待機中</string>
 </resources>

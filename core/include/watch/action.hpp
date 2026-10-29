@@ -41,6 +41,8 @@ enum class ActionType : uint16_t {
   AgentRecordToggle,  // 「話しかける」録音の開始/停止 (停止で送信)
   AgentAsk,           // arg0 = 定型質問 index (settings agent.q<N+1>)
   AgentClear,         // 返答/エラー表示を閉じる
+  // Walk (歩く大会)
+  WalkRefresh,        // 電話へ今の状態を要求する (最短 1.2 秒間隔で間引き)
   // Settings / System
   SetBrightness,  // arg0 = 0-100
   SetScreenOffAfter, // arg0 = 画面OFFまでの秒数 (5-600 にクランプ)

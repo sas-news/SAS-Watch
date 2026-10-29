@@ -247,11 +247,44 @@ class WatchLinkManager(private val app: WatchApp) {
             }
             is Evt.AgentRequest -> app.agentBridge.onRequest(l, evt.id, evt.text)
             is Evt.MemoTranscribeRequest -> scope.launch { transcribeMemo(evt.id) }
+            // 歩く大会: 時計からの「今の状態をください」に REQ walk.state で返す。
+            is Evt.WalkQuery -> scope.launch { sendWalkState() }
             is Evt.Unknown -> {}
         }
     }
 
     // ---------------- REQ 送信 ----------------
+
+    /**
+     * 歩行の開始・終了・ルート外れなど、表示が大きく変わったときに時計へ自発送信する
+     * (docs/walk-event.md §2)。未接続なら何もしない。
+     */
+    fun notifyWalkState() {
+        scope.launch { sendWalkState() }
+    }
+
+    /** 直近にログへ出した walk.state の状態（毎ポーリングでログを埋めないため）。 */
+    private var lastWalkStateLogged: String? = null
+
+    /**
+     * REQ walk.state を送る。時計の EVT walk.query への応答と自発送信の両方で使う。
+     * 失敗はログだけに残す（通知スナックバーは出さない）。
+     *
+     * walk.query は 10 秒ごとに来るので、成功ログは状態が変わったときだけ出す (L7)。
+     */
+    private suspend fun sendWalkState() {
+        val l = _link.value ?: return
+        val req = app.walk.snapshot.value.toReq()
+        if (req.state != lastWalkStateLogged) {
+            lastWalkStateLogged = req.state
+            log("→ walk.state (${req.state})")
+        }
+        runCatching { l.request(req) }
+            .onSuccess { res ->
+                if (res is Res.Err) log("← walk.state: ${res.code} ${res.message}")
+            }
+            .onFailure { Log.w(TAG, "walk.state を送れません: ${it.message}") }
+    }
 
     suspend fun send(req: Req): Res {
         val l = _link.value ?: return Res.Err("internal", "未接続")
