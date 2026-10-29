@@ -252,8 +252,18 @@ android/walk/src/test/kotlin/...  # JUnit4
 - ETA: `done_m >= 50 かつ elapsed_s >= 60` のときだけ算出。
   `pace = elapsed/done`、`eta = now + remain*pace`。それ未満は 0 (不明)。
 - ルート読込の上限: 2MB / 20,000 点。それ以上はエラー。
-- ルート名は `<trk><name>` → `<rte><name>` → ファイル名の順。
-- `<wpt>` をチェックポイントとして名前を拾う (名前が無ければ除外)。
+- ルートファイルは **GPX / KML / GeoJSON** を中身で自動判定して読む (拡張子は問わない)。
+  - GPX: `<trkpt>` → `<rtept>` の順。名前は `<trk><name>` → `<rte><name>` → ファイル名。
+    `<wpt>` をチェックポイントに (名前が無ければ除外)。
+  - KML: `<LineString><coordinates>` / `<gx:Track><gx:coord>`。名前付き `<Point>` を
+    チェックポイントに。分割された線は端点が 500m 以内なら 1 本につなぐ。
+    ルート名は Placemark の `<name>` → Document の `<name>` → ファイル名。
+  - GeoJSON: `LineString` / `MultiLineString` / `Polygon` の外周。`Feature` /
+    `FeatureCollection` / `GeometryCollection` の入れ子に対応。名前付き `Point` を
+    チェックポイントに。座標は `[経度, 緯度]`。
+  - 複数の独立した線があるときは、いちばん長い線をルートとして選ぶ (安全側)。
+  - KMZ (zip) は非対応。解凍した .kml を選ぶ。
+- 取り込み後、画面の「全長」が想定距離 (例: 33km) と一致するか確認する。
 
 ### 5.2 アプリ側
 
@@ -272,7 +282,8 @@ android/walk/src/test/kotlin/...  # JUnit4
 - UI: `WalkScreen` (Compose) を `DevicesScreen` 上部の「ウォーク」カードから開く
   (ボトムタブは既に 8 個で増やさない)。内容:
   - 権限が無ければ「位置情報を許可」
-  - ルート: `GPX を取り込む` (SAF OpenDocument)、`サンプルルート`、一覧から選択
+  - ルート: `ルートを取り込む` (SAF OpenDocument、GPX / KML / GeoJSON)、
+    `サンプルルート`、一覧から選択
   - ルートの簡易スケッチ: Compose Canvas にポリライン + 現在地 + 始点/終点 + CP
     (地図タイルは使わない。依存追加なし)
   - 状態カード: 進捗バー、残り、到着予想、ペース、経過、精度、ルート外れ警告
@@ -288,6 +299,26 @@ android/walk/src/test/kotlin/...  # JUnit4
 
 `MainActivity` は `DevicesScreen` に `onOpenWalk` を渡し、`walkOpen` のとき
 `WalkScreen` を全画面表示 (戻るでデバイスへ)。タブは増やさない。
+
+### 5.4 地図ツールからの書き出し方
+
+| ツール | 手順 | 形式 |
+|---|---|---|
+| Google マイマップ | 地図に「線を描画」でルートを作る → メニュー (⋮) → 「KML をエクスポート」 | KML (KMZ なら解凍) |
+| Google Earth | プロジェクト → ルートを「KML として保存」 | KML |
+| Strava | ルート (マイ ルート) → 「…」→ 「ルートをエクスポート」 | GPX |
+| Komoot | ツアー → 「…」→ 「GPX をエクスポート」 | GPX |
+| YAMAP | 活動/計画 → GPX 書き出し (プランによる) | GPX |
+| RideWithGPS | ルート → Export → GPX Track | GPX |
+| Garmin Connect | コース → エクスポート → GPX | GPX |
+| geojson.io など | 保存 (Save) → GeoJSON | GeoJSON |
+
+- Google マップの経路検索 (「ルート」) の結果は直接書き出せない。マイマップで
+  線を描き直すか、主催者が配布した GPX/KML を使う。
+- スマホでは、書き出したファイルを「ファイル」アプリ等から選べる場所に置く。
+  アプリの「ルートを取り込む」→ ファイルピッカーで .gpx / .kml / .geojson を選ぶ。
+- 大会当日の朝に試すと通信や権限で詰まりやすい。**前日に取り込んで全長を確認**し、
+  ルート一覧に残しておく (アプリを再起動しても残る)。
 
 ## 6. 検証
 
@@ -312,7 +343,8 @@ android/walk/src/test/kotlin/...  # JUnit4
 ## 7. 実機での確認 (ユーザーに頼む手順)
 
 1. 電話: SAS-Watch アプリ → デバイス → ウォーク。位置情報を許可。
-2. `GPX を取り込む` で大会ルートを選ぶ (または「サンプルルート」)。
+2. `ルートを取り込む` で大会ルート (GPX / KML / GeoJSON) を選ぶ
+   (または「サンプルルート」)。取り込み後に「全長」が想定距離と一致するか確認。
 3. 「開始」。通知に進捗が出ることを確認。
 4. 時計: アプリ一覧 → ウォーク。% / 残り / 到着予想 / ペースが出ること。
    画面を消して再度開くと、開いた時点の値に更新されること。
@@ -326,6 +358,7 @@ android/walk/src/test/kotlin/...  # JUnit4
 ## 8. 制約・やらないこと
 
 - 地図タイルは使わない (依存追加なし・オフラインで動く)。ルートの線は Canvas。
+- ルートは GPX / KML / GeoJSON のファイル取り込みのみ (URL 直読み・KMZ は非対応)。
 - 一時停止 (pause) は無し。開始 / 終了のみ。
 - 時計からルート選択・開始はできない (電話が正)。時計は表示と更新要求だけ。
 - 複数端末・複数ルート同時進行は無し。

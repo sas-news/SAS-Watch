@@ -10,7 +10,7 @@ import dev.sasnews.amoledwatch.walk.Checkpoint
 import dev.sasnews.amoledwatch.walk.EtaEstimator
 import dev.sasnews.amoledwatch.walk.GeoPoint
 import dev.sasnews.amoledwatch.walk.GpxException
-import dev.sasnews.amoledwatch.walk.GpxParser
+import dev.sasnews.amoledwatch.walk.RouteFileParser
 import dev.sasnews.amoledwatch.walk.Route
 import dev.sasnews.amoledwatch.walk.RouteProgress
 import dev.sasnews.amoledwatch.walk.WalkSnapshot
@@ -134,7 +134,7 @@ class WalkRepository(private val app: WatchApp) {
     private val ioDispatcher = Dispatchers.IO.limitedParallelism(1)
 
     /** IO スレッドでパースした GPX の結果。 */
-    private data class ParsedGpx(val route: Route, val id: String)
+    private data class ParsedRoute(val route: Route, val id: String)
 
     init {
         tracker.onLocation = { loc -> onLocation(loc) }
@@ -166,8 +166,8 @@ class WalkRepository(private val app: WatchApp) {
 
     // ---------------- ルート管理 ----------------
 
-    /** SAF で選んだ GPX を取り込む（読み込み・パースは IO スレッドで行う）。 */
-    fun importGpx(uri: Uri) {
+    /** SAF で選んだルートファイル (GPX / KML / GeoJSON) を取り込む。読み込み・パースは IO スレッド。 */
+    fun importRouteFile(uri: Uri) {
         if (sessionState == SessionState.WALKING) {
             _error.value = app.getString(R.string.walk_err_route_locked)
             return
@@ -179,11 +179,11 @@ class WalkRepository(private val app: WatchApp) {
             try {
                 val parsed = withContext(ioDispatcher) {
                     val bytes = app.contentResolver.openInputStream(uri)?.use { input ->
-                        readLimited(input, GpxParser.MAX_BYTES + 1)
+                        readLimited(input, RouteFileParser.MAX_BYTES + 1)
                     } ?: throw GpxException("ファイルを開けませんでした")
                     // ルート名のフォールバックは document id ではなく SAF の表示名から (M6)。
                     val fallback = queryDisplayName(uri)?.let(::routeNameFromFileName)
-                    ParsedGpx(GpxParser.parse(bytes, fallback ?: "ルート"), routeId(bytes))
+                    ParsedRoute(RouteFileParser.parse(bytes, fallback ?: "ルート"), routeId(bytes))
                 }
                 addRoute(parsed.route, parsed.id)
             } catch (e: CancellationException) {
@@ -191,7 +191,7 @@ class WalkRepository(private val app: WatchApp) {
             } catch (e: GpxException) {
                 _error.value = app.getString(R.string.walk_import_error, e.message ?: "")
             } catch (e: Exception) {
-                Log.w(TAG, "GPX の取り込みに失敗: ${e.message}")
+                Log.w(TAG, "ルートファイルの取り込みに失敗: ${e.message}")
                 _error.value = app.getString(R.string.walk_import_error, e.message ?: "")
             } finally {
                 _busy.value = false
@@ -212,7 +212,7 @@ class WalkRepository(private val app: WatchApp) {
             try {
                 val parsed = withContext(ioDispatcher) {
                     val bytes = app.assets.open("walk/sample.gpx").use { it.readBytes() }
-                    ParsedGpx(GpxParser.parse(bytes, "sample"), routeId(bytes))
+                    ParsedRoute(RouteFileParser.parse(bytes, "sample"), routeId(bytes))
                 }
                 addRoute(parsed.route, parsed.id)
             } catch (e: CancellationException) {

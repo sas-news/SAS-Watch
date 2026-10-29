@@ -121,7 +121,7 @@ fun WalkScreen(
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
-        if (uri != null) walk.importGpx(uri)
+        if (uri != null) walk.importRouteFile(uri)
     }
 
     // 歩行中に画面を作り直したとき、Foreground Service が落ちていれば起こす。
@@ -168,7 +168,18 @@ fun WalkScreen(
                     ),
                 )
             },
-            onImport = { picker.launch(arrayOf("application/gpx+xml", "*/*")) },
+            onImport = {
+                picker.launch(
+                    arrayOf(
+                        "application/gpx+xml",
+                        "application/vnd.google-earth.kml+xml",
+                        "application/geo+json",
+                        "application/json",
+                        "text/xml",
+                        "*/*",
+                    ),
+                )
+            },
             onSample = walk::importSample,
             onSelectRoute = walk::selectRoute,
             onDeleteRoute = walk::deleteRoute,
@@ -376,6 +387,10 @@ private fun RouteCard(
             ) {
                 Text(stringResource(R.string.walk_sample))
             }
+            Text(
+                stringResource(R.string.walk_import_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
             if (state.busy) {
                 Text(stringResource(R.string.walk_importing), style = MaterialTheme.typography.bodySmall)
             }

@@ -10,7 +10,7 @@ android/
 ├── protocol/   # 純 Kotlin/JVM（Android 非依存）
 │               #   Frame/CRC-16/フラグメント/最小CBOR/REQ・RES・EVT モデル/FakeWatch
 ├── walk/       # 純 Kotlin/JVM（Android 非依存）
-│               #   歩く大会: GPX パーサ / ルートへの投影 / 進捗 / 到着予想
+│               #   歩く大会: GPX・KML・GeoJSON パーサ / ルート投影 / 進捗 / 到着予想
 └── app/        # Kotlin + Jetpack Compose + Material3
                 #   BLE 接続 / Foreground Service / 通知転送 / メディア連携 / 設定画面
                 #   歩く大会 (WalkScreen / WalkTracker / WalkService)

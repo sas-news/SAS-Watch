@@ -231,8 +231,9 @@
     <string name="walk_permission_needed">位置情報を許可すると開始できます。</string>
     <string name="walk_retry">測位を再試行</string>
     <string name="walk_route_title">ルート</string>
-    <string name="walk_import">GPX を取り込む</string>
+    <string name="walk_import">ルートを取り込む</string>
     <string name="walk_sample">サンプルルート</string>
+    <string name="walk_import_hint">GPX / KML / GeoJSON（地図アプリの書き出し）に対応</string>
     <string name="walk_importing">読み込み中…</string>
     <string name="walk_no_routes">ルートがありません。GPX を取り込むか、サンプルルートを追加してください。</string>
     <string name="walk_route_total">全長 %1$s</string>
@@ -270,7 +271,7 @@
     <string name="walk_close">閉じる</string>
     <string name="walk_msg_waiting_fix">測位を待っています</string>
     <string name="walk_msg_off_route">ルートから外れています</string>
-    <string name="walk_import_error">GPX を読み込めませんでした: %1$s</string>
+    <string name="walk_import_error">ルートを読み込めませんでした: %1$s</string>
     <string name="walk_routes_full">ルートは最大 %1$d 件です。いらないルートを削除してから取り込んでください。</string>
     <string name="walk_err_permission">位置情報が許可されていません</string>
     <string name="walk_err_no_route">先にルートを選んでください</string>
