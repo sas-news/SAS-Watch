@@ -11,6 +11,7 @@
   (Dim / ScreenOff / 別画面では送らない)。スマホは歩行セッション中だけ GPS (10s/10m)
   + Foreground Service。GPS は「時計/アプリ画面を見ている間だけ」で、時計の
   問い合わせが 25 秒途切れると止まる (Foreground Service と通知は維持)。
+  時計が未接続でも、画面を見ていなければ GPS は動かない。
   設計・使い方・大会当日の手順は `docs/walk-event.md`、
   BLE 仕様は `docs/protocol-v1.md` の「歩く大会 (walk)」節。
   - 時計: `apps/walk/` (表示専用アプリ)。applist に「ウォーク」行 (サブ行に進捗%)。

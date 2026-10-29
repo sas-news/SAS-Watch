@@ -26,7 +26,8 @@
 開いた瞬間、止めていた測位を再開して単発の現在地を取り、届いたら `walk.state` を
 もう一度送って表示を更新する (`onWatchQuery()` → `requestSingleFix()`)。
 アプリのウォーク画面が見えている間は、見た目が止まらないよう連続測位する。
-時計が未接続のときも、電話だけで歩く場合の保険として連続測位する。
+**時計が未接続のときも、誰も画面を見ていないなら GPS は動かさない**
+(未接続でもアプリのウォーク画面を見ている間だけ測位する)。
 
 ## 2. 全体の流れ
 
@@ -281,7 +282,7 @@ android/walk/src/test/kotlin/...  # JUnit4
   依存追加なし (`org.json` と SharedPreferences のみ)。
 - `WalkTracker`: `LocationManager` の GPS_PROVIDER。
   - 連続測位: `requestLocationUpdates(GPS_PROVIDER, 10_000ms, 10m, ...)`。
-    アプリのウォーク画面が見えている間 / 時計未接続のときに使う。
+    アプリのウォーク画面が見えている間と、時計の `walk.query` が来ている間に使う。
   - 単発測位: `getCurrentLocation(GPS_PROVIDER, ...)`。時計の `walk.query` 直後に
     1 回だけ現在地を取り、`walk.state` を更新して送り直す。
   - 時計の問い合わせが 25 秒途切れたら `removeUpdates` で GPS を止める

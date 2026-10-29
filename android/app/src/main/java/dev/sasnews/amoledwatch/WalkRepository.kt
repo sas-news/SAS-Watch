@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
-import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.walk.Checkpoint
 import dev.sasnews.amoledwatch.walk.EtaEstimator
@@ -25,7 +24,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -135,13 +133,13 @@ class WalkRepository(private val app: WatchApp) {
     private var lastOffRouteM = 0.0
     private var offRouteWarning = false
 
-    // --- 省電力測位 (スマホの GPS は「時計を見ている間」だけ動かす) ---
-    // アプリ画面が見えている間 or 時計未接続のときは連続測位 (従来どおり)。
-    // それ以外は時計の walk.query を契機に測位を再開し、25 秒問い合わせが
-    // 無ければ止める。% と ETA は現在地 1 点と開始時刻から計算できるため、
-    // 間欠測位でも「見た時点」の値は正しい (docs/walk-event.md §1)。
+    // --- 省電力測位 (スマホの GPS は「見ている間」だけ動かす) ---
+    // アプリのウォーク画面が見えている間だけ連続測位する。時計のウォーク画面を
+    // 見ている間は walk.query が 10 秒ごとに来るので、その間だけ測位する
+    // (25 秒途切れたら停止)。どちらも見ていない時間は GPS を止める。
+    // % と ETA は現在地 1 点と開始時刻から計算できるため、間欠測位でも
+    // 「見た時点」の値は正しい (docs/walk-event.md §1)。
     private var appVisible = false
-    private var watchConnected = false
     private var lastWatchQueryElapsedMs = 0L
     private var idleStopJob: Job? = null
     private var pendingQueryFix = false
@@ -158,21 +156,6 @@ class WalkRepository(private val app: WatchApp) {
     init {
         tracker.onLocation = { loc -> onLocation(loc) }
         tracker.onUnavailable = { msg -> _error.value = msg }
-        // 時計の接続状態。未接続のときは連続測位 (電話だけで歩く場合の保険)。
-        scope.launch {
-            app.manager.linkState.collect { state ->
-                watchConnected = state is LinkState.Connected
-                Log.d(TAG, "link: connected=$watchConnected walking=${sessionState == SessionState.WALKING}")
-                if (sessionState == SessionState.WALKING) {
-                    if (shouldTrackContinuously()) {
-                        if (!tracker.isRunning) tracker.start()
-                    } else if (!appVisible) {
-                        // 時計駆動モードに切り替わったら、問い合わせが無ければ止める。
-                        scheduleIdleStop()
-                    }
-                }
-            }
-        }
         // routes.json の読み込みは IO で行い、完了後に snapshot を更新する (M4)。
         scope.launch {
             val loaded = withContext(ioDispatcher) { readRoutesFile() }
@@ -447,7 +430,7 @@ class WalkRepository(private val app: WatchApp) {
     /** ウォーク画面から離れたとき。時計駆動 (省電力) なら 25 秒後に測位を止める。 */
     fun onScreenPaused() {
         appVisible = false
-        Log.d(TAG, "screen paused: watchConnected=$watchConnected walking=${sessionState == SessionState.WALKING}")
+        Log.d(TAG, "screen paused: walking=${sessionState == SessionState.WALKING}")
         scheduleIdleStop()
     }
 
@@ -461,7 +444,7 @@ class WalkRepository(private val app: WatchApp) {
         lastWatchQueryElapsedMs = SystemClock.elapsedRealtime()
         if (sessionState != SessionState.WALKING) return
         if (!hasLocationPermission()) return
-        Log.d(TAG, "watch query: running=${tracker.isRunning} appVisible=$appVisible watchConnected=$watchConnected")
+        Log.d(TAG, "watch query: running=${tracker.isRunning} appVisible=$appVisible")
         if (!tracker.isRunning) {
             tracker.start()
             Log.d(TAG, "watch query: tracking start (省電力測位)")
@@ -473,15 +456,15 @@ class WalkRepository(private val app: WatchApp) {
         scheduleIdleStop()
     }
 
-    /** 連続測位を続ける条件 (アプリ画面が見えている / 時計未接続)。 */
-    private fun shouldTrackContinuously(): Boolean = appVisible || !watchConnected
+    /** 連続測位を続ける条件 (アプリのウォーク画面が見えている)。 */
+    private fun shouldTrackContinuously(): Boolean = appVisible
 
     /** 時計の問い合わせが 25 秒途切れたら測位を止める (省電力)。 */
     private fun scheduleIdleStop() {
         idleStopJob?.cancel()
         val walking = sessionState == SessionState.WALKING
         val continuous = shouldTrackContinuously()
-        Log.d(TAG, "scheduleIdleStop: walking=$walking continuous=$continuous (watchConnected=$watchConnected appVisible=$appVisible)")
+        Log.d(TAG, "scheduleIdleStop: walking=$walking continuous=$continuous (appVisible=$appVisible)")
         if (!walking) return
         if (continuous) return
         idleStopJob = scope.launch {
