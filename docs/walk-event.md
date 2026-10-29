@@ -14,10 +14,19 @@
 | 端末 | やること | 電池への配慮 |
 |---|---|---|
 | 時計 | 画面を開いている間だけ、10 秒に 1 回まで `walk.query` を送り、返ってきた状態を描く | GNSS なし。通信は既存の BLE 接続を間欠利用。画面が Dim / OFF の間は**問い合わせない**。画面を作り直したときは即 1 回だけ問い合わせる |
-| スマホ | ルート (GPX) の管理、歩行中の測位、進捗と到着予想の計算、問い合わせへの応答 | 測位は**歩行セッション中だけ**。10 秒 / 10m 間隔の GPS。歩き終えたら止める。Foreground Service + 通知で継続 |
+| スマホ | ルート (GPX/KML/GeoJSON) の管理、測位、進捗と到着予想の計算、問い合わせへの応答 | 測位は**時計/アプリ画面を見ている間だけ**。時計の `walk.query` を契機に測位を再開し、25 秒問い合わせが無ければ止める。% と ETA は現在地 1 点と開始時刻で計算できるので、間欠測位でも「見た時点」の値は正しい。Foreground Service は継続 (測位停止中も通知は維持) |
 
 時計の画面を閉じている間は何もしない。開いた瞬間に最新値を取りに行く (ユーザーの
 「時計開いたら時計側がデータを要求すれば時計側の電池は持ちそう」をそのまま実装する)。
+
+**スマホ側も同じ考え方**: GPS を動かし続けると 33km/8 時間では電池が厳しいので、
+通常は「時計のウォーク画面が見えている間だけ」測位する。時計は画面が見えている間
+10 秒ごとに `walk.query` を送るので、その間は連続測位 (10 秒 / 10m) と同じ。
+時計の画面が消える (= 問い合わせが止まる) と 25 秒後に GPS を止める。次に時計を
+開いた瞬間、止めていた測位を再開して単発の現在地を取り、届いたら `walk.state` を
+もう一度送って表示を更新する (`onWatchQuery()` → `requestSingleFix()`)。
+アプリのウォーク画面が見えている間は、見た目が止まらないよう連続測位する。
+時計が未接続のときも、電話だけで歩く場合の保険として連続測位する。
 
 ## 2. 全体の流れ
 
@@ -270,9 +279,13 @@ android/walk/src/test/kotlin/...  # JUnit4
 - `WalkRepository`: ルート一覧と選択中ルート、歩行セッションを保存。
   保存先は `filesDir/walk/routes.json` + SharedPreferences (選択・セッション)。
   依存追加なし (`org.json` と SharedPreferences のみ)。
-- `WalkTracker`: `LocationManager` の GPS_PROVIDER (+ NETWORK_PROVIDER は補助)。
-  歩行中だけ `requestLocationUpdates(GPS_PROVIDER, 10_000ms, 10m, ...)`。
-  コールバックで `WalkSnapshot` を更新し、`WatchLinkManager` に現在値を渡せるようにする。
+- `WalkTracker`: `LocationManager` の GPS_PROVIDER。
+  - 連続測位: `requestLocationUpdates(GPS_PROVIDER, 10_000ms, 10m, ...)`。
+    アプリのウォーク画面が見えている間 / 時計未接続のときに使う。
+  - 単発測位: `getCurrentLocation(GPS_PROVIDER, ...)`。時計の `walk.query` 直後に
+    1 回だけ現在地を取り、`walk.state` を更新して送り直す。
+  - 時計の問い合わせが 25 秒途切れたら `removeUpdates` で GPS を止める
+    (Foreground Service と通知は維持)。
 - `WalkService`: `foregroundServiceType="location"` の Foreground Service。
   歩行開始で起動 / 終了で停止。通知に「進捗 % ・残り ・到着予想」を出す。
 - `WatchLinkManager`:
@@ -352,8 +365,11 @@ android/walk/src/test/kotlin/...  # JUnit4
    張り付かないこと)。
 5. 10 秒ほどで自動更新されること。「いま更新」で即時に更新されること。
 6. 終了して「到着しました」表示になること。
-7. 電池: 時計は画面 OFF 中に `walk.query` を送っていないこと
-   (ログで確認可)。電話は歩行中だけ GPS が動くこと。
+7. 電池/省電力測位:
+   - 時計は画面 OFF 中に `walk.query` を送っていないこと (ログで確認可)。
+   - 電話は時計/アプリ画面を見ている間だけ GPS が動くこと。時計の画面を消して
+     25 秒ほど待つと GPS が止まり、時計を開き直すと再開して値が更新されること
+     (ログの `watch idle: tracking stopped` / `watch query: tracking start` で確認)。
 
 ## 8. 制約・やらないこと
 

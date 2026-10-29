@@ -248,7 +248,11 @@ class WatchLinkManager(private val app: WatchApp) {
             is Evt.AgentRequest -> app.agentBridge.onRequest(l, evt.id, evt.text)
             is Evt.MemoTranscribeRequest -> scope.launch { transcribeMemo(evt.id) }
             // 歩く大会: 時計からの「今の状態をください」に REQ walk.state で返す。
-            is Evt.WalkQuery -> scope.launch { sendWalkState() }
+            // 時計の画面が見えている間だけ測位を動かす (省電力)。再開して即返す。
+            is Evt.WalkQuery -> scope.launch {
+                app.walk.onWatchQuery()
+                sendWalkState()
+            }
             is Evt.Unknown -> {}
         }
     }

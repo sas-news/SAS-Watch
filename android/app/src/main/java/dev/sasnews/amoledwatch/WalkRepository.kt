@@ -3,8 +3,10 @@ package dev.sasnews.amoledwatch
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
+import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.walk.Checkpoint
 import dev.sasnews.amoledwatch.walk.EtaEstimator
@@ -18,9 +20,12 @@ import dev.sasnews.amoledwatch.walk.WalkStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -61,6 +66,9 @@ class WalkRepository(private val app: WatchApp) {
 
     companion object {
         private const val TAG = "WalkRepository"
+
+        /** 時計からの問い合わせがこの時間途切れたら省電力のため測位を止める。 */
+        private const val QUERY_IDLE_STOP_MS = 25_000L
 
         /** 同時に保持するルート数の上限（routes.json を無限に太らせない）。 */
         const val MAX_ROUTES = 10
@@ -127,6 +135,17 @@ class WalkRepository(private val app: WatchApp) {
     private var lastOffRouteM = 0.0
     private var offRouteWarning = false
 
+    // --- 省電力測位 (スマホの GPS は「時計を見ている間」だけ動かす) ---
+    // アプリ画面が見えている間 or 時計未接続のときは連続測位 (従来どおり)。
+    // それ以外は時計の walk.query を契機に測位を再開し、25 秒問い合わせが
+    // 無ければ止める。% と ETA は現在地 1 点と開始時刻から計算できるため、
+    // 間欠測位でも「見た時点」の値は正しい (docs/walk-event.md §1)。
+    private var appVisible = false
+    private var watchConnected = false
+    private var lastWatchQueryElapsedMs = 0L
+    private var idleStopJob: Job? = null
+    private var pendingQueryFix = false
+
     /** メインスレッド用スコープ (StateFlow・セッション更新)。 */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -139,6 +158,21 @@ class WalkRepository(private val app: WatchApp) {
     init {
         tracker.onLocation = { loc -> onLocation(loc) }
         tracker.onUnavailable = { msg -> _error.value = msg }
+        // 時計の接続状態。未接続のときは連続測位 (電話だけで歩く場合の保険)。
+        scope.launch {
+            app.manager.linkState.collect { state ->
+                watchConnected = state is LinkState.Connected
+                Log.d(TAG, "link: connected=$watchConnected walking=${sessionState == SessionState.WALKING}")
+                if (sessionState == SessionState.WALKING) {
+                    if (shouldTrackContinuously()) {
+                        if (!tracker.isRunning) tracker.start()
+                    } else if (!appVisible) {
+                        // 時計駆動モードに切り替わったら、問い合わせが無ければ止める。
+                        scheduleIdleStop()
+                    }
+                }
+            }
+        }
         // routes.json の読み込みは IO で行い、完了後に snapshot を更新する (M4)。
         scope.launch {
             val loaded = withContext(ioDispatcher) { readRoutesFile() }
@@ -347,9 +381,14 @@ class WalkRepository(private val app: WatchApp) {
         updateSnapshot()
         // 前面の操作なので startForegroundService してよい (Android 14 の制約)。
         WalkService.start(app)
+        // 最初の fix は取る。時計駆動モードなら 25 秒で止まる。
         if (!tracker.start()) {
             // 権限はあるが GPS がオフ等。セッションは no_fix として残す。
             updateSnapshot()
+        }
+        if (!shouldTrackContinuously()) {
+            lastWatchQueryElapsedMs = SystemClock.elapsedRealtime()
+            scheduleIdleStop()
         }
         app.manager.notifyWalkState()
     }
@@ -360,6 +399,8 @@ class WalkRepository(private val app: WatchApp) {
         sessionState = SessionState.FINISHED
         sessionFinishedEpoch = nowEpoch()
         sessionMaxDoneM = progress?.doneM ?: sessionMaxDoneM
+        idleStopJob?.cancel()
+        pendingQueryFix = false
         tracker.stop()
         WalkService.stop(app)
         saveSession()
@@ -373,8 +414,11 @@ class WalkRepository(private val app: WatchApp) {
      * 権限喪失や GPS OFF から復帰したときもリスナーを張り直して更新を取り戻す (M2)。
      */
     fun onServiceStarted() {
-        if (sessionState == SessionState.WALKING && hasLocationPermission()) {
-            if (tracker.isRunning) tracker.stop()
+        // 連続測位モードのときだけここで開始する。時計駆動 (省電力) では
+        // walk.query が来たときに onWatchQuery() が開始する。
+        if (sessionState == SessionState.WALKING && hasLocationPermission() &&
+            shouldTrackContinuously() && !tracker.isRunning
+        ) {
             tracker.start()
         }
         updateSnapshot()
@@ -390,10 +434,67 @@ class WalkRepository(private val app: WatchApp) {
      * (M2/M3)。GPS 設定を直して戻ってきた場合もここから復帰する。
      */
     fun onScreenResumed() {
+        appVisible = true
         if (sessionState != SessionState.WALKING) return
         if (!hasLocationPermission()) return
-        // サービスの onServiceStarted が tracker.start() を行う (通知なし測位を避ける)。
+        // 画面を見ている間は連続測位 (見た目が止まらないように)。
+        idleStopJob?.cancel()
+        if (!tracker.isRunning) tracker.start()
+        // サービスの onServiceStarted も ensure する (通知なし測位を避ける)。
         WalkService.start(app)
+    }
+
+    /** ウォーク画面から離れたとき。時計駆動 (省電力) なら 25 秒後に測位を止める。 */
+    fun onScreenPaused() {
+        appVisible = false
+        Log.d(TAG, "screen paused: watchConnected=$watchConnected walking=${sessionState == SessionState.WALKING}")
+        scheduleIdleStop()
+    }
+
+    /**
+     * 時計のウォーク画面から walk.query が来た (WatchLinkManager から)。
+     * 省電力のため止めていた測位をこの瞬間だけ再開し、最新の fix を 1 回取る。
+     * 返答は呼び出し側が既存スナップショットですぐ返し、fix が届いたら
+     * onLocation() から walk.state を送り直す。
+     */
+    fun onWatchQuery() {
+        lastWatchQueryElapsedMs = SystemClock.elapsedRealtime()
+        if (sessionState != SessionState.WALKING) return
+        if (!hasLocationPermission()) return
+        Log.d(TAG, "watch query: running=${tracker.isRunning} appVisible=$appVisible watchConnected=$watchConnected")
+        if (!tracker.isRunning) {
+            tracker.start()
+            Log.d(TAG, "watch query: tracking start (省電力測位)")
+        }
+        pendingQueryFix = true
+        tracker.requestSingleFix { location ->
+            if (location != null) onLocation(location)
+        }
+        scheduleIdleStop()
+    }
+
+    /** 連続測位を続ける条件 (アプリ画面が見えている / 時計未接続)。 */
+    private fun shouldTrackContinuously(): Boolean = appVisible || !watchConnected
+
+    /** 時計の問い合わせが 25 秒途切れたら測位を止める (省電力)。 */
+    private fun scheduleIdleStop() {
+        idleStopJob?.cancel()
+        val walking = sessionState == SessionState.WALKING
+        val continuous = shouldTrackContinuously()
+        Log.d(TAG, "scheduleIdleStop: walking=$walking continuous=$continuous (watchConnected=$watchConnected appVisible=$appVisible)")
+        if (!walking) return
+        if (continuous) return
+        idleStopJob = scope.launch {
+            delay(QUERY_IDLE_STOP_MS)
+            if (sessionState == SessionState.WALKING && !shouldTrackContinuously() &&
+                SystemClock.elapsedRealtime() - lastWatchQueryElapsedMs >= QUERY_IDLE_STOP_MS
+            ) {
+                if (tracker.isRunning) {
+                    tracker.stop()
+                    Log.d(TAG, "watch idle: tracking stopped (省電力測位)")
+                }
+            }
+        }
     }
 
     /**
@@ -437,9 +538,19 @@ class WalkRepository(private val app: WatchApp) {
             offRouteWarning = offRoute
             app.manager.notifyWalkState()
         }
+        // 時計からの問い合わせ直後の単発測位が届いたら、最新値でもう一度返す。
+        if (pendingQueryFix) {
+            pendingQueryFix = false
+            val recentQuery =
+                SystemClock.elapsedRealtime() - lastWatchQueryElapsedMs < 30_000
+            if (recentQuery) app.manager.notifyWalkState()
+        }
     }
 
     private fun resetSession() {
+        idleStopJob?.cancel()
+        pendingQueryFix = false
+        appVisible = false
         sessionRoute = null
         sessionState = SessionState.NONE
         sessionStartedEpoch = 0

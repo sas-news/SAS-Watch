@@ -9,14 +9,18 @@
   進捗/ETA の正**で、時計は表示だけ。時計はウォーク画面が Active で見えている間だけ
   10 秒に 1 回 EVT `walk.query` を送り、スマホが REQ `walk.state` で返す
   (Dim / ScreenOff / 別画面では送らない)。スマホは歩行セッション中だけ GPS (10s/10m)
-  + Foreground Service。設計・使い方・大会当日の手順は `docs/walk-event.md`、
+  + Foreground Service。GPS は「時計/アプリ画面を見ている間だけ」で、時計の
+  問い合わせが 25 秒途切れると止まる (Foreground Service と通知は維持)。
+  設計・使い方・大会当日の手順は `docs/walk-event.md`、
   BLE 仕様は `docs/protocol-v1.md` の「歩く大会 (walk)」節。
   - 時計: `apps/walk/` (表示専用アプリ)。applist に「ウォーク」行 (サブ行に進捗%)。
     `walk.state` は core の dispatch でパースし、`ble_glue` が Feature へ渡す。
   - スマホ: `android/walk` (GPX・投影・ETA の純 Kotlin) + WalkRepository /
     WalkTracker / WalkService / WalkScreen (デバイスタブの「ウォーク」カードから開く)。
   - 検証済み (PC): core 255 テスト、sim 安全域監査 0 件、`:walk:test` など
-    Android 121 テスト + lint 0 errors、firmware build (app 空き 30%)。
+    Android 141 テスト + lint 0 errors、firmware build (app 空き 30%)。
+    実機 (OPPO A79 5G + 実機時計) で GPX/KML 取込・walk.query/walk.state 往復・
+    省電力測位 (25 秒で GPS 停止 / 時計を開くと再開) を確認。
     周回/折返しルートの進捗 (始点=終点でも 0% から増える) は JVM テストで再現・修正済み。
   - **実機未確認**: 時計⇄スマホの walk.query / walk.state 往復、0xE50A (hiking)
     アイコンの描画、10 秒ポーリングの電池影響、Android 14 の FGS(location) 起動・

@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -116,6 +117,13 @@ fun WalkScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         hasPermission = walk.hasLocationPermission()
         walk.onScreenResumed()
+    }
+    // 画面から離れたら省電力測位へ (時計の問い合わせが無ければ GPS を止める)。
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        walk.onScreenPaused()
+    }
+    DisposableEffect(Unit) {
+        onDispose { walk.onScreenPaused() }
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -628,6 +636,10 @@ private fun StatusCard(state: WalkUiState) {
                 }
                 Text(
                     stringResource(R.string.walk_updated, formatWalkClock(snapshot.updatedEpoch)),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    stringResource(R.string.walk_power_note),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

@@ -963,7 +963,9 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
   常時通信もしない。時計は「ウォーク画面が Active で見えている間」だけ
   10 秒に 1 回 EVT `walk.query` を送り、スマホが REQ `walk.state` で返す。
   Dim / ScreenOff / 別画面では送らない。画面を開いた瞬間は即時要求。
-  測位はスマホのみ・歩行セッション中だけ (GPS 10s/10m、Foreground Service)。
+  測位はスマホのみ。**時計/アプリ画面を見ている間だけ GPS** を動かし、問い合わせが
+  25 秒途切れたら止める (時計を開くと単発測位で再開して返す)。
+  Foreground Service は継続し、通知は維持する。
 - 実装:
   - 時計: `apps/walk/` (Feature + 画面 + テスト)、`core/include/watch/features/walk.hpp`。
     `walk.state` を protocol に追加 (`dispatch.cpp`、`hello` caps に `walk`)。

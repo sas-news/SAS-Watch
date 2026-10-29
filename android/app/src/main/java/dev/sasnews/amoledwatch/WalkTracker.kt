@@ -116,4 +116,31 @@ class WalkTracker(private val context: Context) {
         isRunning = false
         runCatching { locationManager?.removeUpdates(listener) }
     }
+
+    /**
+     * 1 回だけ現在地を取りに行く (時計からの問い合わせ直後の即時更新用)。
+     * 連続測位を止めている省電力モードでも、この瞬間だけ GPS を動かして返す。
+     * 取得できない/タイムアウト時は null。
+     */
+    @SuppressLint("MissingPermission")
+    fun requestSingleFix(onResult: (Location?) -> Unit) {
+        val lm = locationManager
+        if (lm == null || !hasLocationPermission() || !isGpsEnabled()) {
+            onResult(null)
+            return
+        }
+        try {
+            lm.getCurrentLocation(
+                LocationManager.GPS_PROVIDER,
+                null,
+                ContextCompat.getMainExecutor(context),
+            ) { location -> onResult(location) }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "単発測位の権限がありません: ${e.message}")
+            onResult(null)
+        } catch (e: Exception) {
+            Log.w(TAG, "単発測位を開始できません: ${e.message}")
+            onResult(null)
+        }
+    }
 }

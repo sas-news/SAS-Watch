@@ -235,6 +235,7 @@
     <string name="walk_sample">サンプルルート</string>
     <string name="walk_import_hint">GPX / KML / GeoJSON（地図アプリの書き出し）に対応</string>
     <string name="walk_importing">読み込み中…</string>
+    <string name="walk_power_note">省電力測位: 時計/この画面を見ている間だけ GPS を動かします</string>
     <string name="walk_no_routes">ルートがありません。GPX を取り込むか、サンプルルートを追加してください。</string>
     <string name="walk_route_total">全長 %1$s</string>
     <string name="walk_selected">選択中</string>
