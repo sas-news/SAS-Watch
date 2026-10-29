@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -59,6 +60,7 @@ fun DevicesScreen(
     vm: WatchViewModel,
     permissionsGranted: Boolean,
     onRequestPermissions: () -> Unit,
+    onOpenWalk: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val linkState by vm.linkState.collectAsState()
@@ -97,6 +99,7 @@ fun DevicesScreen(
         onFakeBattery = vm::fakeBattery,
         onFakeMediaCmd = vm::fakeMediaCmd,
         onFakeVoiceMemo = vm::fakeVoiceMemo,
+        onOpenWalk = onOpenWalk,
         modifier = modifier,
     )
 }
@@ -116,6 +119,7 @@ fun DevicesContent(
     onFakeBattery: () -> Unit,
     onFakeMediaCmd: (MediaCmd) -> Unit,
     onFakeVoiceMemo: () -> Unit,
+    onOpenWalk: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -127,6 +131,8 @@ fun DevicesContent(
         if (!state.permissionsGranted) {
             PermissionCard(onRequestPermissions)
         }
+
+        WalkCard(onOpenWalk)
 
         ConnectionCard(state, onDisconnect)
 
@@ -158,6 +164,25 @@ private fun PermissionCard(onRequestPermissions: () -> Unit) {
             Text(stringResource(R.string.perm_notification), style = MaterialTheme.typography.bodySmall)
             Button(onClick = onRequestPermissions, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.perm_grant))
+            }
+        }
+    }
+}
+
+/** 歩く大会モードへの導線 (ボトムタブは増やさず全画面で開く)。 */
+@Composable
+private fun WalkCard(onOpenWalk: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.walk_card_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.walk_card_body), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(
+                onClick = onOpenWalk,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.walk_open))
             }
         }
     }

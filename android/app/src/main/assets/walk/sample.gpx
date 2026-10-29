@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAS-Watch 歩く大会モードのサンプルルート（アプリ同梱）。
+  東京・皇居まわりのような 2.6km の周回を模した架空の座標。地図タイルは使わない。
+  <trk><name> がルート名、<wpt> がチェックポイントになる。
+-->
+<gpx version="1.1" creator="SAS-Watch sample" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>サンプルルート（2.6 km 周回）</name>
+  </metadata>
+  <wpt lat="35.6840" lon="139.7640">
+    <name>第1関門</name>
+  </wpt>
+  <wpt lat="35.6890" lon="139.7590">
+    <name>第2関門</name>
+  </wpt>
+  <wpt lat="35.6870" lon="139.7570">
+    <name>給水所</name>
+  </wpt>
+  <trk>
+    <name>サンプルルート（2.6 km 周回）</name>
+    <trkseg>
+      <trkpt lat="35.6800" lon="139.7600"><ele>30</ele></trkpt>
+      <trkpt lat="35.6820" lon="139.7620"><ele>32</ele></trkpt>
+      <trkpt lat="35.6840" lon="139.7640"><ele>34</ele></trkpt>
+      <trkpt lat="35.6870" lon="139.7640"><ele>35</ele></trkpt>
+      <trkpt lat="35.6890" lon="139.7620"><ele>33</ele></trkpt>
+      <trkpt lat="35.6890" lon="139.7590"><ele>31</ele></trkpt>
+      <trkpt lat="35.6870" lon="139.7570"><ele>29</ele></trkpt>
+      <trkpt lat="35.6840" lon="139.7570"><ele>28</ele></trkpt>
+      <trkpt lat="35.6820" lon="139.7584"><ele>29</ele></trkpt>
+      <trkpt lat="35.6800" lon="139.7600"><ele>30</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

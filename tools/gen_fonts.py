@@ -122,8 +122,8 @@ FACE_FONT_RANGE = "0x20-0x7E"
 # アプリアイコン (Material Symbols Rounded, Apache-2.0)。PUA コードポイント。
 ICON_FONT_TTF = REPO / "tools" / "fonts" / "icons" / "MaterialSymbolsRounded.ttf"
 # mic, music_note, timer, directions_walk, exposure_plus_1, alarm,
-# notifications, settings, apps, timer_play, smart_toy, bedtime
-ICON_FONT_RANGES = ("0xE31D,0xE405,0xE425,0xE536,0xE800,0xE855,"
+# notifications, settings, apps, timer_play, smart_toy, bedtime, hiking
+ICON_FONT_RANGES = ("0xE31D,0xE405,0xE425,0xE536,0xE50A,0xE800,0xE855,"
                     "0xE7F5,0xE8B8,0xE5C3,0xF4BA,0xF06C,0xF159")
 
 NUM_FONT_TTF = REPO / "tools" / "fonts" / "num" / "JetBrainsMono-Bold.ttf"

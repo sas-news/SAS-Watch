@@ -23,6 +23,7 @@
 #include "watch/features/memo.hpp"
 #include "watch/features/notify.hpp"
 #include "watch/features/steps.hpp"
+#include "watch/features/walk.hpp"
 #include "watch/input_mapper.hpp"
 #include "watch/safe_area.hpp"
 #include "watch/power.hpp"
@@ -1013,6 +1014,35 @@ int main(int argc, char** argv) {
   pump(200);
   nav_to(watch::Route::Steps);
   ok &= save(out, "23_steps");
+#endif
+
+#if SAS_APP_WALK
+  // ウォーク: 歩行中のサンプル状態を注入して表示を撮る。
+  // 実機では BLE の walk.state (dispatch → walk_set_state) が同じ経路。
+  back_home();
+  {
+    const int64_t now = sim::clock().epoch_s();
+    watch::features::WalkState ws;
+    ws.status = watch::features::WalkStatus::Walking;
+    std::snprintf(ws.route, sizeof(ws.route), "みちのく街道 20km");
+    std::snprintf(ws.next_cp, sizeof(ws.next_cp), "第3関門");
+    ws.total_m = 20400;
+    ws.done_m = 12680;
+    ws.remain_m = 7720;
+    ws.permille = 622;
+    ws.elapsed_s = 5400;
+    ws.eta_epoch = now + 3600;       // 到着予想 1 時間後
+    ws.pace_s_per_km = 720;          // 12:00 /km
+    ws.started_epoch = now - 5400;   // 1 時間 30 分前に開始
+    ws.next_cp_m = 320;
+    ws.off_route_m = 0;
+    ws.accuracy_m = 8;
+    ws.updated_epoch = now;
+    watch::features::walk_set_state(ws, fctx);
+  }
+  pump(100);
+  nav_to(watch::Route::App0);
+  ok &= save(out, "34_walk");
 #endif
 
   // ---- 文字盤 (settings.face) ----

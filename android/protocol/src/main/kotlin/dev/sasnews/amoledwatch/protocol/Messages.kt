@@ -186,6 +186,70 @@ sealed interface Req {
     }
 
 
+    /**
+     * 歩く大会の表示状態 (EVT `walk.query` への応答)。
+     * docs/protocol-v1.md §歩く大会 の表と同じキー順で送る。
+     *
+     * 文字列は時計のバッファ長 (route/next_cp 33B, msg 49B) に合わせて
+     * UTF-8 バイト長で切り詰める。
+     */
+    data class WalkState(
+        val state: String,
+        val route: String = "",
+        val totalM: Long = 0,
+        val doneM: Long = 0,
+        val remainM: Long = 0,
+        val permille: Int = 0,
+        val elapsedS: Long = 0,
+        val etaEpoch: Long = 0,
+        val paceSPerKm: Long = 0,
+        val startedEpoch: Long = 0,
+        val nextCp: String = "",
+        val nextCpM: Long = 0,
+        val offRouteM: Long = 0,
+        val accuracyM: Long = 0,
+        val updatedEpoch: Long = 0,
+        val msg: String = "",
+    ) : Req {
+        override val method get() = "walk.state"
+
+        override fun params(): Cbor.Cmap = Cbor.Cmap(
+            linkedMapOf(
+                "state" to Cbor.Ctext(state),
+                "route" to Cbor.Ctext(truncateUtf8(route, ROUTE_MAX_BYTES)),
+                "total_m" to u32(totalM),
+                "done_m" to u32(doneM),
+                "remain_m" to u32(remainM),
+                "permille" to u32(permille.toLong()),
+                "elapsed_s" to u32(elapsedS),
+                "eta_epoch" to Cbor.Cint(etaEpoch),
+                "pace_s_per_km" to u32(paceSPerKm),
+                "started_epoch" to Cbor.Cint(startedEpoch),
+                "next_cp" to Cbor.Ctext(truncateUtf8(nextCp, NEXT_CP_MAX_BYTES)),
+                "next_cp_m" to u32(nextCpM),
+                "off_route_m" to u32(offRouteM),
+                "accuracy_m" to u32(accuracyM),
+                "updated_epoch" to Cbor.Cint(updatedEpoch),
+                "msg" to Cbor.Ctext(truncateUtf8(msg, MSG_MAX_BYTES)),
+            ),
+        )
+
+        companion object {
+            /** 時計側 route[33] に収まる UTF-8 バイト数。 */
+            const val ROUTE_MAX_BYTES = 32
+
+            /** 時計側 next_cp[25] に収まる UTF-8 バイト数。 */
+            const val NEXT_CP_MAX_BYTES = 24
+
+            /** 時計側 msg[49] に収まる UTF-8 バイト数。 */
+            const val MSG_MAX_BYTES = 48
+
+            /** u32 の範囲に丸める (負値・オーバーフローで CBOR を壊さない)。 */
+            private fun u32(v: Long): Cbor = Cbor.Cint(v.coerceIn(0L, 0xFFFF_FFFFL))
+        }
+    }
+
+
     /** 型を足していない method をそのまま送るとき用。 */
     data class Raw(val m: String, val p: Cbor.Cmap = Cbor.Cmap(emptyMap())) : Req {
         override val method get() = m
@@ -198,6 +262,19 @@ sealed interface Req {
 }
 
 fun Req.toCbor(): Cbor.Cmap = Cbor.Cmap(mapOf("m" to Cbor.Ctext(method), "p" to params()))
+
+/**
+ * UTF-8 バイト長が maxBytes を超えないように切り詰める。
+ * マルチバイト文字の途中では切らない (時計側のバッファに収めるため)。
+ */
+internal fun truncateUtf8(s: String, maxBytes: Int): String {
+    val bytes = s.toByteArray(Charsets.UTF_8)
+    if (bytes.size <= maxBytes) return s
+    // 先頭側の文字境界まで戻る（bytes[end] が継続バイトなら、その文字はまだ途中）。
+    var end = maxBytes
+    while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) end--
+    return String(bytes, 0, end, Charsets.UTF_8)
+}
 
 // ---------- RES ----------
 
@@ -306,6 +383,12 @@ sealed interface Evt {
         override val data get() = Cbor.Cmap(mapOf("id" to Cbor.Cint(id.toLong())))
     }
 
+    /** 歩く大会: 時計が今の進捗を要求する。スマホは REQ `walk.state` で返す。 */
+    data object WalkQuery : Evt {
+        override val name get() = "walk.query"
+        override val data get() = Cbor.Cmap(emptyMap())
+    }
+
     data class Unknown(override val name: String, override val data: Cbor.Cmap) : Evt
 
     fun toCbor(): Cbor.Cmap = Cbor.Cmap(mapOf("e" to Cbor.Ctext(name), "d" to data))
@@ -330,6 +413,7 @@ sealed interface Evt {
                 "ota.result" -> OtaResult(d.bool("ok"), d.text("msg"))
                 "agent.request" -> AgentRequest(d.int("id").toInt(), d.text("text"))
                 "memo.transcribe.request" -> MemoTranscribeRequest(d.int("id").toInt())
+                "walk.query" -> WalkQuery
                 else -> Unknown(name, d)
             }
         }

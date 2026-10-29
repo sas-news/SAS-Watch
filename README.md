@@ -25,6 +25,7 @@ Waveshare **ESP32-S3-Touch-AMOLED-2.06** 向けの自作スマートウォッチ
 | `docs/perf.md` | 描画パイプラインと性能計測 |
 | `docs/theme-format.md` | テーマパッケージの形式 |
 | `docs/app-guide.md` | アプリの作り方 |
+| `docs/walk-event.md` | 歩く大会モード (ウォーク) の設計・使い方・電池 |
 | `docs/bringup.md` | 新しい実機を立ち上げる手順 |
 | `docs/archive/` | 終わった監査・提案・確認手順 |
 
