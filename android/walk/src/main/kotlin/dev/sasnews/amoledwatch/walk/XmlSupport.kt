@@ -31,8 +31,18 @@ internal object XmlSupport {
     private fun builder(): DocumentBuilder {
         val factory = DocumentBuilderFactory.newInstance()
         factory.isNamespaceAware = false
-        factory.isXIncludeAware = false
-        factory.isExpandEntityReferences = false
+        // Android の実装は setXIncludeAware で UnsupportedOperationException を投げる
+        // ものがある (JVM では通る)。セキュリティ設定は下の setFeature 側で行う。
+        try {
+            factory.isXIncludeAware = false
+        } catch (e: Exception) {
+            // 未対応なら無視 (デフォルトで false)。
+        }
+        try {
+            factory.isExpandEntityReferences = false
+        } catch (e: Exception) {
+            // 未対応なら無視。
+        }
         setFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true)
         setFeature(factory, "http://xml.org/sax/features/external-general-entities", false)
         setFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false)
