@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -49,6 +51,14 @@ android {
                 test.systemProperty("robolectric.graphicsMode", "NATIVE")
                 // repo1.maven.org が 429 を返す環境向けに Robolectric の依存取得先をミラーにする
                 test.systemProperty("robolectric.dependency.repo.url", "https://cache-redirector.jetbrains.com/maven-central")
+                // HOME が読み取り専用の環境 (CI サンドボックス等) では Robolectric が
+                // ~/.m2 や ~/.robolectric-download-lock を作れずに落ちる。その場合だけ
+                // キャッシュ先を build/ 配下へ逃がす (通常の開発機では従来どおり)。
+                if (!File(System.getProperty("user.home")).canWrite()) {
+                    val robolectricHome = layout.buildDirectory.dir("robolectric-home").get().asFile
+                    robolectricHome.mkdirs()
+                    test.systemProperty("user.home", robolectricHome.absolutePath)
+                }
             }
         }
     }
@@ -57,6 +67,8 @@ android {
 dependencies {
     implementation(project(":protocol"))
     implementation(project(":agent"))
+    // 歩く大会: GPX の読み込みと進捗計算 (Android 非依存の純 Kotlin)
+    implementation(project(":walk"))
 
     // AI設定: API キーを EncryptedSharedPreferences に入れるために使う
     implementation("androidx.security:security-crypto:1.1.0-alpha07")

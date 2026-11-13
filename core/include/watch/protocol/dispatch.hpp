@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "watch/event_bus.hpp"
+#include "watch/features/walk.hpp"
 #include "watch/input_mapper.hpp"
 #include "watch/platform.hpp"
 #include "watch/power.hpp"
@@ -101,6 +102,11 @@ struct Services {
 
   // steps.get 用: 今日の歩数。
   uint32_t (*steps_today)(void* ctx) = nullptr;
+
+  // walk.state 用: 電話から受けた表示状態。dispatch が CBOR を読んで
+  // WalkState を組み立て、時計側 (ble_glue) が Feature へ渡す。
+  // WalkState は core のヘッダにあるので直接渡してよい (walk-event.md §4.2)。
+  void (*walk_state)(const features::WalkState& state, void* ctx) = nullptr;
 
   void* ctx = nullptr;
 };

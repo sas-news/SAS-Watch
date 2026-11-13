@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import dev.sasnews.amoledwatch.R
+import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.ui.screens.AlarmScreen
 import dev.sasnews.amoledwatch.ui.screens.DebugScreen
 import dev.sasnews.amoledwatch.ui.screens.DevicesScreen
@@ -43,6 +44,7 @@ import dev.sasnews.amoledwatch.ui.screens.NotifyScreen
 import dev.sasnews.amoledwatch.ui.screens.SettingsScreen
 import dev.sasnews.amoledwatch.ui.screens.ThemesScreen
 import dev.sasnews.amoledwatch.ui.screens.UpdateScreen
+import dev.sasnews.amoledwatch.ui.screens.WalkScreen
 import dev.sasnews.amoledwatch.ui.theme.AmoledWatchTheme
 
 class MainActivity : ComponentActivity() {
@@ -62,6 +64,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.refreshNotifAccess()
+        // 歩行セッションが残っていれば FGS を ensure し、測位をサービス経由で再開する (M3)。
+        (application as WatchApp).walk.ensureService()
     }
 }
 
@@ -72,6 +76,8 @@ enum class Tab { DEVICES, MEMO, ALARM, SETTINGS, THEMES, UPDATE, NOTIFY, DEBUG }
 fun App(vm: WatchViewModel) {
     val context = LocalContext.current
     var tab by remember { mutableIntStateOf(Tab.DEVICES.ordinal) }
+    // ウォークはタブを増やさず、デバイス画面のカードから全画面で開く (docs/walk-event.md §5.3)。
+    var walkOpen by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val notice by vm.notice.collectAsState()
 
@@ -105,6 +111,11 @@ fun App(vm: WatchViewModel) {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
         permissionsGranted = result.values.all { it }
+    }
+
+    if (walkOpen) {
+        WalkScreen(onBack = { walkOpen = false })
+        return
     }
 
     Scaffold(
@@ -170,6 +181,7 @@ fun App(vm: WatchViewModel) {
                 vm = vm,
                 permissionsGranted = permissionsGranted,
                 onRequestPermissions = { permLauncher.launch(required) },
+                onOpenWalk = { walkOpen = true },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),

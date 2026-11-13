@@ -8,6 +8,7 @@
 
 #include "watch/features/memo.hpp"
 #include "watch/features/timer.hpp"
+#include "watch/features/walk.hpp"
 #include "watch/protocol/dispatch.hpp"
 #include "watch/protocol/frame.hpp"
 #include "watch/protocol/sha256.hpp"
@@ -213,6 +214,9 @@ struct SvcFixture {
   std::string notified_app;
   std::string media_title;
   uint32_t media_art = 0;
+  // walk.state の受け口 (dispatch が組み立てた WalkState を捕捉する)。
+  bool walk_called = false;
+  features::WalkState walk_seen;
 
   SvcFixture() {
     rec.attach_all(bus);
@@ -249,6 +253,11 @@ struct SvcFixture {
     };
     svc.notify_posted = [](const char* app, const char*, const char*, void* c) {
       static_cast<SvcFixture*>(c)->notified_app = app;
+    };
+    svc.walk_state = [](const features::WalkState& s, void* c) {
+      auto* f = static_cast<SvcFixture*>(c);
+      f->walk_called = true;
+      f->walk_seen = s;
     };
     svc.media_state = [](const char* title, const char*, bool,
                          uint32_t art, void* c) {
@@ -1006,4 +1015,310 @@ TEST(DispatchOta, OtaStatusWritesMap) {
   size_t sn = 0;
   ASSERT_TRUE(cbor::as_text(v, &s, &sn));
   EXPECT_EQ(std::string(s, sn), "download");
+}
+
+// ---------- walk.state (歩く大会) ----------
+// docs/protocol-v1.md §歩く大会 / docs/walk-event.md §3.2。
+// 正常系・省略時既定値・未知キー無視・型不正 = bad_request を検査する。
+
+TEST(DispatchWalk, FullStateApplies) {
+  SvcFixture f;
+  uint8_t out[512];
+  const size_t n = f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(16)
+            .text("state").text("walking")
+            .text("route").text("○○街道 20km")
+            .text("total_m").uint_v(20400)
+            .text("done_m").uint_v(12680)
+            .text("remain_m").uint_v(7720)
+            .text("permille").uint_v(622)
+            .text("elapsed_s").uint_v(5400)
+            .text("eta_epoch").int_v(1761702900)
+            .text("pace_s_per_km").uint_v(720)
+            .text("started_epoch").int_v(1761697500)
+            .text("next_cp").text("第3関門")
+            .text("next_cp_m").uint_v(320)
+            .text("off_route_m").uint_v(0)
+            .text("accuracy_m").uint_v(8)
+            .text("updated_epoch").int_v(1761702950)
+            .text("msg").text("あと少し");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  ASSERT_TRUE(f.walk_called);
+  const features::WalkState& s = f.walk_seen;
+  EXPECT_EQ(s.status, features::WalkStatus::Walking);
+  EXPECT_STREQ(s.route, "○○街道 20km");
+  EXPECT_STREQ(s.next_cp, "第3関門");
+  EXPECT_STREQ(s.msg, "あと少し");
+  EXPECT_EQ(s.total_m, 20400u);
+  EXPECT_EQ(s.done_m, 12680u);
+  EXPECT_EQ(s.remain_m, 7720u);
+  EXPECT_EQ(s.permille, 622u);
+  EXPECT_EQ(s.elapsed_s, 5400u);
+  EXPECT_EQ(s.eta_epoch, 1761702900);
+  EXPECT_EQ(s.pace_s_per_km, 720u);
+  EXPECT_EQ(s.started_epoch, 1761697500);
+  EXPECT_EQ(s.next_cp_m, 320u);
+  EXPECT_EQ(s.off_route_m, 0u);
+  EXPECT_EQ(s.accuracy_m, 8u);
+  EXPECT_EQ(s.updated_epoch, 1761702950);
+}
+
+TEST(DispatchWalk, OmittedKeysUseDefaults) {
+  SvcFixture f;
+  uint8_t out[512];
+  // state だけ送る → 数値 0 / 文字列空。
+  const size_t n = f.req(
+      "walk.state",
+      [](cbor::Writer& w) { w.map(1).text("state").text("idle"); }, out,
+      sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  ASSERT_TRUE(f.walk_called);
+  const features::WalkState& s = f.walk_seen;
+  EXPECT_EQ(s.status, features::WalkStatus::Idle);
+  EXPECT_STREQ(s.route, "");
+  EXPECT_STREQ(s.next_cp, "");
+  EXPECT_STREQ(s.msg, "");
+  EXPECT_EQ(s.total_m, 0u);
+  EXPECT_EQ(s.permille, 0u);
+  EXPECT_EQ(s.eta_epoch, 0);
+  EXPECT_EQ(s.updated_epoch, 0);
+}
+
+TEST(DispatchWalk, UnknownStatusIsIdle) {
+  SvcFixture f;
+  uint8_t out[512];
+  const size_t n = f.req(
+      "walk.state",
+      [](cbor::Writer& w) { w.map(1).text("state").text("teleport"); }, out,
+      sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_EQ(f.walk_seen.status, features::WalkStatus::Idle);
+}
+
+TEST(DispatchWalk, StatusTexts) {
+  SvcFixture f;
+  uint8_t out[512];
+  const struct {
+    const char* text;
+    features::WalkStatus status;
+  } kCases[] = {
+      {"idle", features::WalkStatus::Idle},
+      {"walking", features::WalkStatus::Walking},
+      {"finished", features::WalkStatus::Finished},
+      {"no_route", features::WalkStatus::NoRoute},
+      {"no_fix", features::WalkStatus::NoFix},
+  };
+  for (const auto& c : kCases) {
+    const size_t n = f.req(
+        "walk.state",
+        [&c](cbor::Writer& w) {
+          w.map(1).text("state").text(c.text);
+        },
+        out, sizeof(out));
+    ASSERT_TRUE(f.res_ok(out, n)) << c.text;
+    EXPECT_EQ(f.walk_seen.status, c.status) << c.text;
+  }
+}
+
+TEST(DispatchWalk, UnknownKeysIgnored) {
+  SvcFixture f;
+  uint8_t out[512];
+  const size_t n = f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(3)
+            .text("state").text("walking")
+            .text("future_field").uint_v(9)
+            .text("another").text("x");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_EQ(f.walk_seen.status, features::WalkStatus::Walking);
+}
+
+TEST(DispatchWalk, MissingStateIsBadRequest) {
+  SvcFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  f.req("walk.state", [](cbor::Writer& w) { w.map(1).text("total_m").uint_v(1); },
+        out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  // params 省略 (空 map) も state 必須で bad_request。
+  f.req("walk.state", nullptr, out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+}
+
+TEST(DispatchWalk, BadTypeIsBadRequest) {
+  SvcFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  // state が文字列でない。
+  f.req("walk.state", [](cbor::Writer& w) { w.map(1).text("state").uint_v(1); },
+        out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  // u32 キーに文字列。
+  f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(2).text("state").text("walking").text("total_m").text("20400");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  // u32 キーに負数。
+  f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(2).text("state").text("walking").text("permille").int_v(-1);
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  // i64 キーに文字列。
+  f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(2).text("state").text("walking").text("eta_epoch").text("soon");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+}
+
+TEST(DispatchWalk, HelloCapsHasWalk) {
+  SvcFixture f;
+  uint8_t out[512];
+  const size_t n = f.req(
+      "hello",
+      [](cbor::Writer& w) {
+        w.map(3).text("proto").uint_v(1).text("app").text("0.1.0").text("os").text("android");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  cbor::Value caps;
+  ASSERT_TRUE(res_r_find(out, n, "caps", &caps));
+  size_t cnt = 0;
+  ASSERT_TRUE(cbor::container_count(caps, &cnt));
+  bool found = false;
+  for (size_t i = 0; i < cnt; ++i) {
+    cbor::Value v;
+    ASSERT_TRUE(cbor::array_at(caps, i, &v));
+    const char* s = nullptr;
+    size_t sn = 0;
+    ASSERT_TRUE(cbor::as_text(v, &s, &sn));
+    if (std::string(s, sn) == "walk") found = true;
+  }
+  EXPECT_TRUE(found);
+}
+
+TEST(DispatchWalk, TruncatesLongStrings) {
+  SvcFixture f;
+  uint8_t out[512];
+  // 時計のバッファ (route 33B / next_cp 25B / msg 49B) を超える文字列は
+  // 安全に切り詰める (電話側の切り詰め漏れ対策)。
+  std::string route(40, 'a');
+  std::string cp(30, 'b');
+  std::string msg(60, 'c');
+  const size_t n = f.req(
+      "walk.state",
+      [&](cbor::Writer& w) {
+        w.map(4)
+            .text("state").text("walking")
+            .text("route").text(route.c_str())
+            .text("next_cp").text(cp.c_str())
+            .text("msg").text(msg.c_str());
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_EQ(std::strlen(f.walk_seen.route), sizeof(f.walk_seen.route) - 1);
+  EXPECT_EQ(std::strlen(f.walk_seen.next_cp),
+            sizeof(f.walk_seen.next_cp) - 1);
+  EXPECT_EQ(std::strlen(f.walk_seen.msg), sizeof(f.walk_seen.msg) - 1);
+}
+
+TEST(DispatchWalk, ParamsNotMapIsBadRequest) {
+  SvcFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  // p が map でなく array → bad_request。
+  f.req("walk.state", [](cbor::Writer& w) { w.array(1).uint_v(1); }, out,
+        sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  EXPECT_FALSE(f.walk_called);
+  // p が text でも同様。
+  f.req("walk.state", [](cbor::Writer& w) { w.text("idle"); }, out,
+        sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  EXPECT_FALSE(f.walk_called);
+}
+
+TEST(DispatchWalk, U32OverflowIsBadRequest) {
+  SvcFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  // u32 キーに 0x100000000 (CBOR は uint64 で表現) → bad_request。
+  f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(2)
+            .text("state").text("walking")
+            .text("total_m").uint_v(0x100000000ull);
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  EXPECT_FALSE(f.walk_called);
+}
+
+TEST(DispatchWalk, I64TextIsBadRequest) {
+  SvcFixture f;
+  uint8_t out[512];
+  const char* code = nullptr;
+  size_t cn = 0;
+  // i64 キー (updated_epoch) に text → bad_request。
+  f.req(
+      "walk.state",
+      [](cbor::Writer& w) {
+        w.map(2).text("state").text("walking").text("updated_epoch").text("now");
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_err_code(out, 512, &code, &cn));
+  EXPECT_EQ(std::string(code, cn), "bad_request");
+  EXPECT_FALSE(f.walk_called);
+}
+
+TEST(DispatchWalk, TruncatesAtUtf8Boundary) {
+  SvcFixture f;
+  uint8_t out[512];
+  // route バッファは 33B (有効 32B)。30 バイトの ASCII + "あ" (3B) = 33B は
+  // 33 バイト目で切ると「あ」の途中になるので、文字ごと落として 30B にする。
+  std::string route(30, 'a');
+  route += "\xE3\x81\x82";  // あ
+  ASSERT_EQ(route.size(), 33u);
+  const size_t n = f.req(
+      "walk.state",
+      [&](cbor::Writer& w) {
+        w.map(2).text("state").text("walking").text("route").text(route.c_str());
+      },
+      out, sizeof(out));
+  ASSERT_TRUE(f.res_ok(out, n));
+  EXPECT_EQ(std::strlen(f.walk_seen.route), 30u);
+  EXPECT_EQ(f.walk_seen.route[29], 'a');
+  // 末尾が継続バイト (0x80..0xBF) になっていない = 壊れた UTF-8 でない。
+  const auto last =
+      static_cast<uint8_t>(f.walk_seen.route[std::strlen(f.walk_seen.route) - 1]);
+  EXPECT_LT(last, 0x80u);
 }

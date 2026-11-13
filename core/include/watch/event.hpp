@@ -37,6 +37,8 @@ enum class EventType : uint16_t {
   StepsChanged,          // arg0 = 今日の歩数
   RaiseDetected,         // 腕上げ判定 (firmware が画面ONに使う。arg0=0)
   OtaProgress,           // arg0 = 0-100 (状態詳細は firmware 側参照)
+  WalkQueryRequested,    // ウォーク画面が電話へ状態を要求 (時計→スマホ EVT)
+  WalkStateChanged,      // arg0 = WalkStatus。walk.state を受けて表示が変わった
 };
 
 struct Event {

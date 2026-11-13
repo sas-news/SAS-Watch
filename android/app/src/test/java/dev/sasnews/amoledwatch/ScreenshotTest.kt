@@ -19,6 +19,9 @@ import dev.sasnews.amoledwatch.ui.screens.AlarmContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesContent
 import dev.sasnews.amoledwatch.ui.screens.DevicesUiState
 import dev.sasnews.amoledwatch.ui.screens.FoundUi
+import dev.sasnews.amoledwatch.ui.screens.WalkContent
+import dev.sasnews.amoledwatch.ui.screens.WalkRouteUi
+import dev.sasnews.amoledwatch.ui.screens.WalkUiState
 import dev.sasnews.amoledwatch.ui.screens.FirmwareSendState
 import dev.sasnews.amoledwatch.ui.screens.MemoContent
 import dev.sasnews.amoledwatch.ui.screens.MemoUi
@@ -35,6 +38,10 @@ import dev.sasnews.amoledwatch.ui.screens.ThemeTransferState
 import dev.sasnews.amoledwatch.ui.screens.ThemesContent
 import dev.sasnews.amoledwatch.ui.screens.ThemesUiState
 import dev.sasnews.amoledwatch.ui.theme.AmoledWatchTheme
+import dev.sasnews.amoledwatch.walk.CheckpointOnRoute
+import dev.sasnews.amoledwatch.walk.GeoPoint
+import dev.sasnews.amoledwatch.walk.WalkSnapshot
+import dev.sasnews.amoledwatch.walk.WalkStatus
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -82,6 +89,7 @@ class ScreenshotTest {
                     onFakeBattery = {},
                     onFakeMediaCmd = {},
                     onFakeVoiceMemo = {},
+                    onOpenWalk = {},
                 )
             }
         }
@@ -119,6 +127,7 @@ class ScreenshotTest {
                     onFakeBattery = {},
                     onFakeMediaCmd = {},
                     onFakeVoiceMemo = {},
+                    onOpenWalk = {},
                 )
             }
         }
@@ -150,6 +159,7 @@ class ScreenshotTest {
                     onRefresh = {},
                     onPlay = {},
                     onDelete = {},
+                    onTranscribe = {},
                     onShare = {},
                 )
             }
@@ -358,5 +368,68 @@ class ScreenshotTest {
                 )
             }
         }
+    }
+
+    /** ウォークは縦に長いので、1 枚に全体が入るよう背の高い画面で撮る。 */
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h1000dp-xhdpi")
+    fun walk_screen() {
+        captureRoboImage(filePath = path("walk")) {
+            AmoledWatchTheme {
+                WalkContent(
+                    state = WalkUiState(
+                        hasPermission = true,
+                        routes = listOf(
+                            WalkRouteUi(
+                                id = "sample",
+                                name = "サンプルルート（2.6 km 周回）",
+                                totalM = 2600.0,
+                                points = sampleLoop(),
+                                checkpoints = listOf(
+                                    CheckpointOnRoute("第1関門", GeoPoint(35.6820, 139.7620), 650.0),
+                                    CheckpointOnRoute("第2関門", GeoPoint(35.6800, 139.7584), 1950.0),
+                                ),
+                                selected = true,
+                            ),
+                        ),
+                        snapshot = WalkSnapshot(
+                            state = WalkStatus.WALKING,
+                            route = "サンプルルート（2.6 km 周回）",
+                            totalM = 2600,
+                            doneM = 1620,
+                            remainM = 980,
+                            permille = 623,
+                            elapsedS = 1500,
+                            etaEpoch = 1_761_699_907,
+                            paceSPerKm = 926,
+                            startedEpoch = 1_761_697_500,
+                            nextCp = "第2関門",
+                            nextCpM = 330,
+                            offRouteM = 0,
+                            accuracyM = 8,
+                            updatedEpoch = 1_761_699_000,
+                        ),
+                        current = GeoPoint(35.6814, 139.7614),
+                        busy = false,
+                        error = null,
+                    ),
+                    onRequestPermission = {},
+                    onImport = {},
+                    onSample = {},
+                    onSelectRoute = {},
+                    onDeleteRoute = {},
+                    onStart = {},
+                    onFinish = {},
+                    onRetryTracking = {},
+                    onDismissError = {},
+                )
+            }
+        }
+    }
+
+    /** スケッチ用の周回ルート (35.68, 139.76 周辺の楕円)。 */
+    private fun sampleLoop(): List<GeoPoint> = (0 until 12).map { i ->
+        val a = i * (2.0 * Math.PI / 12.0)
+        GeoPoint(35.68 + 0.0020 * kotlin.math.sin(a), 139.76 + 0.0022 * kotlin.math.cos(a))
     }
 }

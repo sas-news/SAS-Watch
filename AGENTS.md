@@ -12,6 +12,7 @@
 | `docs/perf.md` | 描画パイプラインと性能計測 (`b` ベンチ) |
 | `docs/theme-format.md` / `docs/app-guide.md` | テーマ形式 / アプリの追加方法 |
 | `docs/theme-guide.md` | テーマ作成手順 (theme.json → ビルド → プレビュー → 実機) |
+| `docs/walk-event.md` | 歩く大会モード (ウォーク) の設計・使い方・電池 |
 | `firmware/README.md` | 書き込み・ログ・シリアルのデバッグコマンド・操作方法 |
 | `docs/archive/` | 終わった監査・提案・確認手順 (参照用。更新しない) |
 
@@ -47,7 +48,7 @@
 | sim (デザイン確認) | `cmake -S sim -B sim/build && cmake --build sim/build -j && ./sim/build/snapshot --out sim/screenshots` (デザイン変更は前後のスクショを並べる。安全域・重なり・欠けグリフの監査は 0 件を保つ) |
 | firmware | `cd firmware && . ~/esp/esp-idf/export.sh && IDF_CCACHE_ENABLE=1 idf.py build` |
 | 実機の描画性能 | 書き込み後にモニタで `b` → `bench:` 行 (docs/perf.md) |
-| android | `cd android && ./gradlew :protocol:test :agent:test :app:assembleDebug :app:lint` (JAVA_HOME = mise の temurin-17、SDK = `~/android-sdk`) |
+| android | `cd android && ./gradlew :walk:test :protocol:test :agent:test :app:assembleDebug :app:lint` (JAVA_HOME = mise の temurin-17、SDK = `~/android-sdk`) |
 
 ## ドキュメントの更新
 - タスクを終えたら、同じコミットで `docs/roadmap.md` の `状態:` と、`docs/handoff.md` の「現状」を更新する。

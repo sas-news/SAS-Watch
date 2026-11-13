@@ -89,6 +89,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
         is Evt.OtaResult -> if (evt.ok) "OTA完了" else "OTA失敗: ${evt.msg}"
         is Evt.AgentRequest -> "Agent要求 id=${evt.id}: ${evt.text}"
         is Evt.MemoTranscribeRequest -> "文字起こし要求 id=${evt.id}"
+        is Evt.WalkQuery -> "ウォーク状態の問い合わせ"
         is Evt.Unknown -> "${evt.name}"
     }
 

@@ -55,6 +55,53 @@ bool param_text(const cbor::Value& params, const char* key, const char** s,
   return cbor::as_text(v, s, n);
 }
 
+// ---- walk.state 用のパーサ (省略 = 既定値のまま / 型不正 = false) ----
+bool walk_copy_text(const cbor::Value& params, const char* key, char* out,
+                    size_t cap) {
+  cbor::Value v;
+  if (!cbor::map_find(params, key, &v)) return true;
+  const char* s = nullptr;
+  size_t n = 0;
+  if (!cbor::as_text(v, &s, &n)) return false;
+  if (n >= cap) {
+    n = cap - 1;  // 電話側で切り詰める想定。念のため安全側に倒す。
+    // UTF-8 の途中で切らない: 切り捨てる先頭のバイト s[n] が継続バイト
+    // (0x80..0xBF) なら、その文字の lead byte まで戻す。
+    while (n > 0 && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
+  }
+  std::memcpy(out, s, n);
+  out[n] = '\0';
+  return true;
+}
+
+bool walk_copy_uint(const cbor::Value& params, const char* key,
+                    uint32_t* out) {
+  cbor::Value v;
+  if (!cbor::map_find(params, key, &v)) return true;
+  uint64_t u = 0;
+  if (!cbor::as_uint(v, &u) || u > 0xFFFFFFFFu) return false;
+  *out = static_cast<uint32_t>(u);
+  return true;
+}
+
+bool walk_copy_i64(const cbor::Value& params, const char* key, int64_t* out) {
+  cbor::Value v;
+  if (!cbor::map_find(params, key, &v)) return true;
+  return cbor::as_int(v, out);
+}
+
+// "idle"|"walking"|"finished"|"no_route"|"no_fix"。未知の値は idle 扱い。
+features::WalkStatus walk_status_from_text(const char* s, size_t n) {
+  auto is = [s, n](const char* lit) {
+    return std::strlen(lit) == n && std::memcmp(lit, s, n) == 0;
+  };
+  if (is("walking")) return features::WalkStatus::Walking;
+  if (is("finished")) return features::WalkStatus::Finished;
+  if (is("no_route")) return features::WalkStatus::NoRoute;
+  if (is("no_fix")) return features::WalkStatus::NoFix;
+  return features::WalkStatus::Idle;
+}
+
 // ---------- handlers (params → result map の中身を書く) ----------
 
 DispatchError h_hello(const cbor::Value& params, Services& svc,
@@ -67,7 +114,7 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
   constexpr int kCaps = 4 + SAS_APP_TIMER + SAS_APP_STOPWATCH +
                         SAS_APP_COUNTER + SAS_APP_MEMO + SAS_APP_ALARM +
                         SAS_APP_NOTIFY + SAS_APP_MEDIA + SAS_APP_STEPS +
-                        SAS_APP_AGENT;
+                        SAS_APP_AGENT + SAS_APP_WALK;
   r->map(3)
       .text("proto")
       .uint_v(kProtoVer)
@@ -105,6 +152,9 @@ DispatchError h_hello(const cbor::Value& params, Services& svc,
 #endif
 #if SAS_APP_AGENT
       .text("agent")
+#endif
+#if SAS_APP_WALK
+      .text("walk")
 #endif
       ;
   return DispatchError::Ok;
@@ -685,6 +735,42 @@ DispatchError h_steps_get(const cbor::Value&, Services& svc, cbor::Writer* r) {
   return DispatchError::Ok;
 }
 
+// walk.state — 歩く大会の表示状態 (スマホ → 時計)。
+// キーは省略可 (既定 0 / 空文字)、未知キーは無視、型不正は bad_request。
+// state は必須 (docs/protocol-v1.md §歩く大会)。
+DispatchError h_walk_state(const cbor::Value& params, Services& svc,
+                           cbor::Writer* r) {
+  if (!svc.walk_state) return DispatchError::Internal;
+  if (cbor::type(params) != cbor::Type::Map) return DispatchError::BadRequest;
+  const char* state = nullptr;
+  size_t state_n = 0;
+  if (!param_text(params, "state", &state, &state_n)) {
+    return DispatchError::BadRequest;  // 欠落 or 文字列でない
+  }
+  features::WalkState s;
+  s.status = walk_status_from_text(state, state_n);
+  if (!walk_copy_text(params, "route", s.route, sizeof(s.route)) ||
+      !walk_copy_text(params, "next_cp", s.next_cp, sizeof(s.next_cp)) ||
+      !walk_copy_text(params, "msg", s.msg, sizeof(s.msg)) ||
+      !walk_copy_uint(params, "total_m", &s.total_m) ||
+      !walk_copy_uint(params, "done_m", &s.done_m) ||
+      !walk_copy_uint(params, "remain_m", &s.remain_m) ||
+      !walk_copy_uint(params, "permille", &s.permille) ||
+      !walk_copy_uint(params, "elapsed_s", &s.elapsed_s) ||
+      !walk_copy_i64(params, "eta_epoch", &s.eta_epoch) ||
+      !walk_copy_uint(params, "pace_s_per_km", &s.pace_s_per_km) ||
+      !walk_copy_i64(params, "started_epoch", &s.started_epoch) ||
+      !walk_copy_uint(params, "next_cp_m", &s.next_cp_m) ||
+      !walk_copy_uint(params, "off_route_m", &s.off_route_m) ||
+      !walk_copy_uint(params, "accuracy_m", &s.accuracy_m) ||
+      !walk_copy_i64(params, "updated_epoch", &s.updated_epoch)) {
+    return DispatchError::BadRequest;
+  }
+  svc.walk_state(s, svc.ctx);
+  r->map(0);
+  return DispatchError::Ok;
+}
+
 struct Handler {
   const char* name;
   DispatchError (*fn)(const cbor::Value&, Services&, cbor::Writer*);
@@ -705,6 +791,7 @@ constexpr Handler kHandlers[] = {
     {"ota.start", h_ota_start},       {"ota.status", h_ota_status},
     {"debug.info", h_debug_info},
     {"steps.get", h_steps_get},
+    {"walk.state", h_walk_state},
     {"agent.reply", h_agent_reply},
 };
 

@@ -12,7 +12,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
+    <!-- 歩く大会: 歩行中だけ GPS を使う (WalkService は foregroundServiceType="location") -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- 通知転送の対象アプリを選ぶためにランチャーに出るアプリを列挙する -->
     <queries>
@@ -47,6 +53,12 @@
             android:name=".service.WatchService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- 歩行中の測位用 Foreground Service (歩行中だけ起動する) -->
+        <service
+            android:name=".WalkService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <!-- 音声メモの共有 (WAV) 用 FileProvider -->
         <provider

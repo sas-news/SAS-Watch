@@ -15,7 +15,8 @@
 #   APP_ICON_CP      font_icon_36 のコードポイント (例 0xE425)
 #   APP_ICON_BG      アイコンタイル色 (例 0xFF8A3D)
 #   APP_SUB          applist サブ行の関数 (const char* fn(), ui namespace)。任意
-#   APP_ORDER        applist の並び (既定 50。小さいほど上)
+#   APP_ORDER        applist の並び (既定 50。0..999。小さいほど上。
+#                    生成時は 3 桁ゼロ詰めで数値順にソートする)
 #
 # include すると呼び出しスコープに:
 #   SAS_APP_ENABLED_IDS / SAS_APP_KNOWN_IDS / SAS_APP_ALL_ENABLED
@@ -100,7 +101,22 @@ foreach(_dir IN LISTS _sas_app_dirs)
     set(APP_NAME "${APP_ID}")
   endif()
   if(NOT DEFINED APP_ORDER)
-    set(APP_ORDER 50)  # 50 台が既定。小さいほど applist の上
+    set(APP_ORDER 50)  # 既定 50。0..999 を 3 桁ゼロ詰めして数値順に並べる
+  endif()
+  # applist 行は "${APP_ORDER}@@" の文字列ソートで並べるため、そのままだと
+  # "5@@" が "50@@" より後ろになる。0..999 を 3 桁ゼロ詰めして数値順にする
+  # (同順は後続の id で決着)。
+  if(APP_ORDER LESS 0 OR APP_ORDER GREATER 999)
+    message(FATAL_ERROR
+      "apps: APP_ORDER は 0..999 (${APP_ID} = ${APP_ORDER})")
+  endif()
+  string(LENGTH "${APP_ORDER}" _order_len)
+  if(_order_len EQUAL 1)
+    set(_order_key "00${APP_ORDER}")
+  elseif(_order_len EQUAL 2)
+    set(_order_key "0${APP_ORDER}")
+  else()
+    set(_order_key "${APP_ORDER}")
   endif()
   if(NOT DEFINED APP_ROUTE)
     # 外部アプリ用の動的 Route
@@ -162,9 +178,9 @@ foreach(_dir IN LISTS _sas_app_dirs)
       string(REGEX REPLACE "0x" "" _b0 "${_b0}")
       string(REGEX REPLACE "0x" "" _b1 "${_b1}")
       string(REGEX REPLACE "0x" "" _b2 "${_b2}")
-      list(APPEND _sas_ui_rows_sort "${APP_ORDER}@@  {\"${APP_ID}\", \"\\x${_b0}\\x${_b1}\\x${_b2}\", ${APP_ICON_BG}, \"${APP_NAME}\", ${_sub}, ${APP_ROUTE}},\n")
+      list(APPEND _sas_ui_rows_sort "${_order_key}@@  {\"${APP_ID}\", \"\\x${_b0}\\x${_b1}\\x${_b2}\", ${APP_ICON_BG}, \"${APP_NAME}\", ${_sub}, ${APP_ROUTE}},\n")
     else()
-      list(APPEND _sas_ui_rows_sort "${APP_ORDER}@@  {\"${APP_ID}\", nullptr, 0, \"${APP_NAME}\", ${_sub}, ${APP_ROUTE}},\n")
+      list(APPEND _sas_ui_rows_sort "${_order_key}@@  {\"${APP_ID}\", nullptr, 0, \"${APP_NAME}\", ${_sub}, ${APP_ROUTE}},\n")
     endif()
 
     file(GLOB _feat ${_dir}/feature/*.cpp)

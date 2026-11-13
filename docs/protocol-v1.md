@@ -34,7 +34,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 
 | method | params | result |
 |---|---|---|
-| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media","wifi","ota","steps","agent"]}` |
+| `hello` | `{proto:1, app:"0.1.0", os:"android"}` | `{proto:1, fw:"0.1.0", caps:["timer","stopwatch","counter","memo","theme","audio","alarm","notify","media","wifi","ota","steps","agent","walk"]}` |
 | `time.set` | `{epoch:<int s>, tz_offset_min:<int>}` (`tz_offset_min` は省略可) | `{}` |
 | `device.info` | `{}` | `{battery:<0-100 または不明時 -1>, charging:<bool>, fw:<str>, free_heap:<int>, free_psram:<int>}` |
 | `settings.get` | `{keys:[...]}` (省略・空なら全部) | `{<key>:<value>,...}` |
@@ -59,6 +59,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `ota.start` | `{url:<http(s)://〜 ≤255文字>, sha256:<bytes32>, version:<str>}` | `{}` |
 | `ota.status` | `{}` | `{active:<bool>, stage:<str>, pct:<0-100>, msg:<str>, version:<str>}` |
 | `steps.get` | `{}` | `{steps:<今日の歩数>, goal:<steps.goal の値>}` |
+| `walk.state` | `{state:<str>, route?:<str>, total_m?:<u32>, done_m?:<u32>, remain_m?:<u32>, permille?:<0-1000>, elapsed_s?:<u32>, eta_epoch?:<int64>, pace_s_per_km?:<u32>, started_epoch?:<int64>, next_cp?:<str>, next_cp_m?:<u32>, off_route_m?:<u32>, accuracy_m?:<u32>, updated_epoch?:<int64>, msg?:<str>}` | `{}` | 歩く大会の表示状態。EVT `walk.query` への応答としてスマホ→時計へ送る (§歩く大会) |
 
 `wifi.set` の資格情報は settings keys の表に**入れない**。ssid/pass は
 NVS に直接保存され、読み出し経路は `wifi.status` の ssid のみ
@@ -161,6 +162,7 @@ event の一覧はこの表が唯一の正。
 | `agent.request` | `{id, text}` AI の定型質問。id は返答の `agent.reply` の id と同じ |
 | `ota.progress` | `{pct:<0-100>, stage:<str>}` OTA 進捗 (wifi/download/verify) |
 | `ota.result` | `{ok:<bool>, msg:<str>}` OTA 終了 (ok=true なら直後に再起動) |
+| `walk.query` | `{}` 歩く大会: 時計が今の進捗を要求する。スマホは REQ `walk.state` で返す (§歩く大会) |
 
 ## CBOR 正規形
 両側の実装でバイト列を一致させるため、encode は次の正規形に従う。
@@ -228,6 +230,28 @@ text は UTF-8 で最大 256 バイト (時計の MemoEntry.text)。電話側で
 本文は時計の NVS (`feat.memo` の音声メモスロット) に保存され、
 電話側は音声を `cacheDir/memo_audio/memo_<id>.adp` にキャッシュするだけで、
 本文の正は時計にある。
+
+## 歩く大会 (walk)
+
+決まったルートを歩く大会用。**測位・ルート・計算はスマホが正**で、時計は表示だけを
+持つ (時計に GNSS は無い)。時計は画面を開いている間だけ問い合わせるので、
+測位を時計側で動かし続けることはない。
+
+1. 時計のウォーク画面を開く / 画面が Active のまま 10 秒経過 / 「いま更新」→
+   EVT `walk.query {}`。
+2. スマホは最新状態を組み立てて REQ `walk.state` を送る。params のキーは
+   上表の順で送る。文字列は route ≤32B、next_cp ≤24B、msg ≤48B (UTF-8) に
+   切り詰める。キーは省略可 (省略時 0 / 空文字、時計はキー順に依存しない)。
+3. 時計は状態を保存して画面を更新し、RES `{ok:true, r:{}}` を返す。
+4. `state` は `"idle"|"walking"|"finished"|"no_route"|"no_fix"`。未知の値は
+   `"idle"` として扱う。`permille` は 0..1000、`eta_epoch`/`started_epoch`/
+   `updated_epoch` は epoch 秒 (0 = 不明/未開始/省略)。`off_route_m` は生の逸脱距離で、
+時計は 60m 以上のときだけ「ルートから外れています」を表示する。
+
+スマホは `walk.query` を受けたら必ず 1 回 `walk.state` を返し、加えて
+歩行の開始・終了・ルート外れなど表示が大きく変わったときに自発的に送ってよい。
+時計は自発送信も同じに扱う。時計は Dim / ScreenOff / 別画面では `walk.query` を
+送らない (電池優先)。設計の詳細と画面仕様は `docs/walk-event.md`。
 
 ## Agent (AI)
 時計はオフライン。スマホが OpenAI 互換 API に中継する。

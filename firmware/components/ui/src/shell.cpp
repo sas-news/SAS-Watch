@@ -3,6 +3,7 @@
 //   LVGL を触るのはここ (LVGL タスク) と screens/* (on_event は LVGL タスク)。
 #include "screens/screens.hpp"
 
+#include "app_ui.hpp"  // 生成: apps/*/app.cmake の行 (Route → アプリ id)
 #include "components.hpp"
 #include "faces/faces.hpp"
 #include "perf.hpp"
@@ -334,8 +335,22 @@ constexpr int8_t kRouteScreen[] = {
     /*Ota*/ 9,            // ota
     /*Confirm*/ -1,
     /*Alarm*/ 11,         // alarm
+    // 19..31 は Route enum の予約 (未使用)。App0 = 32 まで添字を埋める。
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    // 外部アプリ (App0..App7) はテーマの画面スキン対象外。
+    /*App0*/ -1, /*App1*/ -1, /*App2*/ -1, /*App3*/ -1,
+    /*App4*/ -1, /*App5*/ -1, /*App6*/ -1, /*App7*/ -1,
 };
-static_assert(sizeof(kRouteScreen) == 19, "Route enum と同期");
+static_assert(sizeof(kRouteScreen) == 40,
+              "Route enum と同期 (App0..App7 を含む)");
+
+// Route → テーマ画面 index (-1 = スキン対象外)。範囲外の Route は -1。
+constexpr int8_t screen_index_of(watch::Route r) {
+  const int idx = static_cast<int>(r);
+  return idx < static_cast<int>(sizeof(kRouteScreen))
+             ? kRouteScreen[idx]
+             : static_cast<int8_t>(-1);
+}
 
 // 背景画像が消えるとき画面ブロックを返す。
 void scr_skin_free(lv_event_t* e) {
@@ -436,16 +451,21 @@ void skin_front(lv_obj_t* scr, int8_t sidx) {
   }
 }
 
-// Route → ログ用の画面名 (テーマ名表 + スキン対象外の3種)。
+// Route → ログ用の画面名 (テーマ名表 + スキン対象外の3種 + 外部アプリ id)。
 const char* route_name(watch::Route r) {
-  const int8_t sidx = kRouteScreen[static_cast<int>(r)];
+  const int8_t sidx = screen_index_of(r);
   if (sidx >= 0) return watch::kThemeScreenNames[sidx];
   switch (r) {
     case watch::Route::About: return "about";
     case watch::Route::Dev: return "dev";
     case watch::Route::Confirm: return "confirm";
-    default: return "none";
+    default: break;
   }
+  // 外部アプリ (App0..) は app.cmake の id (例 "walk") を返す。
+  for (size_t i = 0; i < kSasAppRowCount; ++i) {
+    if (kSasAppRows[i].route == r) return kSasAppRows[i].id;
+  }
+  return "none";
 }
 
 void swap_screen(watch::Route r, bool rebuild = false) {
@@ -482,7 +502,7 @@ void swap_screen(watch::Route r, bool rebuild = false) {
   lv_obj_t* scr = lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(scr, t.bg, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-  const int8_t sidx = kRouteScreen[static_cast<int>(r)];
+  const int8_t sidx = screen_index_of(r);
   ui::theme_apply_screen_tokens(sidx);  // v4: 画面単位の色上書き
   skin_base(scr, sidx);  // 画面スキン (bg+scrim+deco back) は最背面
   if (r == watch::Route::Home) s_home = scr;
@@ -1052,6 +1072,7 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::FaceChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::AgentStatusChanged, bus_cb,
                          nullptr);
+    s_ctx.bus->subscribe(watch::EventType::WalkStateChanged, bus_cb, nullptr);
   }
   // 設定されたテーマを最初の画面構築より先に適用する。
   if (s_ctx.settings) theme_apply(s_ctx.settings->theme);
