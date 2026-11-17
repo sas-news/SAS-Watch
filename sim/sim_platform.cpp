@@ -98,6 +98,19 @@ class SimAudio : public watch::AudioPort {
     // 見た目用に擬似レベルを揺らす。
     return static_cast<uint8_t>(30 + (s_clock.now_ms() / 300) % 40);
   }
+  // AI dictation の録音ストリーム。sim には BLE が無いのでデータは
+  // 生成しない (部分文字起こしは snapshot が feature API で直接流す)。
+  bool can_record_stream() const override { return true; }
+  bool record_stream_enable(bool enable) override {
+    stream_ = enable;
+    return true;
+  }
+  bool record_stream_read(void* /*buf*/, size_t* len_inout) override {
+    if (len_inout) *len_inout = 0;
+    return stream_;
+  }
+  uint32_t record_stream_offset() const override { return 0; }
+  uint32_t record_stream_dropped() const override { return 0; }
   bool play_begin(uint32_t memo_id, uint8_t) override {
     if (playing_ || recording_ || !files_.count(memo_id)) return false;
     playing_ = true;
@@ -135,6 +148,7 @@ class SimAudio : public watch::AudioPort {
  private:
   bool recording_ = false;
   bool playing_ = false;
+  bool stream_ = false;
   uint32_t rec_id_ = 0;
   uint32_t play_id_ = 0;
   int64_t rec_start_ms_ = 0;

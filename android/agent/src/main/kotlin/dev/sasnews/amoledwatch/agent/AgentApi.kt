@@ -13,16 +13,50 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** OpenAI 互換 API の接続設定 (設定画面「AI設定」で編集)。 */
+/**
+ * AI の接続設定 (設定画面「AI設定」で編集)。秘密値は AgentPrefs (EncryptedSharedPreferences) に保存。
+ *
+ * - OpenAI 互換: [baseUrl] / [apiKey] / [chatModel] / [sttModel] — 従来のフォールバック経路。
+ * - Muse (useapi.net): [museEnabled] / [museToken] / [museChatId] / [museEmail]。
+ * - Meta realtime ASR (Muse Voice Transcribe): [metaApiKey]。
+ * - [sttMode] は STT 経路の選択 (`auto` / `muse_realtime` / `openai` / `none`)。
+ */
 data class AgentConfig(
-    /** 例: "https://api.openai.com/v1"。ローカルの LLM サーバでも可。 */
-    val baseUrl: String = "https://api.openai.com/v1",
+    /**
+     * 自前 muse2api (OpenAI 互換) の接続先。
+     * 既定は Tailscale Serve (tailnet 内のみ・TLS) のアドレス。
+     * 同じ Wi-Fi 内なら `http://192.168.10.10:18610/v1` も使える。
+     * 公開 URL (`https://muse.sasnews.dev`) は既定にしない。
+     */
+    val baseUrl: String = "https://sas.tail85c8c5.ts.net:8445/v1",
     val apiKey: String = "",
-    val chatModel: String = "gpt-4o-mini",
+    val chatModel: String = "muse-spark",
     val sttModel: String = "whisper-1",
+    /** Muse (useapi.net) を返答に使う。OFF なら OpenAI 互換 chat/completions。 */
+    val museEnabled: Boolean = false,
+    /** useapi.net の API トークン (`user:12345-...`)。 */
+    val museToken: String = "",
+    /** 送信先の Muse chatId (空なら新規作成して保存)。 */
+    val museChatId: String = "",
+    /** Muse アカウントのメール (チャット作成時の email)。 */
+    val museEmail: String = "",
+    /** Meta Model API キー (`LLM_...`)。Muse Voice Transcribe 用。 */
+    val metaApiKey: String = "",
+    /** STT 方式。[SttModes] のいずれか。 */
+    val sttMode: String = SttModes.AUTO,
+    /** ASR の languageBias (既定: Japanese)。 */
+    val languageBias: List<String> = listOf("Japanese"),
+    /** ASR の keywords (誤認識しやすい固有名詞)。 */
+    val asrKeywords: List<String> = emptyList(),
 ) {
-    /** API キーと Base URL が揃っているか。 */
+    /** OpenAI 互換 API のキーと Base URL が揃っているか。 */
     fun usable(): Boolean = baseUrl.isNotBlank() && apiKey.isNotBlank()
+
+    /** Meta realtime ASR を使えるか。 */
+    fun metaAsrUsable(): Boolean = metaApiKey.isNotBlank()
+
+    /** Muse (useapi.net) に送れるか。 */
+    fun museUsable(): Boolean = museEnabled && museToken.isNotBlank()
 }
 
 /**
@@ -37,7 +71,14 @@ class AgentApi(
         .build(),
 ) {
 
-    /** WAV を送って書き起こしテキストを返す。 */
+    /**
+     * 一括 STT 用のクライアント。3 分の音声 (WAV ≒ 5.8MB) を送っても切れないよう
+     * 転送タイムアウトを長めにする。音声はメモリ内の WAV だけで、ディスクには書かない。
+     */
+    private val transcribeClient: OkHttpClient =
+        client.newBuilder().callTimeout(180, TimeUnit.SECONDS).build()
+
+    /** WAV (メモリ内) を送って書き起こしテキストを返す。 */
     suspend fun transcribe(config: AgentConfig, wav: ByteArray): String =
         withContext(Dispatchers.IO) {
             val body = MultipartBody.Builder()
@@ -54,7 +95,7 @@ class AgentApi(
                 .header("Authorization", "Bearer ${config.apiKey}")
                 .post(body)
                 .build()
-            client.newCall(req).execute().use { res ->
+            transcribeClient.newCall(req).execute().use { res ->
                 if (!res.isSuccessful) {
                     throw IOException("STT HTTP ${res.code}")
                 }
@@ -67,12 +108,17 @@ class AgentApi(
     /**
      * システムプロンプト + 会話履歴 (question, answer のペア) + 新しい質問で
      * chat/completions を呼び、返答本文を返す。
+     *
+     * `stream:true` を要求する。サーバーが `text/event-stream` を返せば SSE の差分を
+     * 集めて [onDelta] に累積本文を渡す (muse2api など OpenAI 互換サーバー)。
+     * JSON で返ってきた場合は従来どおり `choices[0].message.content` を読む。
      */
     suspend fun chat(
         config: AgentConfig,
         systemPrompt: String,
         history: List<Pair<String, String>>,
         question: String,
+        onDelta: ((String) -> Unit)? = null,
     ): String = withContext(Dispatchers.IO) {
         val messages = JsonArray()
         messages.add(JsonObject().apply {
@@ -96,6 +142,8 @@ class AgentApi(
         val body = JsonObject().apply {
             addProperty("model", config.chatModel)
             add("messages", messages)
+            // 応答を早く受け取る (対応していないサーバーは JSON で返してくる)。
+            addProperty("stream", true)
         }
         val req = Request.Builder()
             .url("${config.baseUrl.trimEnd('/')}/chat/completions")
@@ -106,9 +154,44 @@ class AgentApi(
             if (!res.isSuccessful) {
                 throw IOException("chat HTTP ${res.code}")
             }
-            JsonParser.parseString(res.body?.string() ?: "")
+            val contentType = res.header("Content-Type") ?: ""
+            if (contentType.contains("text/event-stream", ignoreCase = true)) {
+                val source = res.body?.source() ?: throw IOException("chat: 応答が空です")
+                val parser = SseParser()
+                val acc = StringBuilder()
+                var done = false
+                while (!done) {
+                    val line = source.readUtf8Line() ?: break
+                    val sse = parser.feedLine(line) ?: continue
+                    val data = sse.data.trim()
+                    if (data.isEmpty()) continue
+                    if (data == "[DONE]") break
+                    val o = try {
+                        JsonParser.parseString(data) as? JsonObject
+                    } catch (e: Exception) {
+                        continue
+                    } ?: continue
+                    val choices = o.getAsJsonArray("choices") ?: continue
+                    if (choices.size() == 0) continue
+                    val choice = choices.get(0) as? JsonObject ?: continue
+                    val delta = choice.getAsJsonObject("delta")?.get("content")?.asString
+                    if (!delta.isNullOrEmpty()) {
+                        acc.append(delta)
+                        onDelta?.invoke(acc.toString())
+                    }
+                    if (choice.get("finish_reason")?.takeIf { !it.isJsonNull } != null) done = true
+                }
+                val text = acc.toString()
+                if (text.isBlank()) throw IOException("chat: 応答に content が無い")
+                return@withContext text
+            }
+            // 非ストリーム応答 (サーバーが stream を無視した場合)。
+            val choices = JsonParser.parseString(res.body?.string() ?: "")
                 .asJsonObject?.getAsJsonArray("choices")
-                ?.get(0)?.asJsonObject
+            if (choices == null || choices.size() == 0) {
+                throw IOException("chat: 応答に content が無い")
+            }
+            (choices.get(0) as? JsonObject)
                 ?.getAsJsonObject("message")?.get("content")?.asString
                 ?: throw IOException("chat: 応答に content が無い")
         }

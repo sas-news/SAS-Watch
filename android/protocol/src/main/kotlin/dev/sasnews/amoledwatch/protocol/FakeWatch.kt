@@ -522,6 +522,19 @@ class FakeWatch(
                     ),
                 ),
             )
+            "agent.partial" -> {
+                // protocol-v1.md: {id, text, final?}。text は最大768バイト、final 省略時 false。
+                val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
+                val text = (p.value["text"] as? Cbor.Ctext)?.value
+                if (id == null || id !in 0..Frame.MAX_MSG_ID || text == null ||
+                    text.toByteArray(Charsets.UTF_8).size > Req.AgentPartial.TEXT_MAX_BYTES
+                ) {
+                    return Res.errCbor("bad_request", "agent.partial")
+                }
+                val fin = (p.value["final"] as? Cbor.Cbool)?.value ?: false
+                lastAgentPartial = Triple(id, text, fin)
+                Res.okCbor()
+            }
             "agent.reply" -> {
                 // core: {id, text}。id は要求と同じ値。
                 val id = (p.value["id"] as? Cbor.Cint)?.value?.toInt()
@@ -631,6 +644,10 @@ class FakeWatch(
     var lastAgentReply: Pair<Int, String>? = null
         private set
 
+    /** agent.partial REQ で受け取った最後の部分文字起こし (id, text, final)。 */
+    var lastAgentPartial: Triple<Int, String, Boolean>? = null
+        private set
+
     private var agentReqId = 0
 
     /** 時計側からの定型質問を模倣する (EVT agent.request)。返り値は要求 id。 */
@@ -640,7 +657,7 @@ class FakeWatch(
         return id
     }
 
-    /** 「話しかける」の録音を模倣する (BULK kind="agent_audio" で ADP1 を push)。
+    /** 「話しかける」の音声を模倣する (BULK kind="agent_audio" で ADP1 を push)。
      *  bulkOutListener 経由でフレームを出す。返り値は要求 id。 */
     fun simulateAgentAudio(sec: Int = 3, mtuSize: Int = 247): Int {
         val id = ++agentReqId
@@ -650,6 +667,85 @@ class FakeWatch(
         }
         pushBulk(id, "agent_audio", Adpcm.pcmToAdp1(pcm), mtuSize)
         return id
+    }
+
+    /**
+     * 「話しかける」のリアルタイム dictation を模倣する (BULK kind="dictation")。
+     * ADPCM を 232B チャンクで BULK_START(size=0, sha=ゼロ32B) → CHUNK… → END と流す。
+     * 返り値は要求 id。`simulateDictationStart/simulateDictationEnd` を使えば、
+     * チャンクを途切れさせて無音タイムアウトも試せる。
+     */
+    fun simulateDictation(sec: Int = 2, mtuSize: Int = 247): Int {
+        val id = ++agentReqId
+        val data = dictationAudio(sec)
+        pushDictationStart(id, mtuSize)
+        pushDictationChunks(id, data, mtuSize)
+        pushDictationEnd(id, mtuSize)
+        return id
+    }
+
+    /**
+     * 無音タイムアウトの動作確認用: BULK_START と CHUNK だけ流し、BULK_END を送らない。
+     * スマホ側は 5 秒 audio が来ないと自動確定する (protocol-v1.md)。
+     */
+    fun simulateDictationWithoutEnd(sec: Int = 1, mtuSize: Int = 247): Int {
+        val id = ++agentReqId
+        pushDictationStart(id, mtuSize)
+        pushDictationChunks(id, dictationAudio(sec), mtuSize)
+        return id
+    }
+
+    /** dictation の BULK_START だけを流す (id を指定)。 */
+    fun simulateDictationStart(id: Int, mtuSize: Int = 247) = pushDictationStart(id, mtuSize)
+
+    /** 進行中の dictation に ADPCM を追加で流す (無音タイムアウトのテスト用)。 */
+    fun simulateDictationChunks(id: Int, sec: Int = 1, mtuSize: Int = 247) =
+        pushDictationChunks(id, dictationAudio(sec), mtuSize)
+
+    /** dictation の BULK_END を流す。 */
+    fun simulateDictationEnd(id: Int, mtuSize: Int = 247) = pushDictationEnd(id, mtuSize)
+
+    /** 440Hz トーンの IMA-ADPCM (ヘッダ無し, 16kHz mono)。 */
+    fun dictationAudio(sec: Int): ByteArray {
+        val rate = Adpcm.SAMPLE_RATE
+        val pcm = ShortArray(rate * sec) { i ->
+            (kotlin.math.sin(2.0 * Math.PI * 440.0 * i / rate) * 9000).toInt().toShort()
+        }
+        return Adpcm.encodeIma(pcm)
+    }
+
+    private fun pushDictationStart(id: Int, mtuSize: Int) {
+        val listener = bulkOutListener ?: return
+        for (f in Fragmenter.fragment(
+            Frame.TYPE_BULK_START, id,
+            BulkCodec.encodeStart(id, DictationReceiver.KIND, 0, ByteArray(32), 232), mtuSize,
+        )) {
+            listener(f.encode())
+        }
+    }
+
+    private fun pushDictationChunks(id: Int, data: ByteArray, mtuSize: Int) {
+        val listener = bulkOutListener ?: return
+        var off = 0
+        while (off < data.size) {
+            val n = minOf(232, data.size - off)
+            for (f in Fragmenter.fragment(
+                Frame.TYPE_BULK_CHUNK, id,
+                BulkCodec.encodeChunk(id, off.toLong(), data.copyOfRange(off, off + n)), mtuSize,
+            )) {
+                listener(f.encode())
+            }
+            off += n
+        }
+    }
+
+    private fun pushDictationEnd(id: Int, mtuSize: Int) {
+        val listener = bulkOutListener ?: return
+        for (f in Fragmenter.fragment(
+            Frame.TYPE_BULK_END, id, BulkCodec.encodeEnd(id), mtuSize,
+        )) {
+            listener(f.encode())
+        }
     }
 
     /** data を BULK_START→CHUNK…→END のフレーム列で bulkOutListener に流す。 */

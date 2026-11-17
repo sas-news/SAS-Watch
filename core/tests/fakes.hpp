@@ -108,6 +108,11 @@ class FakeAudio : public AudioPort {
   uint32_t rec_elapsed_s = 0;
   // 再生中に止まらないでほしいとき true (自然終了させない)。
   bool play_forever = true;
+  // 録音ストリーム (dictation) 用のテストノブ。
+  bool stream_ok = true;           // false = この個体ではストリーム不可
+  bool fail_stream_enable = false;
+  int stream_enable_calls = 0;
+  uint32_t stream_dropped = 0;
 
   struct BeepRec { BeepKind kind; uint8_t vol; };
   std::vector<BeepRec> beeps;
@@ -156,6 +161,52 @@ class FakeAudio : public AudioPort {
     return static_cast<uint32_t>((clock_->now_ms() - rec_start_ms_) / 1000);
   }
   uint8_t record_level() const override { return 42; }
+
+  // ---- 録音ストリーム (dictation) ----
+  // 実機のリングバッファを真似る。テストは stream_feed() でデータを積み、
+  // offset が欠落で飛ぶことを確かめられる。
+  bool can_record_stream() const override { return stream_ok; }
+  bool record_stream_enable(bool enable) override {
+    ++stream_enable_calls;
+    if (enable) {
+      if (fail_stream_enable) return false;
+      stream_enabled_ = true;
+      stream_total_ = 0;
+      stream_avail_ = 0;
+      return true;
+    }
+    stream_enabled_ = false;
+    stream_total_ = 0;
+    stream_avail_ = 0;
+    return true;
+  }
+  bool record_stream_read(void* buf, size_t* len_inout) override {
+    if (!len_inout) return false;
+    if (!stream_enabled_ || !buf) {
+      *len_inout = 0;
+      return false;
+    }
+    const size_t n = std::min(*len_inout, static_cast<size_t>(stream_avail_));
+    std::memset(buf, 0x5A, n);
+    stream_avail_ -= static_cast<uint32_t>(n);
+    *len_inout = n;
+    return true;
+  }
+  uint32_t record_stream_offset() const override {
+    return stream_total_ - stream_avail_;
+  }
+  uint32_t record_stream_dropped() const override { return stream_dropped; }
+
+  // テスト用: 録音ストリームに n バイト積む / 古い n バイトを捨てる。
+  void stream_feed(uint32_t n) {
+    stream_total_ += n;
+    stream_avail_ += n;
+  }
+  void stream_drop_oldest(uint32_t n) {
+    const uint32_t d = std::min(n, stream_avail_);
+    stream_avail_ -= d;
+    stream_dropped += d;
+  }
 
   bool play_begin(uint32_t memo_id, uint8_t volume) override {
     if (fail_play_begin || playing_ || recording_) return false;
@@ -229,6 +280,9 @@ class FakeAudio : public AudioPort {
   uint32_t rec_id_ = 0;
   int64_t rec_start_ms_ = 0;
   int64_t play_end_ms_ = 0;
+  bool stream_enabled_ = false;
+  uint32_t stream_total_ = 0;  // 積んだ累計 (offset = total - avail)
+  uint32_t stream_avail_ = 0;  // 未読バイト数
   // id → {秒数, バイト列}
   std::map<uint32_t, std::pair<uint32_t, std::vector<uint8_t>>> files_;
 };

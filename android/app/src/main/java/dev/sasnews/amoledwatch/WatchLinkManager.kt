@@ -15,6 +15,7 @@ import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.DebugInfo
 import dev.sasnews.amoledwatch.protocol.DeviceInfo
 import dev.sasnews.amoledwatch.protocol.Evt
+import dev.sasnews.amoledwatch.protocol.InboundBulkEvent
 import dev.sasnews.amoledwatch.protocol.HelloResult
 import dev.sasnews.amoledwatch.protocol.MediaCmd
 import dev.sasnews.amoledwatch.protocol.MemoAudioInfo
@@ -163,6 +164,7 @@ class WatchLinkManager(private val app: WatchApp) {
 
     private fun open(l: WatchLink) {
         _link.value?.close()
+        app.agentBridge.onLinkReset()
         _hello.value = null
         _deviceInfo.value = null
         _settings.value = null
@@ -171,18 +173,41 @@ class WatchLinkManager(private val app: WatchApp) {
         _steps.value = null
         _link.value = l
         WatchService.start(app)
+        var lastState: LinkState = LinkState.Disconnected
         scope.launch {
             l.state.collect { st ->
+                if (st is LinkState.Connected) {
+                    if (lastState !is LinkState.Connected) {
+                        // 再接続: 切断中に出せなかった agent.reply を送る。
+                        app.agentBridge.flushPendingReplies(l)
+                    }
+                    handshake(l)
+                } else if (lastState is LinkState.Connected) {
+                    // BLE が切れた (自動再接続中) / 明示的な切断。
+                    app.agentBridge.onLinkLost()
+                }
+                lastState = st
                 WatchService.update(app)
-                if (st is LinkState.Connected) handshake(l)
             }
         }
         scope.launch {
             l.events.collect { evt -> onEvent(l, evt) }
         }
         scope.launch {
-            // 時計→スマホの BULK 完成品。kind="agent_audio" は AI の録音。
-            l.incomingBulk.collect { t -> app.agentBridge.onBulk(l, t) }
+            // 時計→スマホの BULK。dictation は PCM にデコード済みで届く。
+            l.inbound.collect { evt ->
+                when (evt) {
+                    is InboundBulkEvent.DictationStart ->
+                        app.agentBridge.onDictationStart(l, evt.id)
+                    is InboundBulkEvent.DictationAudio ->
+                        app.agentBridge.onDictationPcm(l, evt.id, evt.pcm)
+                    is InboundBulkEvent.DictationEnd ->
+                        app.agentBridge.onDictationEnd(l, evt.id)
+                    is InboundBulkEvent.Completed ->
+                        app.agentBridge.onBulk(l, evt.transfer)
+                    is InboundBulkEvent.Ack -> {}
+                }
+            }
         }
     }
 
@@ -537,6 +562,12 @@ class WatchLinkManager(private val app: WatchApp) {
 
     /** 仮想時計に音声メモを録ったふりをさせる (デバッグ画面から)。 */
     fun simulateVoiceMemo() = fakeConnection()?.fake?.simulateVoiceMemo()
+
+    /** 仮想時計に dictation (リアルタイム文字起こし) を流させる。 */
+    fun simulateDictation() = fakeConnection()?.fake?.simulateDictation()
+
+    /** 仮想時計に「音声入力が BULK_END で終わらない」dictation を流す (5秒無音の自動確定)。 */
+    fun simulateDictationWithoutEnd() = fakeConnection()?.fake?.simulateDictationWithoutEnd()
 
     fun simulateBattery() {
         val level = (40..95).random()

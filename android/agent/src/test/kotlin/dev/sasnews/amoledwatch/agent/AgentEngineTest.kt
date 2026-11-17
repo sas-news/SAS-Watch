@@ -53,7 +53,7 @@ class AgentEngineTest {
         val body1 = req1.body.readUtf8()
         assertTrue(body1.contains(AgentEngine.SYSTEM_PROMPT.substring(0, 10)))
         assertTrue(body1.contains("今日の天気は？"))
-        assertTrue(body1.contains("gpt-4o-mini"))
+        assertTrue(body1.contains("muse-spark"))
 
         // 2 回目は直前の往復が messages に入る
         server.enqueue(chatBody("15時の会議です"))

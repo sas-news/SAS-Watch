@@ -40,6 +40,7 @@ import dev.sasnews.amoledwatch.ui.screens.AlarmScreen
 import dev.sasnews.amoledwatch.ui.screens.DebugScreen
 import dev.sasnews.amoledwatch.ui.screens.DevicesScreen
 import dev.sasnews.amoledwatch.ui.screens.MemoScreen
+import dev.sasnews.amoledwatch.ui.screens.MuseChatScreen
 import dev.sasnews.amoledwatch.ui.screens.NotifyScreen
 import dev.sasnews.amoledwatch.ui.screens.SettingsScreen
 import dev.sasnews.amoledwatch.ui.screens.ThemesScreen
@@ -78,6 +79,8 @@ fun App(vm: WatchViewModel) {
     var tab by remember { mutableIntStateOf(Tab.DEVICES.ordinal) }
     // ウォークはタブを増やさず、デバイス画面のカードから全画面で開く (docs/walk-event.md §5.3)。
     var walkOpen by remember { mutableStateOf(false) }
+    // Muse チャットもタブを増やさず、デバイス画面のカードから全画面で開く。
+    var museOpen by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val notice by vm.notice.collectAsState()
 
@@ -115,6 +118,10 @@ fun App(vm: WatchViewModel) {
 
     if (walkOpen) {
         WalkScreen(onBack = { walkOpen = false })
+        return
+    }
+    if (museOpen) {
+        MuseChatScreen(vm = vm, onBack = { museOpen = false })
         return
     }
 
@@ -182,6 +189,7 @@ fun App(vm: WatchViewModel) {
                 permissionsGranted = permissionsGranted,
                 onRequestPermissions = { permLauncher.launch(required) },
                 onOpenWalk = { walkOpen = true },
+                onOpenMuse = { museOpen = true },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),

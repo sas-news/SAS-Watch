@@ -988,6 +988,115 @@ T14 の「要判断」4件は変更しない。行の補足テキストを -14px
 
 状態: 完了 (2026-10-29、実機確認待ち)
 
+## 第3弾 (2026-11-17 ユーザー依頼: 実用化 / Muse連携 / 軽量化)
+
+ユーザー方針 (2026-11-17): 軽量化は **時計ファームの軽量化** (flash/RAM・描画・電池)。
+Muse は **Meta の personal AI agent** に直接メッセージを送る。API キーは未発行 (手順を案内)。
+まずリアルタイム文字起こし + Muse 連携、並行して軽量化監査。
+設計・API仕様・セットアップ概要は `docs/muse-integration.md`。
+
+## T38. リアルタイム日本語文字起こし (時計→スマホ→Meta ASR) — 難度 H
+
+- 時計の AI 画面「話しかける」で、録音と同時に 16kHz IMA ADPCM を
+  BULK kind="dictation" でスマホへストリーミングする。
+- スマホは Meta Muse Voice Transcribe (`wss://api.meta.ai/v1/asr/realtime`) へ
+  PCM 16kHz を流し、部分結果を REQ `agent.partial{id,text,final?}` で時計へ返す。
+- 時計は録音中に部分文字起こしを表示。停止で BULK_END → スマホが ASR を確定し
+  `agent.partial{final:true}` → Muse へ送信 → `agent.reply` で回答表示。
+- 仕様: `docs/protocol-v1.md` の「Agent (AI)」「BULK kind="dictation"」。
+- 受け入れ条件: core テスト / firmware build / sim 監査 0 / 実機で
+  8KB/s のストリーミングが 5 秒以上途切れない・部分表示の遅延 1〜2 秒。
+- 担当: watch-stream (共有タスク T38)。
+
+状態: 完了 (2026-11-17、core 273 テスト / firmware build / sim 監査 0 件)。**音声は保存しない** (ファイル/tmp 無し)・上限は 180 秒の安全弁のみ・UI は「聞き取り中」。実機の BLE 実効速度と部分表示遅延は未確認
+
+## T39. スマホ側 Muse クライアント + 設定/チャットUI — 難度 H
+
+- useapi.net Muse API: `POST /v1/muse/chats`、`POST /v1/muse/chats/{chatId}/messages`、
+  `GET /v1/muse/chats/{chatId}/stream` (SSE, Last-Event-ID 再接続)。
+  認証は `Authorization: Bearer user:...`。
+- Meta realtime ASR クライアント、BLE dictation 受信 (ADPCM→PCM16k)、
+  設定画面 (トークン/キー/chatId/STT方式)、Muse チャット画面 (日本語IMEで送信可)。
+- フォールバック: Meta キーなし→既存 OpenAI互換 STT /transcriptions、
+  Muse トークンなし→既存 OpenAI互換 chat/completions。
+- 受け入れ条件: `:protocol:test :agent:test :walk:test :app:assembleDebug :app:lint` 成功、
+  純 Kotlin テストで SSE/JSON/ADPCM を検証。
+- 担当: android-muse (共有タスク T39)。
+
+状態: 完了 (2026-11-17)。0円構成: Vosk オフライン認識 + muse2api (OpenAI互換)。Android 191 テスト / assembleDebug / lint Error 0。APK 40.4MiB (arm64)。音声はメモリのみで保存せず、RECORD_AUDIO 権限も無し。実機の Vosk 認識・BLE 8KB/s・muse2api 実接続は未確認
+
+## T40. Muse/Meta API セットアップ手順書 + スモークテスト — 難度 S
+
+- `docs/muse-setup.md`: Meta Model API キー発行 (dev.meta.ai)、useapi.net 登録・
+  Muse アカウント接続・API token 取得、アプリ設定手順、失敗時の切り分け、
+  代替案 (公式 Model API で muse-spark を直接 chat) との比較。
+- `tools/muse_smoke/`: Muse チャット送信/SSE と ASR 文字起こしのスモークテスト
+  (鍵が無いときはドライラン)。
+- 担当: muse-docs (共有タスク T40)。
+
+状態: 完了 (2026-11-17)。その後「0円」方針に合わせて無料構成向けに改訂中
+
+## T41. 時計ファーム軽量化監査 (flash/RAM/描画/電池) — 難度 M
+
+- 現状の実測/静的解析を整理し、削減候補を KB 見積り・リスク・検証方法付きで提示。
+- app 空き 31%、内蔵 SRAM ~18-21KB、PSRAM はテーマ依存、描画 40〜160ms の
+  内訳と残りボトルネック (縁ストリップ・スライダー塗り・bake 失敗時)。
+- 電池: BLE itvl / walk 10s ポーリング / WoM / deep sleep / light sleep 未実装。
+- 成果物: `docs/lightweight.md`。実測根拠のない主張はしない (AGENTS.md)。
+- 担当: lightweight-audit (共有タスク T41)。
+
+状態: 実装中 (2026-11-17)
+
+## T43. 内蔵文字盤フォントのサブセット化 — 難度 M
+
+- T41 の監査で判明: `firmware/components/ui/src/fonts/font_fc_*.c` 26 個 = 862KB
+  (app の約 29.5%)。faces/ は `digits()` で数字・`:`・`-` しか描かない。
+- ASCII 95 → 実使用 16〜20 グリフに絞って再生成し、**約 653KB 削減**
+  (app 空き 30.4% → 45% 前後) を狙う。日本語/アイコン/本文フォントは変えない。
+- 受け入れ条件: 削減量の実測、sim 監査 0 件・欠けグリフ 0、core テスト、
+  firmware build、数字盤の before/after スクショ比較。
+- 担当: lightweight-audit (共有タスク T43)。
+
+状態: 完了 (2026-11-17、docs/lightweight.md 410行。実測: app 空き 30.4%、フォント 862KB が最大候補)
+
+## T44. サーバーに muse2api を常駐させスマホから接続 (0円) — 難度 M
+
+- ユーザー指示「有料APIは使わない」。`czg86389-hub/muse2api` (MIT, Docker) を
+  このサーバーにデプロイし、Muse の Web セッション (cookie を 1 回投入) を
+  ヘッドレス Chromium 経由で OpenAI 互換 `/v1/chat/completions` にする。
+- 配置: workspace 直下 `services/muse2api` (git 管理外)、ポート 18610、
+  `MUSE2API_KEY` で認証、data/ 永続化。LAN `http://192.168.10.10:18610` と
+  外出先用 `https://muse.sasnews.dev` (既存 Cloudflare Tunnel に追加) の両方。
+- スマホアプリは Base URL/API キーを設定して接続。文字起こしは Vosk を
+  スマホ内で実行するので、クラウド課金は 0。
+- 受け入れ条件: mock での /v1 検証、LAN 疎通、トンネル経由 HTTPS、
+  管理画面の認証、再起動後の永続化、手順書 `docs/muse2api-server.md`。
+- 担当: muse2api-ops (共有タスク T44)。Muse の cookie 投入はユーザー作業。
+
+状態: 完了 (2026-11-17)。czg86389-hub/muse2api v1.6.11 を Docker で常駐 (port 18610, `/admin`)。
+公開トンネル (muse.sasnews.dev) は「公開は危険」とのユーザー判断で**_撤回**し、
+**Tailscale Serve (`https://sas.tail85c8c5.ts.net:8445/v1`, tailnet 限定・TLS・0円)** を既定に。
+LAN `http://192.168.10.10:18610` も代替。残り: Muse cookie 投入 (ユーザー)、実機からの到達確認、
+cookie 投入後のメモリ再計測。docs: `docs/muse2api-server.md`
+
+## T45. 数字フォントの等幅化 (T3 の再実装) — 難度 S
+
+- T16 のグリフ範囲変更で T3 の等幅化 (hmtx 書き換え) が indices ずれで
+  効かなくなっている。gen_fonts.py に TODO 済み。
+- 等幅化は数字の送り幅が変わるため、sim の before/after 差分を見て
+  ユーザー判断で実施 (見た目と電池盤の数字位置に影響)。
+
+状態: 未着手 (T43 の完了報告で発見)
+
+## T42. 統合検証 (Muse連携 + 軽量化) — 難度 M
+
+- T38/T39/T40 の成果を統合し、core / Android / firmware / sim の全検証を通す。
+- protocol の両側整合 (method 名・BULK kind・agent.partial の上限) を確認。
+- 実機で「話しかける→部分文字起こし→Muse返答」の往復確認 (ユーザー操作)。
+- 依存: T38, T39, T40。
+
+状態: 完了 (2026-11-17)。core 273/273、firmware build sas_watch.bin 0x215380 (app 空き 48%)、sim 監査 0 件 + docs/screenshots 再生成、Android 191 テスト + assembleDebug + lint (Error 0)。実機 (時計書き込み・スマホ Tailscale・Vosk 認識・Muse cookie/実応答) が未確認
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。

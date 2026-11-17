@@ -387,3 +387,41 @@ TEST(BulkReceiver, BeginReject) {
   EXPECT_FALSE(rx.start(start, nullptr));
   EXPECT_FALSE(rx.in_progress());
 }
+
+// ---------- dictation (AI のリアルタイム音声) ----------
+
+TEST(Bulk, DictationStartEncode) {
+  // 録音中なので size=0 / sha256 はゼロ埋め / chunk は 232。
+  uint8_t sha[32] = {};
+  uint8_t buf[96];
+  const size_t n = proto::bulk_encode_start(0x0012, "dictation", 0, sha, 232,
+                                            buf, sizeof(buf));
+  ASSERT_GT(n, 0u);
+  proto::BulkStart s;
+  ASSERT_TRUE(proto::bulk_parse_start(buf, n, &s));
+  EXPECT_EQ(s.id, 0x0012);
+  EXPECT_STREQ(s.kind, "dictation");
+  EXPECT_EQ(s.size, 0u);
+  EXPECT_EQ(s.chunk, 232u);
+  for (int i = 0; i < 32; ++i) EXPECT_EQ(s.sha256[i], 0);
+}
+
+TEST(Bulk, DictationChunkHeadAndEnd) {
+  // BULK_CHUNK の先頭は transfer_id:u16 | offset:u32 (LE)。
+  uint8_t head[proto::kBulkChunkHead];
+  proto::bulk_chunk_head(0x0012, 0x00012400u, head);
+  EXPECT_EQ(head[0], 0x12u);
+  EXPECT_EQ(head[1], 0x00u);
+  EXPECT_EQ(head[2], 0x00u);
+  EXPECT_EQ(head[3], 0x24u);
+  EXPECT_EQ(head[4], 0x01u);
+  EXPECT_EQ(head[5], 0x00u);
+
+  // BULK_END {id} をパースできる。
+  uint8_t buf[32];
+  const size_t n = proto::bulk_encode_end(0x0012, buf, sizeof(buf));
+  ASSERT_GT(n, 0u);
+  uint16_t id = 0;
+  ASSERT_TRUE(proto::bulk_parse_end(buf, n, &id));
+  EXPECT_EQ(id, 0x0012);
+}

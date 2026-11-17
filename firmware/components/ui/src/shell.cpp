@@ -1072,6 +1072,9 @@ bool create(const Ctx& c) {
     s_ctx.bus->subscribe(watch::EventType::FaceChanged, bus_cb, nullptr);
     s_ctx.bus->subscribe(watch::EventType::AgentStatusChanged, bus_cb,
                          nullptr);
+    // 部分文字起こしの更新 (T38)。本文は feature から読む。
+    s_ctx.bus->subscribe(watch::EventType::AgentPartialChanged, bus_cb,
+                         nullptr);
     s_ctx.bus->subscribe(watch::EventType::WalkStateChanged, bus_cb, nullptr);
   }
   // 設定されたテーマを最初の画面構築より先に適用する。

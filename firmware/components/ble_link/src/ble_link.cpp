@@ -67,6 +67,14 @@ constexpr uint16_t kConnItvlMin = 80;   // 100ms (単位 1.25ms)
 constexpr uint16_t kConnItvlMax = 160;  // 200ms
 constexpr uint16_t kConnLatency = 4;    // slave latency
 constexpr uint16_t kSupervisionTimeout = 500;  // 5s (単位 10ms)
+// dictation (ADPCM 16kHz = 8KB/s) 中だけ使う高速接続パラメータ。
+// central が拒否しても接続は維持される (取りこぼし前提にフォールバック)。
+// TODO(hw): 実機で central の採否・実効スループット (8KB/s を 5 秒以上)・
+//           電池影響を確認する。
+constexpr uint16_t kConnItvlStreamMin = 12;  // 15ms
+constexpr uint16_t kConnItvlStreamMax = 24;  // 30ms
+constexpr uint16_t kConnLatencyStream = 0;
+constexpr uint16_t kSupervisionStream = 400;  // 4s (単位 10ms)
 
 ble_link_config_t s_cfg;
 bool s_started = false;
@@ -75,6 +83,9 @@ bool s_started = false;
 bool s_adv_wanted = true;
 // true なら広告間隔を低速化する (画面OFF中 ~1.0–1.3s)。
 bool s_adv_slow = false;
+// true なら dictation 中: 短い接続間隔 + 2M PHY を希望する。
+// 開始/停止/切断で必ず切り替える (戻し忘れると電池を食う)。
+bool s_stream_mode = false;
 uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 uint16_t s_mtu = BLE_ATT_MTU_DFLT;
 uint8_t s_addr_type = 0;
@@ -449,14 +460,35 @@ int start_advertising() {
 void request_conn_params(uint16_t conn) {
   // 時計側が望む接続間隔を申し出る (採否は central 次第)。
   ble_gap_upd_params p = {};
-  p.itvl_min = kConnItvlMin;
-  p.itvl_max = kConnItvlMax;
-  p.latency = kConnLatency;
-  p.supervision_timeout = kSupervisionTimeout;
+  if (s_stream_mode) {
+    p.itvl_min = kConnItvlStreamMin;
+    p.itvl_max = kConnItvlStreamMax;
+    p.latency = kConnLatencyStream;
+    p.supervision_timeout = kSupervisionStream;
+  } else {
+    p.itvl_min = kConnItvlMin;
+    p.itvl_max = kConnItvlMax;
+    p.latency = kConnLatency;
+    p.supervision_timeout = kSupervisionTimeout;
+  }
   p.min_ce_len = 0;
   p.max_ce_len = 0;
   const int rc = ble_gap_update_params(conn, &p);
-  if (rc != 0) ESP_LOGW(kTag, "conn param update: %d", rc);
+  if (rc != 0) {
+    ESP_LOGW(kTag, "conn param update (stream=%d): %d",
+             s_stream_mode ? 1 : 0, rc);
+  }
+}
+
+// 2M PHY を希望する (central 次第)。結果は PHY_UPDATE_COMPLETE でログる。
+void request_phy(uint16_t conn) {
+  // dictation 中は 2M/1M、通常は 1M を希望する。
+  const uint8_t mask = s_stream_mode
+                           ? (BLE_GAP_LE_PHY_2M_MASK | BLE_GAP_LE_PHY_1M_MASK)
+                           : BLE_GAP_LE_PHY_1M_MASK;
+  const int rc = ble_gap_set_prefered_le_phy(conn, mask, mask, 0);
+  if (rc != 0) ESP_LOGW(kTag, "prefered phy (stream=%d): %d",
+                        s_stream_mode ? 1 : 0, rc);
 }
 
 int gap_event(ble_gap_event* event, void* arg) {
@@ -472,6 +504,7 @@ int gap_event(ble_gap_event* event, void* arg) {
         ESP_LOGI(kTag, "connected (handle=%d)", s_conn);
         notify_conn_state(true);
         request_conn_params(s_conn);
+        request_phy(s_conn);
         // MTU 交換をこちらからも要求 (protocol: 247 を要求)。
         ble_gattc_exchange_mtu(s_conn, nullptr, nullptr);
         // セキュリティは時計側から開始する: ctrl/bulk の write に
@@ -498,6 +531,9 @@ int gap_event(ble_gap_event* event, void* arg) {
       bulk_lock_sync();  // 転送中でも切断中は進めないので解放
       s_mtu = BLE_ATT_MTU_DFLT;
       s_passkey_conn = BLE_HS_CONN_HANDLE_NONE;
+      // dictation 中だった場合は切断で自動的に解除する (次の接続に
+      // 高速パラメータを持ち越さない)。ble_glue 側の false は no-op。
+      s_stream_mode = false;
       s_ctrl_rx.reset();
       s_bulk_rx_frames.reset();
       // BULK の転送状態は残す: Phone が BULK_START を再送して再開する。
@@ -509,9 +545,10 @@ int gap_event(ble_gap_event* event, void* arg) {
       if (event->conn_update.status == 0) {
         ble_gap_conn_desc d;
         if (ble_gap_conn_find(s_conn, &d) == 0) {
-          ESP_LOGI(kTag, "conn params: itvl=%ums latency=%u",
-                   (unsigned)(d.conn_itvl * 5 / 4),
-                   (unsigned)d.conn_latency);
+          const unsigned itvl_ms = (unsigned)(d.conn_itvl * 5 / 4);
+          ESP_LOGI(kTag, "conn params: itvl=%ums latency=%u (stream=%d%s)",
+                   itvl_ms, (unsigned)d.conn_latency, s_stream_mode ? 1 : 0,
+                   s_stream_mode && itvl_ms > 40 ? ", refused by central" : "");
         }
       }
       break;
@@ -519,6 +556,14 @@ int gap_event(ble_gap_event* event, void* arg) {
     case BLE_GAP_EVENT_MTU:
       s_mtu = event->mtu.value;
       ESP_LOGI(kTag, "mtu=%u", s_mtu);
+      break;
+
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+      // tx/rx = 1 (1M) / 2 (2M) / 3 (coded)。2M になれば dictation が楽。
+      ESP_LOGI(kTag, "phy updated: status=%d tx=%u rx=%u%s",
+               event->phy_updated.status, (unsigned)event->phy_updated.tx_phy,
+               (unsigned)event->phy_updated.rx_phy,
+               event->phy_updated.tx_phy == 2 ? " (2M)" : "");
       break;
 
     case BLE_GAP_EVENT_SUBSCRIBE:
@@ -730,6 +775,18 @@ extern "C" void ble_link_set_adv_rate(bool slow) {
     if (ble_gap_adv_active()) ble_gap_adv_stop();
     start_advertising();
   }
+}
+
+// dictation 中だけリンクを高速化する。開始/停止は必ず対で呼ぶ。
+// TODO(hw): 実機で実効スループット (目標 8KB/s を 5 秒以上) と電池影響を確認。
+extern "C" void ble_link_set_stream_mode(bool enable) {
+  if (enable == s_stream_mode) return;
+  s_stream_mode = enable;
+  ESP_LOGI(kTag, "stream mode %s", enable ? "on (15-30ms/2M PHY wish)"
+                                          : "off (100-200ms)");
+  if (!s_started || s_conn == BLE_HS_CONN_HANDLE_NONE) return;
+  request_conn_params(s_conn);
+  request_phy(s_conn);
 }
 
 extern "C" bool ble_link_synced(void) { return ble_hs_synced() != 0; }

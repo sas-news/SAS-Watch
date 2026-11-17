@@ -175,7 +175,7 @@ sealed interface Req {
     }
 
     /**
-     * AI の返答を時計へ送る (agent.request / BULK kind="agent_audio" に対する応答)。
+     * AI の返答を時計へ送る (agent.request / BULK kind="dictation" に対する応答)。
      * id は要求と同じ値。text は最大960バイト (UTF-8)。
      */
     data class AgentReply(val id: Int, val text: String) : Req {
@@ -183,6 +183,30 @@ sealed interface Req {
         override fun params() = Cbor.Cmap(
             mapOf("id" to Cbor.Cint(id.toLong()), "text" to Cbor.Ctext(text)),
         )
+    }
+
+
+    /**
+     * リアルタイム文字起こしの途中経過 (BULK kind="dictation" の受信側 → 時計)。
+     * text は最大 [TEXT_MAX_BYTES] バイト (UTF-8)。`final` は発話確定。
+     * 空文字でクリア (時計は現在の dictation id と一致するときだけ表示する)。
+     */
+    data class AgentPartial(val id: Int, val text: String, val final: Boolean = false) : Req {
+        override val method get() = "agent.partial"
+
+        override fun params(): Cbor.Cmap = Cbor.Cmap(
+            buildMap {
+                put("id", Cbor.Cint(id.toLong()))
+                put("text", Cbor.Ctext(truncateUtf8(text, TEXT_MAX_BYTES)))
+                // 省略可能 (final:false を送らない) — 時計側の受信バッファを節約する。
+                if (final) put("final", Cbor.Cbool(true))
+            },
+        )
+
+        companion object {
+            /** protocol-v1.md agent.partial の text 上限。 */
+            const val TEXT_MAX_BYTES = 768
+        }
     }
 
 

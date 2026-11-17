@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import dev.sasnews.amoledwatch.agent.AgentBridge
 import dev.sasnews.amoledwatch.agent.AgentPrefs
+import dev.sasnews.amoledwatch.agent.VoskModelStore
+import dev.sasnews.amoledwatch.agent.VoskSttEngine
 import dev.sasnews.amoledwatch.media.MediaBridge
 import dev.sasnews.amoledwatch.service.WatchService
 
@@ -20,13 +22,21 @@ class WatchApp : Application() {
         private set
     lateinit var agentBridge: AgentBridge
         private set
+    lateinit var voskModel: VoskModelStore
+        private set
     lateinit var installedApps: InstalledAppsRepo
         private set
 
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        voskModel = VoskModelStore(this)
         agentBridge = AgentBridge(AgentPrefs(this))
+        // 既定の文字起こし: スマホ内 Vosk (無料・オフライン)。
+        agentBridge.voskReady = { voskModel.isReady() }
+        agentBridge.createVoskStt = { onPartial, onError ->
+            voskModel.newRecognizer()?.let { VoskSttEngine(it, onPartial, onError) }
+        }
         manager = WatchLinkManager(this)
         // 保存済みの歩行セッションを復元し、歩行中なら測位を再開する。
         walk = WalkRepository(this)

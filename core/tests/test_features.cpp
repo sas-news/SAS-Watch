@@ -447,7 +447,7 @@ TEST(Settings, StorageKeyAliases) {
   EXPECT_STREQ(key, "set.brightness");  // 短いキーは従来名のまま
 }
 
-// ---------- Agent (AI) ----------
+// ---------- Agent (AI / dictation) ----------
 
 // audio/power/settings が必要なので配線済みの fixture を足す。
 struct AgentFixture : FeatFixture {
@@ -464,47 +464,109 @@ struct AgentFixture : FeatFixture {
   }
 
   void tick(int64_t at) { features::kAgent.tick(at, ctx); }
+
+  // 「話しかける」→ BULK_START kind="dictation" の送出し完了まで。talk id。
+  uint16_t start_talk() {
+    act(features::kAgent, ActionType::AgentRecordToggle);
+    features::AgentStreamRequest r;
+    EXPECT_TRUE(features::agent_stream_pending(&r));
+    EXPECT_EQ(r.cmd, features::AgentStreamCmd::Start);
+    features::agent_stream_started(r.id);
+    return r.id;
+  }
+
+  // 停止 → 残り drain + BULK_END までを模擬して Thinking に落とす。
+  void stop_talk() {
+    act(features::kAgent, ActionType::AgentRecordToggle);
+    EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+    features::AgentStreamRequest r;
+    EXPECT_TRUE(features::agent_stream_pending(&r));
+    EXPECT_EQ(r.cmd, features::AgentStreamCmd::Stop);
+    features::agent_stream_stopped(r.id, ctx);
+  }
 };
 
-TEST(Agent, RecordStopQueuesAudioSend) {
+TEST(Agent, StartTalkStartsRecordingAndDictation) {
   AgentFixture f;
   f.clock.set_now_ms(10'000);
   f.act(features::kAgent, ActionType::AgentRecordToggle);
   EXPECT_EQ(features::agent_phase(), features::AgentPhase::Recording);
   EXPECT_TRUE(features::agent_recording());
-  EXPECT_GT(f.power.lease_count(), 0);  // 録音中は Deep Sleep しない
+  EXPECT_GT(f.power.lease_count(), 0);  // 聞き取り中は Deep Sleep しない
   EXPECT_EQ(f.audio.record_begin_calls, 1);
+  EXPECT_EQ(f.audio.stream_enable_calls, 1);
+  EXPECT_TRUE(f.audio.recording());
 
-  f.clock.advance_ms(5'000);
-  f.act(features::kAgent, ActionType::AgentRecordToggle);  // 停止→送信へ
-  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
-  // 録音ファイルは確定済み (5秒, kAgentAudioFileId)。
-  uint32_t size = 0;
-  EXPECT_TRUE(f.audio.memo_audio_size(features::kAgentAudioFileId, &size));
-  EXPECT_EQ(size, test::FakeAudio::kFileHeader +
-                      5 * test::FakeAudio::kBytesPerSec);
+  // talk id は聞き取り開始時に採番され、BULK_START の送信要求に出る。
+  features::AgentStreamRequest r;
+  ASSERT_TRUE(features::agent_stream_pending(&r));
+  EXPECT_EQ(r.cmd, features::AgentStreamCmd::Start);
+  EXPECT_NE(r.id, 0);
+  features::agent_stream_started(r.id);
+  EXPECT_FALSE(features::agent_stream_pending(&r));
 
-  features::AgentPending p;
-  ASSERT_TRUE(features::agent_pending(&p));
-  EXPECT_TRUE(p.audio);
-  EXPECT_EQ(p.file_id, features::kAgentAudioFileId);
-  EXPECT_NE(p.id, 0);
-  // 送信開始→ pending 閉鎖。BULK 完了で Thinking。
-  features::agent_send_started(p.id);
-  EXPECT_FALSE(features::agent_pending(&p));
-  features::agent_sent(p.id, true, f.ctx);
-  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
-  // 音声ファイルは送信完了で消える。
-  EXPECT_FALSE(
-      f.audio.memo_audio_size(features::kAgentAudioFileId, nullptr));
+  // 聞き取り中はストリームのポンプ周期で app タスクを起こす。
+  EXPECT_EQ(features::kAgent.next_deadline_ms(),
+            10'000 + features::kAgentPumpMs);
 }
 
-TEST(Agent, RecordingAutoStopsAt30s) {
+TEST(Agent, TalkLimitIsThreeMinuteSafetyValve) {
+  // 音声は保存しないので発話時間の制限は無い。上限は止め忘れ防止の安全弁。
+  EXPECT_EQ(features::kAgentMaxRecordSec, 180u);
   AgentFixture f;
-  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  f.start_talk();
+  f.audio.rec_elapsed_s = features::kAgentMaxRecordSec - 1;
+  f.tick(179'000);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Recording);
   f.audio.rec_elapsed_s = features::kAgentMaxRecordSec;
-  f.tick(0);
+  f.tick(180'000);
   EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+  EXPECT_FALSE(f.audio.recording());
+}
+
+TEST(Agent, StopTalkSendsEndThenThinking) {
+  AgentFixture f;
+  const uint16_t id = f.start_talk();
+  f.clock.advance_ms(5'000);
+  f.stop_talk();
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+  EXPECT_FALSE(f.audio.recording());
+  // stream enable(true) と停止時の enable(false) で 2 回。
+  EXPECT_EQ(f.audio.stream_enable_calls, 2);
+
+  const char* reply = "今日は15時に会議があります。";
+  EXPECT_TRUE(features::agent_on_reply(id, reply, std::strlen(reply), f.ctx));
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Reply);
+  EXPECT_STREQ(features::agent_reply_text(), reply);
+}
+
+TEST(Agent, StartTalkWithoutBleIsError) {
+  AgentFixture f;
+  f.power.set_ble_connected(false);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "スマホとつながっていません");
+  EXPECT_EQ(f.audio.record_begin_calls, 0);
+}
+
+TEST(Agent, StreamUnavailableShowsError) {
+  AgentFixture f;
+  f.audio.stream_ok = false;  // リングバッファを確保できない個体
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(),
+               "音声ストリーミングを開始できません");
+  EXPECT_EQ(f.audio.record_begin_calls, 0);
+}
+
+TEST(Agent, StreamEnableFailureShowsErrorAndKeepsRecordingService) {
+  AgentFixture f;
+  f.audio.fail_stream_enable = true;
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(),
+               "音声ストリーミングを開始できません");
+  EXPECT_EQ(f.audio.record_begin_calls, 0);
 }
 
 TEST(Agent, RecordBeginFailureShowsError) {
@@ -512,7 +574,152 @@ TEST(Agent, RecordBeginFailureShowsError) {
   f.audio.fail_record_begin = true;
   f.act(features::kAgent, ActionType::AgentRecordToggle);
   EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
-  EXPECT_STREQ(features::agent_error_text(), "録音を開始できませんでした");
+  EXPECT_STREQ(features::agent_error_text(), "聞き取りを開始できませんでした");
+  // ストリームを有効化したので後始末で必ず無効化する。
+  EXPECT_EQ(f.audio.stream_enable_calls, 2);
+}
+
+TEST(Agent, PartialUpdatesDuringRecording) {
+  AgentFixture f;
+  const uint16_t id = f.start_talk();
+  const char* p = "今日の";
+  EXPECT_TRUE(features::agent_on_partial(id, p, std::strlen(p), false, f.ctx));
+  EXPECT_STREQ(features::agent_partial_text(), p);
+  EXPECT_FALSE(features::agent_partial_final());
+  const auto* ev = f.rec.last_of(EventType::AgentPartialChanged);
+  ASSERT_NE(ev, nullptr);
+
+  // CUMULATIVE: 前回を置き換える。
+  const char* p2 = "今日の予定は";
+  EXPECT_TRUE(
+      features::agent_on_partial(id, p2, std::strlen(p2), false, f.ctx));
+  EXPECT_STREQ(features::agent_partial_text(), p2);
+
+  // 別の talk id は無視する。
+  EXPECT_FALSE(features::agent_on_partial(id + 1, "x", 1, false, f.ctx));
+  EXPECT_STREQ(features::agent_partial_text(), p2);
+
+  // 空文字でクリア。
+  EXPECT_TRUE(features::agent_on_partial(id, "", 0, false, f.ctx));
+  EXPECT_STREQ(features::agent_partial_text(), "");
+}
+
+TEST(Agent, PartialTruncatesAtUtf8Boundary) {
+  AgentFixture f;
+  const uint16_t id = f.start_talk();
+
+  // 767B の ASCII + 3B の日本語 (計 770B)。768B で切ると UTF-8 の途中に
+  // なるので、日本語の先頭バイトまで戻して 767B にする。
+  std::string s(767, 'a');
+  s += "あ";
+  EXPECT_TRUE(features::agent_on_partial(id, s.data(), s.size(), false, f.ctx));
+  EXPECT_EQ(std::strlen(features::agent_partial_text()), 767u);
+
+  // 長すぎる ASCII は上限ちょうどで切る。
+  std::string big(1'200, 'x');
+  EXPECT_TRUE(
+      features::agent_on_partial(id, big.data(), big.size(), false, f.ctx));
+  EXPECT_EQ(std::strlen(features::agent_partial_text()),
+            features::kAgentPartialMax);
+}
+
+TEST(Agent, FinalPartialLandsInThinking) {
+  AgentFixture f;
+  const uint16_t id = f.start_talk();
+  f.clock.advance_ms(2'000);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);  // 停止 → Sending
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+
+  // BULK_END の前後どちらでも final は受ける。
+  const char* final_text = "今日の予定を教えて";
+  EXPECT_TRUE(features::agent_on_partial(id, final_text,
+                                         std::strlen(final_text), true, f.ctx));
+  EXPECT_TRUE(features::agent_partial_final());
+
+  features::AgentStreamRequest r;
+  ASSERT_TRUE(features::agent_stream_pending(&r));
+  EXPECT_EQ(r.cmd, features::AgentStreamCmd::Stop);
+  features::agent_stream_stopped(r.id, f.ctx);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+  EXPECT_STREQ(features::agent_partial_text(), final_text);
+
+  // 確定後の遅れた途中結果は無視する。
+  EXPECT_FALSE(features::agent_on_partial(id, "遅れ", 3, false, f.ctx));
+  EXPECT_STREQ(features::agent_partial_text(), final_text);
+
+  const char* reply = "予定はありません。";
+  EXPECT_TRUE(features::agent_on_reply(id, reply, std::strlen(reply), f.ctx));
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Reply);
+  // 返答表示中は部分文字起こしを受け付けない。
+  EXPECT_FALSE(features::agent_on_partial(id, "もっと", 6, false, f.ctx));
+}
+
+TEST(Agent, PartialRequiresCurrentTalkId) {
+  AgentFixture f;
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  // START 前でも talk id は採番済み。聞き取り中の id 一致のみ通す。
+  features::AgentStreamRequest r;
+  ASSERT_TRUE(features::agent_stream_pending(&r));
+  EXPECT_TRUE(features::agent_on_partial(r.id, "あ", 3, false, f.ctx));
+  EXPECT_FALSE(features::agent_on_partial(0, "あ", 3, false, f.ctx));
+  EXPECT_FALSE(features::agent_on_partial(r.id, nullptr, 0, false, f.ctx));
+}
+
+TEST(Agent, UnsupportedPhoneWarnsThenErrorsOnStop) {
+  AgentFixture f;
+  f.clock.set_now_ms(1'000);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  // BULK_START を送れない = 旧アプリ。聞き取りは継続し、警告だけ出す。
+  features::AgentStreamRequest r;
+  ASSERT_TRUE(features::agent_stream_pending(&r));
+  features::agent_stream_failed(r.id, true, f.ctx);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Recording);
+  EXPECT_TRUE(features::agent_recording());
+  EXPECT_STREQ(features::agent_notice_text(), "スマホを更新してください");
+
+  // 停止時は END も送れないので、そのままエラー。
+  f.clock.advance_ms(2'000);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "スマホを更新してください");
+  EXPECT_FALSE(f.audio.recording());
+}
+
+TEST(Agent, LateAckClearsUnsupportedWarning) {
+  AgentFixture f;
+  const uint16_t id = f.start_talk();
+  // START 後に ACK が来ない → 旧アプリとみなして警告。
+  f.clock.advance_ms(3'500);
+  features::agent_stream_failed(id, true, f.ctx);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Recording);
+  EXPECT_STREQ(features::agent_notice_text(), "スマホを更新してください");
+  // 遅れて ACK が来たら警告を解除する (誤判定を戻す)。
+  features::agent_stream_acked(id);
+  EXPECT_STREQ(features::agent_notice_text(), "");
+}
+
+TEST(Agent, BleDisconnectDuringRecordingAborts) {
+  AgentFixture f;
+  f.start_talk();
+  f.clock.advance_ms(1'000);
+  f.power.set_ble_connected(false);
+  f.tick(1'000);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Error);
+  EXPECT_STREQ(features::agent_error_text(), "スマホとつながっていません");
+  EXPECT_FALSE(f.audio.recording());
+  // ストリームと音声入力ジョブを確実に畳む。
+  EXPECT_EQ(f.audio.stream_enable_calls, 2);
+}
+
+TEST(Agent, StopWhileSendingIgnoresExtraToggle) {
+  AgentFixture f;
+  f.start_talk();
+  f.clock.advance_ms(1'000);
+  f.act(features::kAgent, ActionType::AgentRecordToggle);  // 停止 → Sending
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+  // 送信中にもう一度押しても状態は変わらない (二重送信しない)。
+  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
 }
 
 TEST(Agent, AskSendsQuestionText) {
@@ -521,11 +728,27 @@ TEST(Agent, AskSendsQuestionText) {
                 "今日の予定は？");
   f.act(features::kAgent, ActionType::AgentAsk, 0);
   EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+  EXPECT_FALSE(f.audio.recording());  // 定型質問は音声入力をしない
   features::AgentPending p;
   ASSERT_TRUE(features::agent_pending(&p));
-  EXPECT_FALSE(p.audio);
   EXPECT_STREQ(p.text, "今日の予定は？");
   features::agent_sent(p.id, true, f.ctx);  // EVT を出した
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
+}
+
+TEST(Agent, AskSendingWakesSoonForEvt) {
+  AgentFixture f;
+  f.clock.set_now_ms(1'000);
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
+  EXPECT_EQ(features::agent_phase(), features::AgentPhase::Sending);
+  // app タスクは次のポンプ周期で起きて agent_pending を拾う
+  // (タイムアウト 60 秒まで眠らない)。
+  f.tick(1'000);
+  EXPECT_EQ(features::kAgent.next_deadline_ms(),
+            1'000 + features::kAgentPumpMs);
+  features::AgentPending p;
+  ASSERT_TRUE(features::agent_pending(&p));
+  features::agent_sent(p.id, true, f.ctx);
   EXPECT_EQ(features::agent_phase(), features::AgentPhase::Thinking);
 }
 
@@ -608,9 +831,7 @@ TEST(Agent, BleDisconnectShowsError) {
 
 TEST(Agent, SendFailureShowsError) {
   AgentFixture f;
-  f.act(features::kAgent, ActionType::AgentRecordToggle);
-  f.clock.advance_ms(5'000);  // 1秒未満の録音は捨てられるので進める
-  f.act(features::kAgent, ActionType::AgentRecordToggle);
+  f.act(features::kAgent, ActionType::AgentAsk, 0);
   features::AgentPending p;
   ASSERT_TRUE(features::agent_pending(&p));
   features::agent_send_started(p.id);

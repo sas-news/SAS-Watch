@@ -1,9 +1,61 @@
-# handoff.md — 現状 (2026-10-29)
+# handoff.md — 現状 (2026-11-17)
 
 次に作業する人が最初に読む「今どうなっているか」。残タスクと方針は `docs/roadmap.md`。
 過去の経緯 (2026-10-15 までの引き継ぎ文書、T14 監査など) は `docs/archive/handoff-2026-10-15.md`。
 
 ## 要点
+
+### 2026-11-17 フェーズ: Muse 連携 + リアルタイム文字起こし + 軽量化 (実装済み・実機確認待ち)
+
+ユーザー方針: 実用化を進める。**軽量化 = 時計ファームの軽量化**、
+**Muse = Meta の personal AI agent に直接メッセージ**、**有料 API は使わない (0円)**、
+**音声は保存しない (録音ではなく音声入力)**、まず文字起こし + Muse 連携。
+
+- **時計: リアルタイム音声入力 (T38)**
+  - AI 画面の「話しかける」で、聞き取り開始と同時に 16kHz IMA ADPCM を
+    BULK kind=`"dictation"` でスマホへストリーミング (PSRAM 16KB リング、ファイル無し)。
+    スマホから REQ `agent.partial{id,text,final?}` で部分文字起こしが届き、聞き取り中に表示。
+    停止で BULK_END → スマホが確定 → `agent.partial{final:true}` → `agent.reply`。
+  - **音声は保存しない** (dictation 中は fopen/ADP1/tmp を作らない)。上限は
+    `kAgentMaxRecordSec = 180` 秒の安全弁のみ (3 秒/30 秒の自動終了はしない)。
+    UI は「聞き取り中 X 秒 (最大 180)」「音声は保存されません」。
+  - dictation 中だけ BLE 接続間隔 15〜30ms + 2M PHY を要求し、停止で 100〜200ms に戻す。
+  - 検証: core **273/273**、sim 監査 0 件、firmware build 成功。実機未確認は
+    BLE 実効 8KB/s の持続・部分表示遅延 1〜2 秒・電池 (`TODO(hw)`)。
+- **スマホ: Vosk オフライン文字起こし + muse2api (T39)**
+  - BULK dictation 受信 → ADPCM を連続デコード (offset 飛びで decoder reset) →
+    **Vosk 日本語** (`vosk-model-small-ja-0.22`, 49.7MB を初回 DL, 完全オフライン) →
+    partial/final を時計へ。5 秒無音/END/切断で確定。音声はメモリのみで破棄。
+  - 応答は **自前サーバーの muse2api (OpenAI 互換)** に `stream:true` で接続。
+    Base URL 既定 `https://sas.tail85c8c5.ts.net:8445/v1`、モデル `muse-spark`。
+    LAN 代替 `http://192.168.10.10:18610/v1`。
+  - 有料クライアント (Meta realtime ASR / useapi.net Muse) はコード残置だが
+    「上級者向け設定（有料）」ON のときだけ表示。新規課金依存なし。
+  - 検証: Android 188 テスト (protocol 66 / agent 43 / walk 53 / app 26)、
+    assembleDebug・lint (Error 0) 成功。APK は arm64-v8a のみで **39.6MiB**。
+- **サーバー: muse2api (T44)**
+  - `czg86389-hub/muse2api` v1.6.11 を Docker で常駐 (リポジトリ外
+    `services/muse2api`, port 18610, `MUSE2API_KEY`, data/ 永続化, restart:always)。
+    アイドル ~46MiB/0.14%CPU。
+  - **公開トンネルは使わない** (muse.sasnews.dev は撤回済みで 404)。既定は
+    **Tailscale Serve の tailnet 限定 HTTPS** `https://sas.tail85c8c5.ts.net:8445/v1`。
+    スマホに Tailscale アプリ + 同じ tailnet (`sasshinbun0655@`) が必要。
+  - 管理画面は `/admin` (`/dashboard` は 404)。Muse の cookie を 1 回投入する
+    (PC を tailnet に入れて `/admin`、または LAN から)。投入手順は
+    `docs/muse2api-server.md`、ヘルパー `tools/muse2api/import_cookies.py`。
+  - **未完了 (ユーザー作業)**: スマホの tailnet 接続確認、cookie 投入、実チャット確認。
+- **軽量化 (T41/T43)**
+  - 監査: `docs/lightweight.md` (flash/SRAM/PSRAM/描画/電池、S/A/B 優先度)。
+  - 内蔵文字盤フォント 26 個を数字+記号の 14 グリフにサブセット化し
+    **862KB → 123KB (−738KB)**。app bin 2,917,104 → 2,183,984B、
+    **app 空き 30.4% → 47.9%**。sim 75 画面の before/after 差分 0、監査 0、
+    line_height/カーニングを固定して見た目維持。実機の数字盤目視が残り。
+  - 次の候補: cert bundle / WiFi 未使用機能 / ログ抑制、Theme の PSRAM 化、
+    bake チャンク化、light sleep 復活 (docs/lightweight.md §2.3/§6)。
+- **セットアップ (ユーザー向け)**: `docs/muse-setup.md` (0円構成) と
+  `docs/muse2api-server.md`。Muse 連携の設計は `docs/muse-integration.md`。
+- **未コミット**: このフェーズの変更はまだ git commit していない (Lead がまとめる)。
+
 
 - 歩く大会モード (ウォーク、T37) を追加 (2026-10-29)。**スマホがルート・測位・
   進捗/ETA の正**で、時計は表示だけ。時計はウォーク画面が Active で見えている間だけ
@@ -107,8 +159,11 @@
 | 全面再描画 (standard) | 40〜68ms (`b` ベンチ) | docs/perf.md |
 | 全面再描画 (cute/cyber) | 80〜157ms (設定は最大 ~160ms)。スキンの大きい部品は近似塗りに置き換え済み | docs/perf.md |
 | 内蔵 SRAM | 起動後の空き ~21KB、表示中 ~18-21KB (LVGL ヒープを PSRAM に移して安定化) | `b` の int_free |
+| AI dictation リング | PSRAM 16KB (audio::init で確保、8KB フォールバック。録音中はファイルを作らない) | T38 |
+| BLE dictation | 接続間隔 15〜30ms / latency 0 / 2M PHY を要求 (停止・切断で 100〜200ms に戻す) | T38 (実機未確認) |
+| Android APK | 39.6MiB (arm64-v8a のみ, Vosk native 込み) | `assembleDebug` |
 | PSRAM | standard で空き ~3.4MB (アリーナ不要)。肌テーマで ~750KB、 mame で ~450KB 空き (binfont 常駐 ~1.4MB + アリーナ) | `b` の psram_free |
-| app 領域 | 4MB 中の空き ~31% (日本語フォントを assets の binfont へ移した T24) | `idf.py build` 末尾 |
+| app 領域 | 4MB 中の空き **~48%** (T43 で内蔵文字盤フォントを 14 グリフにサブセット化、−738KB) | `idf.py build` 末尾 (2026-11-17: 0x215380) |
 | VSYS power-off 閾値 | 2600 mV (既定維持) | AXP2101 reg 0x24 |
 | 角 R / safe-area | R≈100px / 32〜36px | 実機写真の解析 |
 | パネル窓オフセット | x_gap=22, y_gap=0 | 同上 |

@@ -53,6 +53,8 @@ data class DevicesUiState(
     val log: List<String>,
     val isFake: Boolean,
     val debugBuild: Boolean,
+    /** 有料の上級者向け設定を表示しているときだけ Muse チャットの導線を出す。 */
+    val museAvailable: Boolean = false,
 )
 
 @Composable
@@ -61,6 +63,7 @@ fun DevicesScreen(
     permissionsGranted: Boolean,
     onRequestPermissions: () -> Unit,
     onOpenWalk: () -> Unit,
+    onOpenMuse: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val linkState by vm.linkState.collectAsState()
@@ -71,6 +74,7 @@ fun DevicesScreen(
     val events by vm.recentEvents.collectAsState()
     val log by vm.log.collectAsState()
     val isFake by vm.isFakeLink.collectAsState()
+    val advancedAi by vm.advancedAi.collectAsState()
 
     DevicesContent(
         state = DevicesUiState(
@@ -84,6 +88,7 @@ fun DevicesScreen(
             log = log,
             isFake = isFake,
             debugBuild = BuildConfig.DEBUG,
+            museAvailable = advancedAi,
         ),
         onRequestPermissions = onRequestPermissions,
         onScanToggle = { if (scanning) vm.stopScan() else vm.startScan() },
@@ -99,7 +104,10 @@ fun DevicesScreen(
         onFakeBattery = vm::fakeBattery,
         onFakeMediaCmd = vm::fakeMediaCmd,
         onFakeVoiceMemo = vm::fakeVoiceMemo,
+        onFakeDictation = vm::fakeDictation,
+        onFakeDictationSilence = vm::fakeDictationWithoutEnd,
         onOpenWalk = onOpenWalk,
+        onOpenMuse = onOpenMuse,
         modifier = modifier,
     )
 }
@@ -119,8 +127,11 @@ fun DevicesContent(
     onFakeBattery: () -> Unit,
     onFakeMediaCmd: (MediaCmd) -> Unit,
     onFakeVoiceMemo: () -> Unit,
-    onOpenWalk: () -> Unit,
     modifier: Modifier = Modifier,
+    onFakeDictation: () -> Unit = {},
+    onFakeDictationSilence: () -> Unit = {},
+    onOpenWalk: () -> Unit = {},
+    onOpenMuse: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -134,6 +145,10 @@ fun DevicesContent(
 
         WalkCard(onOpenWalk)
 
+        if (state.museAvailable) {
+            MuseCard(onOpenMuse)
+        }
+
         ConnectionCard(state, onDisconnect)
 
         if (state.linkState is LinkState.Disconnected) {
@@ -146,7 +161,13 @@ fun DevicesContent(
             TimerCard(onTimerStart, onTimerStop)
             MemoCard(onMemoSend)
             if (state.isFake) {
-                FakeDemoCard(onFakeBattery, onFakeMediaCmd, onFakeVoiceMemo)
+                FakeDemoCard(
+                    onBattery = onFakeBattery,
+                    onMediaCmd = onFakeMediaCmd,
+                    onVoiceMemo = onFakeVoiceMemo,
+                    onDictation = onFakeDictation,
+                    onDictationSilence = onFakeDictationSilence,
+                )
             }
             EventsCard(state.events)
         }
@@ -183,6 +204,25 @@ private fun WalkCard(onOpenWalk: () -> Unit) {
                     .heightIn(min = 48.dp),
             ) {
                 Text(stringResource(R.string.walk_open))
+            }
+        }
+    }
+}
+
+/** Muse チャットへの導線 (時計の接続有無に関係なく開ける)。 */
+@Composable
+private fun MuseCard(onOpenMuse: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.muse_card_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.muse_card_body), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(
+                onClick = onOpenMuse,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.muse_open))
             }
         }
     }
@@ -348,6 +388,8 @@ private fun FakeDemoCard(
     onBattery: () -> Unit,
     onMediaCmd: (MediaCmd) -> Unit,
     onVoiceMemo: () -> Unit,
+    onDictation: () -> Unit = {},
+    onDictationSilence: () -> Unit = {},
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,6 +408,18 @@ private fun FakeDemoCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.fake_demo_voice_memo))
+            }
+            OutlinedButton(
+                onClick = onDictation,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.fake_demo_dictation))
+            }
+            OutlinedButton(
+                onClick = onDictationSilence,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.fake_demo_dictation_silence))
             }
         }
     }

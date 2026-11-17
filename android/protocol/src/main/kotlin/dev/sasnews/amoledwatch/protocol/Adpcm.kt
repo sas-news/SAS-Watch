@@ -87,6 +87,37 @@ object Adpcm {
         }
     }
 
+    /** ShortArray の PCM を signed 16bit LE のバイト列にする (ASR へ流す形)。 */
+    fun pcm16le(pcm: ShortArray): ByteArray {
+        val out = ByteArray(pcm.size * 2)
+        for (i in pcm.indices) {
+            val v = pcm[i].toInt() and 0xFFFF
+            out[i * 2] = (v and 0xFF).toByte()
+            out[i * 2 + 1] = (v shr 8 and 0xFF).toByte()
+        }
+        return out
+    }
+
+    /** signed 16bit LE の PCM バイト列を ShortArray にする (端数は捨てる)。 */
+    fun pcm16leToShorts(bytes: ByteArray): ShortArray {
+        val out = ShortArray(bytes.size / 2)
+        for (i in out.indices) {
+            out[i] = (((bytes[i * 2].toInt() and 0xFF) or
+                (bytes[i * 2 + 1].toInt() shl 8)) and 0xFFFF).toShort()
+        }
+        return out
+    }
+
+    /** signed 16bit LE の PCM バイト列をそのまま WAV に詰める (一括 STT フォールバック用)。 */
+    fun pcm16leToWav(bytes: ByteArray): ByteArray = toWav(pcm16leToShorts(bytes))
+
+    /** ヘッダ無しの IMA-ADPCM バイト列にする (dictation のデモ/テスト用)。 */
+    fun encodeIma(pcm: ShortArray): ByteArray {
+        val enc = Encoder()
+        enc.encode(pcm)
+        return enc.finish()
+    }
+
     /** IMA-ADPCM エンコーダ (デモ/テストで時計と同じ形式を作る用)。 */
     class Encoder {
         private var pred = 0

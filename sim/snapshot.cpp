@@ -1089,8 +1089,34 @@ int main(int argc, char** argv) {
   ui::emit(watch::ActionType::AgentRecordToggle);
   pump(2500);
   ok &= save(out, "51_agent_recording");
+
+  // T38: 部分文字起こしを受けた録音中 (実機では REQ agent.partial)。
+  // sim には ble_glue が無いので feature API を直接叩く。
+  watch::features::AgentStreamRequest sreq;
+  uint16_t talk_id = 0;
+  if (watch::features::agent_stream_pending(&sreq) &&
+      sreq.cmd == watch::features::AgentStreamCmd::Start) {
+    talk_id = sreq.id;
+    watch::features::agent_stream_started(talk_id);
+    const char* partial = "今日の予定を教えて";
+    watch::features::agent_on_partial(talk_id, partial, std::strlen(partial),
+                                      false, *s_fctx);
+  }
+  pump(300);
+  ok &= save(out, "51b_agent_partial");
+
+  // 停止 → 確定テキストを Thinking 中に表示 (T38)。
   ui::emit(watch::ActionType::AgentRecordToggle);  // 停止→送信中
   pump(300);
+  if (watch::features::agent_stream_pending(&sreq) &&
+      sreq.cmd == watch::features::AgentStreamCmd::Stop) {
+    const char* confirmed = "今日の予定を教えてください。";
+    watch::features::agent_on_partial(talk_id, confirmed,
+                                      std::strlen(confirmed), true, *s_fctx);
+    watch::features::agent_stream_stopped(sreq.id, *s_fctx);
+  }
+  pump(200);
+  ok &= save(out, "52b_agent_final");
 
   // 定型質問で「考え中→返答」まで再現する。
   watch::features::agent_reset_state();

@@ -3,7 +3,8 @@ package dev.sasnews.amoledwatch.connection
 import dev.sasnews.amoledwatch.protocol.BulkAck
 import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.BulkCodec
-import dev.sasnews.amoledwatch.protocol.BulkInbound
+import dev.sasnews.amoledwatch.protocol.InboundBulkEvent
+import dev.sasnews.amoledwatch.protocol.InboundBulkRouter
 import dev.sasnews.amoledwatch.protocol.CborCodec
 import dev.sasnews.amoledwatch.protocol.Evt
 import dev.sasnews.amoledwatch.protocol.FakeWatch
@@ -51,8 +52,12 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
     /** 時計→スマホの BULK 転送の完成品 (kind="memo"/"agent_audio" 等)。 */
     private val _incomingBulk = MutableSharedFlow<IncomingBulk>(extraBufferCapacity = 8)
     override val incomingBulk: SharedFlow<IncomingBulk> = _incomingBulk
+
+    /** 時計→スマホの BULK 受信イベント (dictation の PCM を含む)。 */
+    private val _inbound = MutableSharedFlow<InboundBulkEvent>(extraBufferCapacity = 64)
+    override val inbound: SharedFlow<InboundBulkEvent> = _inbound
     private val inboundReassembler = Reassembler()
-    private val bulkInbound = BulkInbound()
+    private val bulkRouter = InboundBulkRouter()
 
     init {
         fake.evtListener = { bytes ->
@@ -64,10 +69,15 @@ class FakeWatchConnection(private val scope: CoroutineScope) : WatchLink {
         fake.bulkOutListener = { bytes ->
             try {
                 inboundReassembler.feed(FrameCodec.decode(bytes))?.let { complete ->
-                    // FakeWatch の送信側は ACK を待たないので Completed だけ拾う
-                    bulkInbound.feed(complete).forEach {
-                        if (it is BulkInbound.Out.Completed) {
-                            _incomingBulk.tryEmit(it.transfer)
+                    // FakeWatch の送信側は ACK を待たないので ACK は捨て、完成品と音声を配る。
+                    bulkRouter.feed(complete).forEach { out ->
+                        when (out) {
+                            is InboundBulkEvent.Completed -> {
+                                _incomingBulk.tryEmit(out.transfer)
+                                _inbound.tryEmit(out)
+                            }
+                            is InboundBulkEvent.Ack -> {}
+                            else -> _inbound.tryEmit(out)
                         }
                     }
                 }

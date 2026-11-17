@@ -20,7 +20,8 @@ import dev.sasnews.amoledwatch.connection.WatchLink
 import dev.sasnews.amoledwatch.protocol.BulkAck
 import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.BulkCodec
-import dev.sasnews.amoledwatch.protocol.BulkInbound
+import dev.sasnews.amoledwatch.protocol.InboundBulkEvent
+import dev.sasnews.amoledwatch.protocol.InboundBulkRouter
 import dev.sasnews.amoledwatch.protocol.Cbor
 import dev.sasnews.amoledwatch.protocol.CborCodec
 import dev.sasnews.amoledwatch.protocol.Evt
@@ -38,9 +39,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -93,6 +97,10 @@ class BleWatchConnection(
     private val _incomingBulk = MutableSharedFlow<IncomingBulk>(extraBufferCapacity = 8)
     override val incomingBulk: SharedFlow<IncomingBulk> = _incomingBulk
 
+    /** 時計→スマホの BULK 受信イベント (dictation の PCM を含む)。 */
+    private val _inbound = MutableSharedFlow<InboundBulkEvent>(extraBufferCapacity = 64)
+    override val inbound: SharedFlow<InboundBulkEvent> = _inbound
+
     /** 届いた BULK_ACK（`{id,next}`）。BleBulkChannel が受け取る。 */
     private val bulkAcks = Channel<BulkAck>(Channel.UNLIMITED)
     override val bulk: BulkChannel = BleBulkChannel()
@@ -108,7 +116,7 @@ class BleWatchConnection(
     private val resReassembler = Reassembler()
     private val evtReassembler = Reassembler()
     private val bulkReassembler = Reassembler()
-    private val bulkInbound = BulkInbound()
+    private val bulkRouter = InboundBulkRouter()
 
     private val msgIds = AtomicInteger(1)
     private val pending = ConcurrentHashMap<Int, CompletableDeferred<Res>>()
@@ -180,6 +188,23 @@ class BleWatchConnection(
         }
     }
 
+    // BULK_CHUNK の処理 (デコード + ACK) は接続優先度を上げた状態で即さばくため、
+    // GATT コールバックのスレッドから専用のコンシューマへ渡す。Channel で順序を保つ。
+    private val notifyScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val notifyChannel = Channel<Pair<java.util.UUID, Frame>>(Channel.UNLIMITED)
+
+    init {
+        notifyScope.launch {
+            for ((uuid, frame) in notifyChannel) {
+                when (uuid) {
+                    BleUuids.CTRL -> handleRes(frame)
+                    BleUuids.EVENT -> handleEvt(frame)
+                    BleUuids.BULK -> handleBulk(frame)
+                }
+            }
+        }
+    }
+
     private val job = scope.launch { run() }
 
     // ---------------- 接続ループ（指数バックオフ再接続） ----------------
@@ -199,6 +224,7 @@ class BleWatchConnection(
             if (connected) {
                 _state.value = LinkState.Connected
                 disconnectSignal.await()
+                bulkRouter.abortDictation()
                 closeGatt()
             }
             if (closed) break
@@ -396,11 +422,9 @@ class BleWatchConnection(
             Log.w(TAG, "bad frame on $uuid: ${e.message}")
             return
         }
-        when (uuid) {
-            BleUuids.CTRL -> handleRes(frame)
-            BleUuids.EVENT -> handleEvt(frame)
-            BleUuids.BULK -> handleBulk(frame)
-        }
+        // dictation の ADPCM デコードと ACK を遅らせないため、通知処理は
+        // 専用コンシューマへ渡す (Channel なので順序は保たれる)。
+        notifyChannel.trySend(uuid to frame)
     }
 
     private fun handleRes(fragment: Frame) {
@@ -432,7 +456,7 @@ class BleWatchConnection(
         }
     }
 
-    private fun handleBulk(fragment: Frame) {
+    private suspend fun handleBulk(fragment: Frame) {
         val complete = try {
             bulkReassembler.feed(fragment) ?: return
         } catch (e: FrameException) {
@@ -442,12 +466,15 @@ class BleWatchConnection(
         if (complete.type == Frame.TYPE_BULK_ACK) {
             BulkCodec.decodeAck(complete.payload)?.let { bulkAcks.trySend(it) }
         } else {
-            // 時計→スマホの受信転送。ACK を返して完成品を配る。
-            for (out in bulkInbound.feed(complete)) {
+            // 時計→スマホの受信転送。ACK を返して完成品/音声を配る。
+            for (out in bulkRouter.feed(complete)) {
                 when (out) {
-                    is BulkInbound.Out.Ack ->
-                        scope.launch { sendBulkAck(out.id, out.next) }
-                    is BulkInbound.Out.Completed -> _incomingBulk.tryEmit(out.transfer)
+                    is InboundBulkEvent.Ack -> sendBulkAck(out.id, out.next)
+                    is InboundBulkEvent.Completed -> {
+                        _incomingBulk.tryEmit(out.transfer)
+                        _inbound.tryEmit(out)
+                    }
+                    else -> _inbound.tryEmit(out)
                 }
             }
         }
@@ -478,6 +505,40 @@ class BleWatchConnection(
         } catch (e: Exception) {
             Log.w(TAG, "bulk ack write: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * dictation 中は接続優先度を HIGH、2M PHY を要求する (minSdk 31 で API は常に利用可)。
+     * 終了/切断で BALANCED に戻す。GATT 操作なので opMutex で直列化する。
+     * // TODO(hw): 実機で確認 — 接続インターバル短縮で 8KB/s を維持できるか
+     */
+    override fun setStreamingMode(enabled: Boolean) {
+        notifyScope.launch {
+            try {
+                opMutex.withLock {
+                    val g = gatt ?: return@withLock
+                    g.requestConnectionPriority(
+                        if (enabled) BluetoothGatt.CONNECTION_PRIORITY_HIGH
+                        else BluetoothGatt.CONNECTION_PRIORITY_BALANCED,
+                    )
+                    if (enabled) {
+                        // 2M PHY は失敗してもよい (時計は 2M 対応済み)。
+                        runCatching {
+                            g.setPreferredPhy(
+                                BluetoothDevice.PHY_LE_2M_MASK,
+                                BluetoothDevice.PHY_LE_2M_MASK,
+                                BluetoothDevice.PHY_OPTION_NO_PREFERRED,
+                            )
+                        }
+                        Log.i(TAG, "streaming mode: connection priority HIGH / 2M PHY")
+                    } else {
+                        Log.i(TAG, "streaming mode: connection priority BALANCED")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "setStreamingMode($enabled): ${e.message}")
+            }
         }
     }
 

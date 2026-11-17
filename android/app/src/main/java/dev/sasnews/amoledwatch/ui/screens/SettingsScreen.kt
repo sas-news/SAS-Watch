@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.agent.AgentConfig
 import dev.sasnews.amoledwatch.agent.AgentEngine
+import dev.sasnews.amoledwatch.agent.AgentPrefs
+import dev.sasnews.amoledwatch.agent.SttModes
+import dev.sasnews.amoledwatch.agent.VoskModelStore
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.protocol.ActionNames
 import dev.sasnews.amoledwatch.protocol.ActionSpec
@@ -50,6 +53,7 @@ import dev.sasnews.amoledwatch.protocol.bool
 import dev.sasnews.amoledwatch.protocol.int
 import dev.sasnews.amoledwatch.protocol.text
 import dev.sasnews.amoledwatch.ui.WatchViewModel
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
@@ -60,6 +64,8 @@ fun SettingsScreen(vm: WatchViewModel, modifier: Modifier = Modifier) {
     val agentConfig by vm.agentConfig.collectAsState()
     val agentHistory by vm.agentHistory.collectAsState()
     val agentBusy by vm.agentBusy.collectAsState()
+    val voskState by vm.voskState.collectAsState()
+    val advancedAi by vm.advancedAi.collectAsState()
     SettingsContent(
         settings = settings,
         steps = steps,
@@ -72,6 +78,10 @@ fun SettingsScreen(vm: WatchViewModel, modifier: Modifier = Modifier) {
         agentBusy = agentBusy,
         onSaveAgent = vm::saveAgentConfig,
         onClearAgentHistory = vm::clearAgentHistory,
+        voskState = voskState,
+        onDownloadVosk = vm::downloadVoskModel,
+        advancedAi = advancedAi,
+        onToggleAdvanced = vm::setAdvancedAi,
         modifier = modifier,
     )
 }
@@ -91,6 +101,10 @@ fun SettingsContent(
     agentBusy: Int = 0,
     onSaveAgent: (AgentConfig) -> Unit = {},
     onClearAgentHistory: () -> Unit = {},
+    voskState: VoskModelStore.State = VoskModelStore.State.NotDownloaded,
+    onDownloadVosk: () -> Unit = {},
+    advancedAi: Boolean = false,
+    onToggleAdvanced: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -144,9 +158,13 @@ fun SettingsContent(
             }
         }
 
+        VoskModelCard(state = voskState, onDownload = onDownloadVosk)
+
         AgentConfigCard(
             config = agentConfig,
             busy = agentBusy,
+            advanced = advancedAi,
+            onToggleAdvanced = onToggleAdvanced,
             onSave = onSaveAgent,
         )
 
@@ -348,17 +366,101 @@ private fun SettingsEditor(
     }
 }
 
-/** AI 設定カード (Base URL / API キー / モデル名)。値はアプリ側に保存される。 */
+/** スマホ内 Vosk のモデルをダウンロード/展開するカード。 */
+@Composable
+private fun VoskModelCard(state: VoskModelStore.State, onDownload: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.vosk_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                stringResource(R.string.vosk_body),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            when (state) {
+                is VoskModelStore.State.NotDownloaded -> {
+                    Text(stringResource(R.string.vosk_not_downloaded))
+                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.vosk_download))
+                    }
+                }
+                is VoskModelStore.State.Downloading -> {
+                    val mb = state.received / (1024.0 * 1024.0)
+                    if (state.total > 0) {
+                        val totalMb = state.total / (1024.0 * 1024.0)
+                        val pct = (state.received * 100 / state.total).toInt()
+                        Text(
+                            stringResource(
+                                R.string.vosk_downloading_pct,
+                                String.format(Locale.US, "%.1f / %.1f MB", mb, totalMb),
+                                pct,
+                            ),
+                        )
+                    } else {
+                        Text(
+                            stringResource(
+                                R.string.vosk_downloading,
+                                String.format(Locale.US, "%.1f MB", mb),
+                                "?",
+                            ),
+                        )
+                    }
+                }
+                is VoskModelStore.State.Extracting -> {
+                    Text(stringResource(R.string.vosk_extracting))
+                }
+                is VoskModelStore.State.Ready -> {
+                    Text(stringResource(R.string.vosk_ready))
+                }
+                is VoskModelStore.State.Failed -> {
+                    Text(
+                        stringResource(R.string.vosk_failed, state.message),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.vosk_redownload))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * AI 設定カード。
+ * OpenAI 互換 (muse2api) が主経路。Muse (useapi.net) / Meta realtime ASR は
+ * 「上級者向け設定（有料）」を ON にしたときだけ表示する。
+ * 秘密値は AgentPrefs (EncryptedSharedPreferences) に保存し、画面ではパスワード表示でマスクする。
+ */
 @Composable
 private fun AgentConfigCard(
     config: AgentConfig,
     busy: Int,
+    advanced: Boolean,
+    onToggleAdvanced: (Boolean) -> Unit,
     onSave: (AgentConfig) -> Unit,
 ) {
     var baseUrl by remember(config) { mutableStateOf(config.baseUrl) }
     var apiKey by remember(config) { mutableStateOf(config.apiKey) }
     var chatModel by remember(config) { mutableStateOf(config.chatModel) }
     var sttModel by remember(config) { mutableStateOf(config.sttModel) }
+    var museEnabled by remember(config) { mutableStateOf(config.museEnabled) }
+    var museToken by remember(config) { mutableStateOf(config.museToken) }
+    var museChatId by remember(config) { mutableStateOf(config.museChatId) }
+    var museEmail by remember(config) { mutableStateOf(config.museEmail) }
+    var metaApiKey by remember(config) { mutableStateOf(config.metaApiKey) }
+    var sttMode by remember(config) { mutableStateOf(config.sttMode) }
+    var languageBias by remember(config) {
+        mutableStateOf(AgentPrefs.encodeList(config.languageBias))
+    }
+    var keywords by remember(config) { mutableStateOf(AgentPrefs.encodeList(config.asrKeywords)) }
+
+    val urlError = baseUrl.isNotBlank() &&
+        !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))
+    val emailError = museEmail.isNotBlank() && !museEmail.contains('@')
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -366,14 +468,54 @@ private fun AgentConfigCard(
                 stringResource(R.string.agent_title),
                 style = MaterialTheme.typography.titleMedium,
             )
+            Text(
+                stringResource(R.string.agent_audio_privacy),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                stringResource(R.string.agent_muse_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            // ---- AI 応答 (muse2api / OpenAI 互換) ----
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.agent_advanced_toggle),
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = advanced, onCheckedChange = onToggleAdvanced)
+            }
+            if (advanced) {
+                Text(
+                    stringResource(R.string.agent_advanced_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            Text(
+                stringResource(R.string.agent_openai_section),
+                style = MaterialTheme.typography.titleSmall,
+            )
             OutlinedTextField(
                 value = baseUrl,
                 onValueChange = { baseUrl = it },
                 label = { Text(stringResource(R.string.agent_base_url)) },
+                placeholder = { Text("https://sas.tail85c8c5.ts.net:8445/v1") },
                 singleLine = true,
+                isError = urlError,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (urlError) {
+                Text(
+                    stringResource(R.string.agent_invalid_url),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
@@ -383,6 +525,10 @@ private fun AgentConfigCard(
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                stringResource(R.string.agent_key_hint),
+                style = MaterialTheme.typography.bodySmall,
             )
             OutlinedTextField(
                 value = chatModel,
@@ -399,9 +545,105 @@ private fun AgentConfigCard(
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                stringResource(R.string.agent_key_hint),
+                stringResource(R.string.agent_fallback_hint),
                 style = MaterialTheme.typography.bodySmall,
             )
+
+            if (advanced) {
+            // ---- Muse (useapi.net) ----
+            Text(
+                stringResource(R.string.agent_muse_section),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.agent_muse_enabled),
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = museEnabled, onCheckedChange = { museEnabled = it })
+            }
+            OutlinedTextField(
+                value = museToken,
+                onValueChange = { museToken = it },
+                label = { Text(stringResource(R.string.agent_muse_token)) },
+                placeholder = { Text("user:12345-…") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = museChatId,
+                onValueChange = { museChatId = it },
+                label = { Text(stringResource(R.string.agent_muse_chat_id)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = museEmail,
+                onValueChange = { museEmail = it },
+                label = { Text(stringResource(R.string.agent_muse_email)) },
+                placeholder = { Text("you@example.com") },
+                singleLine = true,
+                isError = emailError,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (emailError) {
+                Text(
+                    stringResource(R.string.agent_invalid_email),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            // ---- Meta realtime ASR ----
+            Text(
+                stringResource(R.string.agent_dictation_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                stringResource(R.string.agent_dictation_body),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = metaApiKey,
+                onValueChange = { metaApiKey = it },
+                label = { Text(stringResource(R.string.agent_meta_api_key)) },
+                placeholder = { Text("LLM_…") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = languageBias,
+                onValueChange = { languageBias = it },
+                label = { Text(stringResource(R.string.agent_language_bias)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = keywords,
+                onValueChange = { keywords = it },
+                label = { Text(stringResource(R.string.agent_keywords)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            }  // if (advanced)
+
+            // STT 方式は無料構成でも選べる (既定: 自動 = スマホ内 Vosk)。
+            ActionDropdown(
+                label = stringResource(R.string.agent_stt_mode),
+                selected = sttMode,
+                options = SttModes.ALL,
+                labelOf = SttModes::label,
+                onSelect = { sttMode = it },
+            )
+
             if (busy > 0) {
                 Text(
                     stringResource(R.string.agent_busy),
@@ -416,9 +658,21 @@ private fun AgentConfigCard(
                             apiKey = apiKey.trim(),
                             chatModel = chatModel.trim(),
                             sttModel = sttModel.trim(),
+                            museEnabled = museEnabled,
+                            museToken = museToken.trim(),
+                            museChatId = museChatId.trim(),
+                            museEmail = museEmail.trim(),
+                            metaApiKey = metaApiKey.trim(),
+                            sttMode = sttMode,
+                            languageBias = AgentPrefs.decodeList(
+                                languageBias,
+                                default = listOf("Japanese"),
+                            ),
+                            asrKeywords = AgentPrefs.decodeList(keywords),
                         ),
                     )
                 },
+                enabled = !urlError && !emailError,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.agent_save))

@@ -87,6 +87,11 @@ struct Services {
   // (無視された id でも呼び出し元は RES ok を返してよい)。
   bool (*agent_reply)(uint16_t id, const char* text, size_t len,
                       void* ctx) = nullptr;
+  // agent.partial: リアルタイム文字起こしの途中経過 {id, text, final?}。
+  // CUMULATIVE (前回を置き換える)。final=true で発話確定。text は空可
+  // (空でクリア)。時計は現在の dictation (id 一致) のときだけ表示する。
+  bool (*agent_partial)(uint16_t id, const char* text, size_t len, bool final,
+                        void* ctx) = nullptr;
 
   // 任意の通知 (未設定でも RES ok を返す)
   void (*notify_posted)(const char* app, const char* title, const char* body,

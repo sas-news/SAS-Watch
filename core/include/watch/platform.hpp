@@ -83,6 +83,34 @@ class AudioPort {
   virtual uint32_t record_elapsed_s() const = 0;  // 録音中の経過秒
   virtual uint8_t record_level() const = 0;       // 入力レベル 0..100
 
+  // ---- 録音ストリーム (AI のリアルタイム dictation 用) ----
+  // 録音中の ADPCM を、録音終了を待たずに読み出す。
+  // 実装は init 時にリングバッファを確保しておき、record_begin() の前に
+  // record_stream_enable(true) を呼ぶと、その録音のエンコード結果が
+  // そこに積まれる (ファイルは書かなくてよい)。record_end() の後も
+  // 未読分は読めるので、呼び出し側が吐き切ってから false にすること。
+  // 未対応・確保失敗は false (音声メモ自体は使える)。
+  virtual bool record_stream_enable(bool enable) {
+    (void)enable;
+    return false;
+  }
+  // 録音ストリームが使えるか (リングバッファ確保済み)。false のとき AI は
+  // 「音声ストリーミングを開始できません」を出し、音声メモ機能はそのまま。
+  virtual bool can_record_stream() const { return false; }
+  // 非ブロッキングで最大 *len_inout バイト読む。実際に読んだ数に更新する。
+  // まだデータが無ければ 0 を入れて true。ストリーム未使用/停止後は false。
+  virtual bool record_stream_read(void* buf, size_t* len_inout) {
+    (void)buf;
+    if (len_inout) *len_inout = 0;
+    return false;
+  }
+  // 次に record_stream_read が返すバイトの、録音開始からの累積位置。
+  // リングがオーバーランして古い音声を捨てた場合は飛ぶ (BULK_CHUNK の
+  // offset にそのまま使うと、スマホ側が欠落を検出してデコーダを初期化する)。
+  virtual uint32_t record_stream_offset() const { return 0; }
+  // リングバッファが溢れて捨てた累計バイト数 (監視・ログ用)。
+  virtual uint32_t record_stream_dropped() const { return 0; }
+
   // ---- 音声メモの再生 ----
   // volume は 0..100。再生開始できなければ false。
   virtual bool play_begin(uint32_t memo_id, uint8_t volume) = 0;

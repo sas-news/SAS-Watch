@@ -53,6 +53,7 @@ method の一覧はこの表が唯一の正。時計 (core/protocol/dispatch.cpp
 | `alarm.set` | `{hour, min}` + 省略可 `{id:<int>, dow:<int>, on:<bool>}` | `{id:<int>}` | `id` 省略/0 で新規 (満杯なら `busy`)、既存 id で更新 (`not_found`)。`dow` 0-0x7F 省略時 0、`on` 省略時 true |
 | `alarm.delete` | `{id:<int>}` | `{}` | 無い id は `not_found` |
 | `agent.reply` | `{id:<int>, text:<str>}` | `{}` | AI の返答。id は直前の `agent.request` / BULK kind=`"agent_audio"` の id と同じ。text は最大960バイト (UTF-8)。適用できない id でも `ok` |
+| `agent.partial` | `{id:<int>, text:<str>, final?:<bool>}` | `{}` | リアルタイム文字起こしの途中経過 (CUMULATIVE: 前回を置き換える)。`final:true` で発話確定。text は最大 768 バイト (UTF-8)、空文字でクリア。id は BULK kind=`"dictation"` の id と同じ。時計は現在の dictation と一致するときだけ表示する |
 | `debug.info` | `{}` | `{heap_int, heap_int_min, psram, psram_min, uptime_s, reset_reason, fw, screen, battery, batt_mv?, vbus_mv?, ble_rssi?, ble_itvl_ms?}` | 実機診断 (T13)。`?` は接続中/PMIC 検出時のみ |
 | `wifi.set` | `{ssid:<1-32文字>, pass:<0または8-63文字>}` | `{}` |
 | `wifi.status` | `{}` | `{configured:<bool>, ssid:<str>}` |
@@ -184,7 +185,7 @@ core (GoogleTest) と android (JUnit) の両方がこのファイルを読んで
 
 ## BULK (双方向: Asset / OTA / 音声メモ / AI音声)
 BULK_START payload (CBOR): `{id, kind:<str ≤15文字>, size, sha256:<bytes32>, chunk:<int>}`
-kind は `"theme"|"asset"|"ota"|"memo"|"firmware"|"agent_audio"`。
+kind は `"theme"|"asset"|"ota"|"memo"|"firmware"|"dictation"` (`"agent_audio"` は廃止。スマホ側は受信互換のみ残してよい)。
 `"firmware"` はファーム更新
 (Wi-Fi が使えないときの代替経路): 時計が /assets に一旦受け取り、
 sha256 検証後に OTA パーティションへ書き込んで再起動する。
@@ -213,9 +214,31 @@ MediaArtReceived を出して media 画面に出す。切断で破棄する。
   `BULK_ACK{next}` を bulk char へ write-without-response で返し、
   `BULK_END` 受信・sha256 一致後に最終 `BULK_ACK{next=size}` を返す。
   (Phone は ctrl に notify を送れないので RES ではなくこの ACK が完了の合図)
-- Watch → Phone (kind `"agent_audio"`): 「話しかける」の録音 (ADP1, 最大30秒)。
-  kind `"memo"` と同じ手順だが REQ に紐付かない push 型で、id は AI の要求 id
-  (時計側の連番)。返答は `agent.reply` REQ で同じ id とともに返す。
+- Watch → Phone (kind `"agent_audio"`): **廃止** (旧 AI 音声経路)。現在は
+  `kind="dictation"` を使う。スマホ側は旧アプリとの互換のため受信だけ残してよい。
+
+### BULK kind="dictation" (リアルタイム文字起こし音声)
+- Watch → Phone の push 型。`agent_audio` の置き換え。
+- BULK_START: `{id:<talk id>, kind:"dictation", size:0, sha256:<32B ゼロ>, chunk:<232>}`。
+  `size` は録音中なので不明 (0)。sha256 は使わない (ゼロ埋め)。
+- BULK_CHUNK payload: `transfer_id:u16 | offset:u32 | bytes...`。
+  bytes は **IMA ADPCM 4bit / 16kHz / モノラル** の連続ストリーム。
+  ヘッダは無い。デコーダ状態はチャンクをまたいで連続し、`offset` は
+  音声バイト列の先頭からの累積位置 (受信側はオフセット順に連結するだけ)。
+- Phone は 8 チャンクごとに `BULK_ACK{next:<期待する次の offset>}` を返す。
+  Watch は ACK を待たずに送ってよいが、未 ACK が 8KB を超えたら
+  古い音声を捨てる (リアルタイム優先。取りこぼしは ASR が補間する)。
+  捨てたとき Watch は ADPCM エンコーダを `reset()` してから続きを積む。
+  Phone は **chunk の offset が期待値より飛んでいたら ADPCM デコーダを
+  `reset()` してからデコードする** (数サンプルのクリックだけ許容)。
+- **音声は保存しない**。時計は dictation 中にファイルを書かず、PSRAM の
+  リングバッファ (16KB) を流すだけ。スマホも文字起こし後に PCM を破棄する。
+  発話の自動終了は安全弁の 180 秒だけ (3 秒/30 秒では切らない)。
+- 停止操作で `BULK_END{id}`。Phone は ASR に `endStream` を送り、
+  確定テキストを `agent.partial{final:true}` で、応答を `agent.reply` で返す。
+- 切断時は Watch が BULK_END を送れないことがある。Phone は
+  5 秒 audio が来なくなったら ASR を自動確定し、`agent.reply` は
+  接続が戻ったときだけ返す。
 
 ## 音声メモの文字起こし (T31)
 時計単体では音声認識しない (ESP32-S3 のメモリでは現実的でない)。電話側の STT を使う。
@@ -254,18 +277,27 @@ text は UTF-8 で最大 256 バイト (時計の MemoEntry.text)。電話側で
 送らない (電池優先)。設計の詳細と画面仕様は `docs/walk-event.md`。
 
 ## Agent (AI)
-時計はオフライン。スマホが OpenAI 互換 API に中継する。
+時計はオフライン。スマホが **Meta Muse Voice Transcribe (リアルタイム STT)** と
+**Meta Muse (personal AI agent, useapi.net 経由)** へ中継する。
+設計・セットアップは `docs/muse-integration.md`。
 
-1. 「話しかける」: 録音 (ADP1, 最大30秒) → BULK kind=`"agent_audio"` id=<要求id>
-   を push。スマホは STT → LLM に投げ、`agent.reply{id, text}` を返す。
-2. 定型質問ボタン (settings `agent.q1..3`、空欄は非表示): EVT
-   `agent.request{id, text}` を送り、同じく `agent.reply` を待つ。
-
-要求 id は時計側の連番 (BULK transfer id と同じ値)。返答は `agent.reply` REQ で、
-時計は「録音中→送信中→考え中→返答」の状態を表示する。送信開始から60秒で
-タイムアウト (エラー表示)。返答 text は最大960バイト。
-
-切断後は送信側が `BULK_START` を同じ id で再送し、受信側は `BULK_ACK{next}`
-で再開位置を返す。
-`BULK_END` は送信側の「出し切った」の合図。受信側は sha256 を検証してから
-最終 `BULK_ACK{next=size}` を返す。
+1. 「話しかける」を押す: 録音を開始し、**同時に** BULK kind=`"dictation"` で
+   16kHz IMA ADPCM をリアルタイム送出する (下記 BULK 節)。要求 id は
+   録音開始時に時計が採番する。
+2. スマホは ADPCM を PCM 16kHz にデコードして Meta realtime ASR
+   (`wss://api.meta.ai/v1/asr/realtime`) へ流し、部分結果を
+   REQ `agent.partial{id, text}` で時計へ返す。時計は録音中にこれを表示する。
+3. 録音停止 → 時計は BULK_END を送る。スマホは ASR を `endStream` して確定し、
+   `agent.partial{id, text, final:true}` を送ってから Muse のチャットへ
+   メッセージを POST する。
+4. スマホは Muse の SSE 応答を読み、`agent.reply{id, text}` で時計に返す
+   (v1 は最終応答のみ。途中経過のストリーミング表示は将来)。
+5. 定型質問 (`agent.request`) もスマホ経由で Muse に送り、`agent.reply` で返す。
+6. フォールバック: Meta API キー未設定ならスマホは OpenAI 互換
+   `/audio/transcriptions` で発話単位の STT に切り替える (部分表示なし)。
+   Muse トークン未設定なら電話は OpenAI 互換 `chat/completions` に切り替える
+   (従来の AI 設定)。
+7. 旧経路 BULK kind=`"agent_audio"` (録音完了後にまとめて送る) は廃止。
+   時計とスマホを同時に更新する。スマホが dictation を ACK しない
+   (旧アプリ) 場合、時計は録音を継続しつつ「スマホを更新してください」を
+   表示して録音終了時にエラーにする。

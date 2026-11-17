@@ -284,4 +284,63 @@
     <string name="walk_fgs_progress">%1$d%% ・ 残り %2$s ・ 到着 %3$s</string>
     <string name="walk_fgs_finished">到着しました</string>
     <string name="walk_fgs_idle">待機中</string>
+
+    <!-- AI設定: Muse / Meta realtime ASR (docs/muse-integration.md §4) -->
+    <string name="agent_openai_section">AI 応答（OpenAI 互換 / muse2api）</string>
+    <string name="agent_muse_section">Muse（Meta の AI エージェント）</string>
+    <string name="agent_muse_enabled">Muse を使う</string>
+    <string name="agent_muse_token">useapi.net トークン</string>
+    <string name="agent_muse_chat_id">Muse の chatId（空なら新規作成）</string>
+    <string name="agent_muse_email">Muse アカウントのメール</string>
+    <string name="agent_meta_api_key">Meta Model API キー</string>
+    <string name="agent_stt_mode">STT 方式</string>
+    <string name="agent_language_bias">言語バイアス（カンマ区切り）</string>
+    <string name="agent_keywords">キーワード（カンマ区切り）</string>
+    <string name="agent_audio_privacy">音声は端末内で文字起こしされ、保存されません。AI（muse2api）へ送るのはテキストだけです。</string>
+    <string name="agent_muse_hint">useapi.net は非公式の有料サービス（$15/月）です。使わない場合は OFF のままで構いません。トークン・API キーはこの端末内だけで暗号化して保存します。</string>
+    <string name="agent_fallback_hint">自前の muse2api（OpenAI 互換）を指定してください。既定は Tailscale 内の https://sas.tail85c8c5.ts.net:8445/v1（tailnet 限定・TLS）。同じ Wi-Fi 内なら http://192.168.10.10:18610/v1 も使えます。API キーは端末内だけで暗号化して保存します。</string>
+    <string name="agent_advanced_toggle">上級者向け設定（有料）を表示</string>
+    <string name="agent_advanced_hint">useapi.net の Muse と Meta realtime ASR は有料です。通常は使わなくて構いません（スマホ内 Vosk + 自前 muse2api で無料運用できます）。</string>
+    <string name="vosk_title">オフライン音声入力（文字起こし）モデル</string>
+    <string name="vosk_body">スマホ内で音声を文字起こしします（無料・Vosk 日本語モデル 約50MB）。音声は保存されません。初回だけモデルをダウンロードします。</string>
+    <string name="vosk_not_downloaded">未ダウンロード</string>
+    <string name="vosk_download">ダウンロード</string>
+    <string name="vosk_redownload">再ダウンロード</string>
+    <string name="vosk_downloading">ダウンロード中… %1$s / %2$s</string>
+    <string name="vosk_downloading_pct">ダウンロード中… %1$s（%2$d%%）</string>
+    <string name="vosk_extracting">展開中…</string>
+    <string name="vosk_ready">展開済み（オフライン音声入力が使えます）</string>
+    <string name="vosk_failed">失敗: %1$s</string>
+    <string name="agent_invalid_url">Base URL は http:// または https:// で始めてください</string>
+    <string name="agent_invalid_email">メールアドレスの形式が正しくありません</string>
+    <string name="agent_dictation_title">リアルタイム音声入力（文字起こし）</string>
+    <string name="agent_dictation_body">時計の「話しかける」の音声をスマホ側で文字起こしし、部分結果を時計に出します。停止後はテキストだけを AI へ送って返答を返します（音声ファイルは作りません）。</string>
+
+    <!-- Muse チャット画面 -->
+    <string name="muse_card_title">Muse チャット</string>
+    <string name="muse_card_body">Meta Muse とテキストで会話します。時計からの音声入力も、文字起こし後に同じ履歴へ残ります。</string>
+    <string name="muse_open">Muse チャットを開く</string>
+    <string name="muse_title">Muse チャット</string>
+    <string name="muse_back">戻る</string>
+    <string name="muse_no_token">スマホで AI設定 をしてください（useapi.net トークンが必要です）。</string>
+    <string name="muse_refresh_chats">会話一覧を更新</string>
+    <string name="muse_new_chat">新しい会話</string>
+    <string name="muse_chats_title">会話一覧</string>
+    <string name="muse_chats_empty">会話がありません。下の入力欄から送ると新規作成します。</string>
+    <string name="muse_loading">読み込み中…</string>
+    <string name="muse_input_hint">Muse に送るメッセージ（日本語で入力できます）</string>
+    <string name="muse_send">送信</string>
+    <string name="muse_streaming">Muse が応答しています…</string>
+    <string name="muse_approval_title">承認が必要です</string>
+    <string name="muse_approval_body">スマホの Muse アプリで承認してください。時計からは承認できません。</string>
+    <string name="muse_approval_close">閉じる</string>
+    <string name="muse_clear_history">この会話の履歴を消す</string>
+    <string name="muse_from_watch">時計から</string>
+    <string name="muse_selected">選択中</string>
+    <string name="muse_empty_messages">まだメッセージはありません。下から送信してください。</string>
+    <string name="muse_role_system">Muse</string>
+
+    <!-- 仮想時計のデモ: dictation -->
+    <string name="fake_demo_dictation">音声入力（文字起こし）を流す</string>
+    <string name="fake_demo_dictation_silence">音声入力を BULK_END なしで流す（5秒無音）</string>
 </resources>

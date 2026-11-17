@@ -19,6 +19,12 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 実機は OPPO A79 5G (arm64-v8a)。Vosk の native ライブラリで APK が
+        // 大きくなるため 1 ABI に絞る。エミュレータで試すときは "x86_64" を足す。
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -72,6 +78,9 @@ dependencies {
 
     // AI設定: API キーを EncryptedSharedPreferences に入れるために使う
     implementation("androidx.security:security-crypto:1.1.0-alpha07")
+
+    // 文字起こし: スマホ内のオフライン認識 (Vosk 日本語小型モデル, Apache-2.0)
+    implementation("com.alphacephei:vosk-android:0.3.75")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")

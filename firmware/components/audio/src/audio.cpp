@@ -22,6 +22,7 @@
 #include "es7210_adc.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
+#include "esp_heap_caps.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_pm.h"
@@ -89,14 +90,97 @@ struct RecJob {
   volatile bool stop = false;     // record_end からの停止要求
   volatile bool done = false;     // タスクが片付け完了
   volatile bool commit = false;   // record_end(commit)
+  bool stream = false;            // ADPCM をリングバッファへ流す (ファイル無し)
   uint32_t memo_id = 0;
   uint32_t max_sec = 60;
   uint32_t samples = 0;
-  uint32_t size = 0;              // 書き込んだ総バイト数
+  uint32_t size = 0;              // 書き込んだ/流した総バイト数
   uint8_t level = 0;              // 直近チャンクのピーク 0..100
   char path[64];
 };
 RecJob s_rec;
+
+// ---- 録音ストリーム (AI のリアルタイム dictation) ----
+// 文字起こし用の音声入力であり「録音・保存」ではない。stream=true の録音では
+// rec_task はファイルを作らず (ADP1 も tmp も)、この PSRAM リングに
+// エンコード結果を積むだけ。リングは揮発で、停止時に中身を捨てる。
+// ADPCM は連続ニブル列で、途中を捨てるとデコーダの予測状態がずれて以降が
+// 壊れる。オーバーランで古い音声を捨てたら、その時点のエンコーダを reset して
+// 以降を新しいセグメントとして積み、BULK_CHUNK の offset を飛ばす
+// (スマホは offset の飛びでデコーダを初期化する。protocol-v1.md)。
+// T18 の教訓から、確保は録音開始時ではなく init (起動時) に PSRAM で行う。
+constexpr size_t kStreamRingBytes = 16 * 1024;
+constexpr size_t kStreamRingFallbackBytes = 8 * 1024;
+uint8_t* s_ring = nullptr;
+size_t s_ring_bytes = 0;
+size_t s_ring_head = 0;      // 書き込み位置
+size_t s_ring_tail = 0;      // 読み出し位置
+size_t s_ring_used = 0;      // 未読バイト数
+uint32_t s_ring_written = 0; // 積んだ累計 (offset = written - used)
+uint32_t s_ring_dropped = 0; // 溢れて捨てた累計
+bool s_stream = false;       // record_stream_enable(true) 済み
+portMUX_TYPE s_ring_mux = portMUX_INITIALIZER_UNLOCKED;
+
+// 空きが need 未満なら「未読の古い音声を全部捨てる」。捨てたら true。
+// 中途半端に先頭だけ捨てるとエンコーダ状態との対応が崩れるので、
+// 呼び出し側は true のときエンコーダを reset してから積み直す。
+bool ring_clear_if_full(size_t need) {
+  bool dropped = false;
+  portENTER_CRITICAL(&s_ring_mux);
+  if (s_ring_bytes < need) {
+    need = s_ring_bytes;
+  }
+  if (s_ring_bytes - s_ring_used < need) {
+    dropped = s_ring_used > 0;
+    s_ring_dropped += static_cast<uint32_t>(s_ring_used);
+    s_ring_used = 0;
+    s_ring_tail = s_ring_head;  // 空 (書き込み位置 = 読み出し位置)
+  }
+  portEXIT_CRITICAL(&s_ring_mux);
+  return dropped;
+}
+
+void ring_push(const uint8_t* data, size_t n) {
+  if (!data || n == 0) return;
+  portENTER_CRITICAL(&s_ring_mux);
+  if (!s_ring || !s_stream) {
+    portEXIT_CRITICAL(&s_ring_mux);
+    return;
+  }
+  if (n > s_ring_bytes - s_ring_used) n = s_ring_bytes - s_ring_used;
+  const size_t first = (n < s_ring_bytes - s_ring_head) ? n
+                                                        : s_ring_bytes - s_ring_head;
+  std::memcpy(s_ring + s_ring_head, data, first);
+  if (n > first) std::memcpy(s_ring, data + first, n - first);
+  s_ring_head = (s_ring_head + n) % s_ring_bytes;
+  s_ring_used += n;
+  s_ring_written += static_cast<uint32_t>(n);
+  portEXIT_CRITICAL(&s_ring_mux);
+}
+
+bool ring_read(void* buf, size_t* len_inout) {
+  if (!buf || !len_inout) return false;
+  portENTER_CRITICAL(&s_ring_mux);
+  if (!s_ring || !s_stream) {
+    portEXIT_CRITICAL(&s_ring_mux);
+    *len_inout = 0;
+    return false;
+  }
+  size_t n = *len_inout;
+  if (n > s_ring_used) n = s_ring_used;
+  const size_t first = (n < s_ring_bytes - s_ring_tail)
+                           ? n
+                           : s_ring_bytes - s_ring_tail;
+  std::memcpy(buf, s_ring + s_ring_tail, first);
+  if (n > first) {
+    std::memcpy(static_cast<uint8_t*>(buf) + first, s_ring, n - first);
+  }
+  s_ring_tail = (s_ring_tail + n) % s_ring_bytes;
+  s_ring_used -= n;
+  *len_inout = n;
+  portEXIT_CRITICAL(&s_ring_mux);
+  return true;
+}
 
 // ---- 再生ジョブ ----
 enum class PlaySrc : uint8_t { File, Beep };
@@ -255,19 +339,25 @@ void rec_task(void*) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // ジョブ待ち
 
-    FILE* f = std::fopen(s_rec.path, "w+b");
-    if (!f) {
-      ESP_LOGE(TAG, "fopen %s failed", s_rec.path);
-      lock();
-      s_rec.done = true;
-      s_rec.active = false;
-      unlock();
-      pm_release();  // ジョブ終了: light sleep 抑止を解除
-      continue;
+    // stream 時はファイルを書かず、リングバッファへ流す (AI dictation)。
+    // メモ録音 (stream=false) の ADP1 保存経路は従来どおり。
+    const bool stream = s_rec.stream;
+    FILE* f = nullptr;
+    if (!stream) {
+      f = std::fopen(s_rec.path, "w+b");
+      if (!f) {
+        ESP_LOGE(TAG, "fopen %s failed", s_rec.path);
+        lock();
+        s_rec.done = true;
+        s_rec.active = false;
+        unlock();
+        pm_release();  // ジョブ終了: light sleep 抑止を解除
+        continue;
+      }
+      uint8_t hdr[watch::audio::kAdp1HeaderSize];
+      watch::audio::adp1_write_header(hdr, 0);
+      fwrite(hdr, 1, sizeof(hdr), f);
     }
-    uint8_t hdr[watch::audio::kAdp1HeaderSize];
-    watch::audio::adp1_write_header(hdr, 0);
-    fwrite(hdr, 1, sizeof(hdr), f);
 
     encoder.reset();
     esp_codec_dev_sample_info_t fs;
@@ -301,7 +391,24 @@ void rec_task(void*) {
         lock();
         s_rec.level = static_cast<uint8_t>((static_cast<int>(peak) * 100) / 32767);
         const size_t wb = encoder.encode(pcm, got, enc, sizeof(enc));
-        if (wb > 0) s_rec.size += fwrite(enc, 1, wb, f);
+        if (stream) {
+          // 溢れたら古い未読を全部捨て、エンコーダを切り直して
+          // このブロックを新しいセグメントの先頭として積み直す。
+          // (中途半端に先頭だけ捨てるとデコーダ状態がずれて壊れる)
+          if (wb > 0 && ring_clear_if_full(wb)) {
+            encoder.reset();
+            const size_t wb2 = encoder.encode(pcm, got, enc, sizeof(enc));
+            if (wb2 > 0) {
+              ring_push(enc, wb2);
+              s_rec.size += wb2;
+            }
+          } else if (wb > 0) {
+            ring_push(enc, wb);
+            s_rec.size += wb;
+          }
+        } else if (wb > 0) {
+          s_rec.size += fwrite(enc, 1, wb, f);
+        }
         s_rec.samples += got;
         unlock();
       }
@@ -310,28 +417,35 @@ void rec_task(void*) {
       ESP_LOGE(TAG, "mic codec open failed");
     }
 
-    // 半端 nibble を確定 → ヘッダを書き直す。
+    // 半端 nibble を確定 → ヘッダを書き直す (メモ録音のみ)。
     const size_t tail = encoder.flush(enc, sizeof(enc));
-    if (tail > 0) s_rec.size += fwrite(enc, 1, tail, f);
-    patch_header(f, s_rec.samples);
-    s_rec.size += watch::audio::kAdp1HeaderSize;
-    std::fclose(f);
-
-    const bool commit = s_rec.commit;
-    if (commit) {
-      char final_path[64];
-      memo_path(s_rec.memo_id, final_path, sizeof(final_path), false);
-      if (rename(s_rec.path, final_path) != 0) {
-        ESP_LOGW(TAG, "rename %s failed", s_rec.path);
-        remove(s_rec.path);
+    if (stream) {
+      if (tail > 0 && !ring_clear_if_full(tail)) {
+        ring_push(enc, tail);
+        s_rec.size += tail;
       }
     } else {
-      remove(s_rec.path);
+      if (tail > 0) s_rec.size += fwrite(enc, 1, tail, f);
+      patch_header(f, s_rec.samples);
+      s_rec.size += watch::audio::kAdp1HeaderSize;
+      std::fclose(f);
+
+      const bool commit = s_rec.commit;
+      if (commit) {
+        char final_path[64];
+        memo_path(s_rec.memo_id, final_path, sizeof(final_path), false);
+        if (rename(s_rec.path, final_path) != 0) {
+          ESP_LOGW(TAG, "rename %s failed", s_rec.path);
+          remove(s_rec.path);
+        }
+      } else {
+        remove(s_rec.path);
+      }
     }
-    ESP_LOGI(TAG, "rec done id=%lu samples=%lu size=%lu commit=%d",
+    ESP_LOGI(TAG, "rec done id=%lu samples=%lu size=%lu stream=%d",
              static_cast<unsigned long>(s_rec.memo_id),
              static_cast<unsigned long>(s_rec.samples),
-             static_cast<unsigned long>(s_rec.size), commit ? 1 : 0);
+             static_cast<unsigned long>(s_rec.size), stream ? 1 : 0);
     lock();
     s_rec.done = true;
     s_rec.active = false;
@@ -504,7 +618,11 @@ class EspAudio : public watch::AudioPort {
     s_rec.active = true;
     s_rec.memo_id = memo_id;
     s_rec.max_sec = max_sec;
-    memo_path(memo_id, s_rec.path, sizeof(s_rec.path), true);
+    // ストリーム時はファイルを書かない (ring へ流すだけ)。
+    s_rec.stream = s_stream;
+    if (!s_rec.stream) {
+      memo_path(memo_id, s_rec.path, sizeof(s_rec.path), true);
+    }
     unlock();
     pm_acquire();  // ジョブ完了 (タスク側の pm_release) まで対
     if (s_rec_task) xTaskNotifyGive(s_rec_task);
@@ -545,6 +663,57 @@ class EspAudio : public watch::AudioPort {
     return s_rec.samples / watch::audio::kAdpcmSampleRate;
   }
   uint8_t record_level() const override { return s_rec.level; }
+
+  // ---- 録音ストリーム (AI dictation) ----
+  // 音声は保存しない: dictation では rec_task がファイルを一切作らず
+  // (tmp も含む)、エンコード結果を PSRAM のリングに積むだけ。
+  // リングは揮発で、停止 (enable(false)) で中身を捨てて次の入力で再利用する。
+  bool can_record_stream() const override {
+    return s_ring != nullptr && s_ring_bytes > 0;
+  }
+
+  bool record_stream_enable(bool enable) override {
+    if (enable) {
+      if (!s_ring || s_ring_bytes == 0) return false;
+      lock();
+      if (s_rec.active) {
+        unlock();
+        return false;
+      }
+      portENTER_CRITICAL(&s_ring_mux);
+      s_ring_head = s_ring_tail = s_ring_used = 0;
+      s_ring_written = 0;
+      s_ring_dropped = 0;
+      s_stream = true;
+      portEXIT_CRITICAL(&s_ring_mux);
+      unlock();
+      return true;
+    }
+    // 停止: リングは確保したまま次の録音で再利用する (確保は init 済み)。
+    portENTER_CRITICAL(&s_ring_mux);
+    s_stream = false;
+    s_ring_head = s_ring_tail = s_ring_used = 0;
+    portEXIT_CRITICAL(&s_ring_mux);
+    return true;
+  }
+
+  bool record_stream_read(void* buf, size_t* len_inout) override {
+    return ring_read(buf, len_inout);
+  }
+
+  uint32_t record_stream_offset() const override {
+    portENTER_CRITICAL(&s_ring_mux);
+    const uint32_t off = s_ring_written - static_cast<uint32_t>(s_ring_used);
+    portEXIT_CRITICAL(&s_ring_mux);
+    return off;
+  }
+
+  uint32_t record_stream_dropped() const override {
+    portENTER_CRITICAL(&s_ring_mux);
+    const uint32_t dropped = s_ring_dropped;
+    portEXIT_CRITICAL(&s_ring_mux);
+    return dropped;
+  }
 
   bool play_begin(uint32_t memo_id, uint8_t volume) override {
     if (!s_ready || !s_mounted || !speaker()) return false;
@@ -711,6 +880,26 @@ bool init(const Deps& deps) {
   if (pl != ESP_OK) {
     ESP_LOGW(TAG, "pm lock create: %s", esp_err_to_name(pl));
   }
+
+  // 録音ストリーム (AI dictation) 用リング。T18 の教訓で録音開始時ではなく
+  // 起動時に PSRAM へ確保する。16KB が取れなければ 8KB に落とし、
+  // それも無理ならストリーム無効 (音声メモは従来どおり動く)。
+  s_ring = static_cast<uint8_t*>(
+      heap_caps_malloc(kStreamRingBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (s_ring) {
+    s_ring_bytes = kStreamRingBytes;
+  } else {
+    s_ring = static_cast<uint8_t*>(heap_caps_malloc(
+        kStreamRingFallbackBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    s_ring_bytes = s_ring ? kStreamRingFallbackBytes : 0;
+    if (s_ring) {
+      ESP_LOGW(TAG, "record stream ring fallback %u bytes",
+               static_cast<unsigned>(s_ring_bytes));
+    } else {
+      ESP_LOGW(TAG, "record stream disabled (psram alloc failed)");
+    }
+  }
+  // TODO(hw): 実機で PSRAM 空き (起動時/表示中) への影響を確認する。
 
   // コーデック IC の有無を I2C で確認。未搭載なら codec init に進まない
   // (BSP 側が assert で落ちるため)。音声機能のみ無効化し残りは動かす。

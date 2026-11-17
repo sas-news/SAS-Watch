@@ -591,6 +591,29 @@ DispatchError h_agent_reply(const cbor::Value& params, Services& svc,
   return DispatchError::Ok;
 }
 
+// agent.partial {id, text, final?}: リアルタイム文字起こしの途中経過。
+// CUMULATIVE (前回を置き換える)。final は省略可 (既定 false)。
+// text は最大 768 バイト (UTF-8) だが、切り詰めは feature 側で行う。
+DispatchError h_agent_partial(const cbor::Value& params, Services& svc,
+                              cbor::Writer* r) {
+  if (!svc.agent_partial) return DispatchError::Internal;
+  int64_t id = -1;
+  const char* text = nullptr;
+  size_t tn = 0;
+  if (!param_int(params, "id", &id) || id < 0 || id > UINT16_MAX ||
+      !param_text(params, "text", &text, &tn)) {
+    return DispatchError::BadRequest;
+  }
+  bool final = false;
+  cbor::Value pv;
+  if (cbor::map_find(params, "final", &pv) && !cbor::as_bool(pv, &final)) {
+    return DispatchError::BadRequest;
+  }
+  svc.agent_partial(static_cast<uint16_t>(id), text, tn, final, svc.ctx);
+  r->map(0);
+  return DispatchError::Ok;
+}
+
 DispatchError h_notify_post(const cbor::Value& params, Services& svc,
                             cbor::Writer* r) {
   const char *app = nullptr, *title = nullptr, *body = nullptr;
@@ -793,6 +816,7 @@ constexpr Handler kHandlers[] = {
     {"steps.get", h_steps_get},
     {"walk.state", h_walk_state},
     {"agent.reply", h_agent_reply},
+    {"agent.partial", h_agent_partial},
 };
 
 }  // namespace

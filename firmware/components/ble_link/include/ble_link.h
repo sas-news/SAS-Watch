@@ -86,6 +86,14 @@ void ble_link_set_advertising(bool enable);
 // 広告中なら張り直し、接続中はフラグだけ記録して次の広告開始に反映。
 void ble_link_set_adv_rate(bool slow);
 
+// ---- AI dictation (リアルタイム音声) 中のリンク高速化 ----
+// true: 接続間隔を 15–30ms / latency 0 に要求し、2M PHY を希望する。
+//       (ADPCM 16kHz = 8KB/s を既存の 100–200ms 間隔では賄えないため)
+// false: 元の 100–200ms に戻す (電池優先)。切断時も自動で戻る。
+// central が拒否しても接続は維持され、採否はログに出る。
+// dictation の開始/終了と必ず対で呼ぶこと (状態は ble_link が一元管理する)。
+void ble_link_set_stream_mode(bool enable);
+
 // EVT payload (CBOR {"e":..,"d":{..}}) を event characteristic で notify。
 // 未接続/未購読なら ESP_ERR_INVALID_STATE。大きい EVT は MTU で分割される。
 esp_err_t ble_link_send_event(const uint8_t* cbor, size_t len);

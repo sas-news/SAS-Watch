@@ -2,6 +2,7 @@ package dev.sasnews.amoledwatch.connection
 
 import dev.sasnews.amoledwatch.protocol.BulkChannel
 import dev.sasnews.amoledwatch.protocol.Evt
+import dev.sasnews.amoledwatch.protocol.InboundBulkEvent
 import dev.sasnews.amoledwatch.protocol.IncomingBulk
 import dev.sasnews.amoledwatch.protocol.Req
 import dev.sasnews.amoledwatch.protocol.Res
@@ -37,6 +38,18 @@ interface WatchLink {
      * (kind="agent_audio" 等) の両方が流れる。
      */
     val incomingBulk: SharedFlow<IncomingBulk>
+
+    /**
+     * 時計→スマホの BULK 受信イベント (完成した一括転送 / dictation の PCM / ACK 要求)。
+     * dictation は BULK_START で [InboundBulkEvent.DictationStart] が流れる。
+     */
+    val inbound: SharedFlow<InboundBulkEvent>
+
+    /**
+     * 音声ストリーミング中は BLE の接続優先度/PHY を上げる (docs/muse-integration.md §8)。
+     * BLE 以外の経路 (仮想時計) では何もしない。
+     */
+    fun setStreamingMode(enabled: Boolean) {}
 
     /**
      * 時計→スマホの BULK 転送 (kind="memo") を受け取る。

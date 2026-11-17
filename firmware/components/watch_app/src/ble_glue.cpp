@@ -53,6 +53,11 @@ volatile int32_t s_pending_key = -1;
 char s_pending_face[16] = {};
 char s_pending_font[16] = {};
 
+#if SAS_APP_AGENT
+// dictation の ACK 処理 (定義は下の agent 送出し節)。BULK_ACK を振り分ける。
+bool dictation_handle_ack(uint16_t id, uint32_t next);
+#endif
+
 // ---- bulk_out (時計→スマホの push 送信) ------------------------------------
 // Phone は受信側として BULK_ACK{next} を返す (8チャンクごと/END後)。
 // ACK が来ない/進まない部分はタイムアウトで acked 位置から送り直す。
@@ -143,6 +148,13 @@ bool bulk_out_begin(uint32_t file_id, const char* kind, uint16_t tid,
 
 // NimBLE タスクから届いた Phone 側の ACK {id,next}。
 void on_bulk_ack(uint16_t id, uint32_t next, void*) {
+#if SAS_APP_AGENT
+  // AI dictation (BULK kind="dictation") の ACK はこちらへ。
+  if (dictation_handle_ack(id, next)) {
+    wake_task();
+    return;
+  }
+#endif
   if (!s_out.active || id != s_out.id) return;
   s_out.acked = next;
   if (next < s_out.sent) {
@@ -226,35 +238,219 @@ void bulk_out_pump() {
 
 // ---- agent (AI) の送信 ----------------------------------------------------
 // core が持つ「送りたい物」を app タスクのループで実際に出す。
-// 音声は BULK kind="agent_audio"、定型質問は EVT agent.request。
+// 定型質問は EVT agent.request、音声は BULK kind="dictation" でストリーミング。
 #if SAS_APP_AGENT
-void agent_bulk_done(uint16_t id, bool ok) {
-  core_lock();
-  watch::features::agent_sent(id, ok, *fctx());
-  core_unlock();
+
+// dictation (リアルタイム音声) の送出し状態。
+//   録音中  : ring buffer から読み出して BULK_CHUNK を送る
+//   停止後  : 残りを drain して BULK_END を送る
+// リアルタイム優先なので再送しない。未 ACK が 8KB を超えた分は「古い音声を
+// 捨てた」ものとして扱う (ACK は参考値。ASR 側が補間する)。
+struct DictationOut {
+  bool active = false;       // BULK_START 送信済み
+  bool end_pending = false;  // core が停止を要求 (drain 後に END)
+  bool ack_seen = false;     // 一度でも BULK_ACK が来た
+  bool warned_unsupported = false;
+  uint16_t id = 0;
+  uint32_t sent = 0;   // 送った累積バイト。CHUNK の offset は AudioPort が返す
+  uint32_t acked = 0;
+  uint32_t unacked_dropped = 0;  // 未 ACK 8KB 超で捨てたとみなした累積
+  int64_t start_ms = 0;
+  int64_t last_audio_ms = 0;
+  int64_t end_started_ms = 0;
+};
+DictationOut s_dict;
+constexpr uint32_t kDictUnackedMax = 8 * 1024;  // protocol: 未 ACK 8KB
+// TODO(hw): 実機で旧アプリ判定/遅延 ACK の閾値 (3 秒) を確認する。
+constexpr int64_t kDictAckWaitMs = 3000;
+// TODO(hw): 実機でマイク停止検出の閾値 (5 秒) を確認する。
+constexpr int64_t kDictSilenceMs = 5000;
+constexpr int64_t kDictEndDrainMs = 2000;       // 停止後の drain 上限
+// TODO(hw): 実機で 8KB/s を維持できる 1 起床あたりのチャンク数を確認する。
+constexpr size_t kDictChunksPerPoll = 4;
+
+// NimBLE タスクから呼ばれる。dictation の ACK なら true。
+bool dictation_handle_ack(uint16_t id, uint32_t next) {
+  if (!s_dict.active || id != s_dict.id) return false;
+  // ACK の next は送信済みを超えない (異常値で underflow させない)。
+  s_dict.acked = next > s_dict.sent ? s_dict.sent : next;
+  s_dict.last_audio_ms = clock()->now_ms();
+  if (!s_dict.ack_seen) {
+    s_dict.ack_seen = true;
+    core_lock();
+    watch::features::agent_stream_acked(id);  // 旧アプリ警告の解除
+    core_unlock();
+  }
+  return true;
 }
+
+// dictation を終える。send_end=true なら BULK_END を送る。
+// core への通知は呼び出し側で行う (core_lock の順序を単純にするため)。
+bool dictation_stop(bool send_end) {
+  if (!s_dict.active) return false;
+  bool end_ok = true;
+  if (send_end) {
+    uint8_t buf[32];
+    const size_t n = watch::proto::bulk_encode_end(s_dict.id, buf, sizeof(buf));
+    end_ok = n > 0 && ble_link_bulk_send(0x13, s_dict.id, buf, n) == ESP_OK;
+  }
+  const uint32_t ring_drop =
+      (fctx() && fctx()->audio) ? fctx()->audio->record_stream_dropped() : 0;
+  ESP_LOGI(TAG,
+           "dictation stop id=%u sent=%lu acked=%lu unacked_drop=%lu "
+           "ring_drop=%lu end=%d",
+           (unsigned)s_dict.id, (unsigned long)s_dict.sent,
+           (unsigned long)s_dict.acked,
+           (unsigned long)s_dict.unacked_dropped,
+           (unsigned long)ring_drop, send_end ? 1 : 0);
+  s_dict = DictationOut{};
+  ble_link_set_stream_mode(false);  // 電池優先の通常パラメータへ戻す
+  return end_ok;
+}
+
+bool dictation_start(uint16_t id) {
+  if (!ble_link_is_connected() || !ble_link_bulk_ready() || !fctx() ||
+      !fctx()->audio) {
+    return false;
+  }
+  uint16_t chunk = ble_link_bulk_chunk_max();
+  if (chunk == 0) return false;
+  if (chunk > 232) chunk = 232;
+  uint8_t sha[32] = {};  // size=0 の dictation では使わない (ゼロ埋め)
+  uint8_t start[96];
+  const size_t n = watch::proto::bulk_encode_start(id, "dictation", 0, sha,
+                                                   chunk, start, sizeof(start));
+  if (n == 0 || ble_link_bulk_send(0x10, id, start, n) != ESP_OK) {
+    return false;
+  }
+  s_dict = DictationOut{};
+  s_dict.active = true;
+  s_dict.id = id;
+  s_dict.start_ms = clock()->now_ms();
+  s_dict.last_audio_ms = s_dict.start_ms;
+  ble_link_set_stream_mode(true);  // 15-30ms + 2M PHY を希望
+  ESP_LOGI(TAG, "dictation start id=%u chunk=%u", (unsigned)id,
+           (unsigned)chunk);
+  return true;
+}
+
+// dictation のポンプ。app タスクのループ (ble_glue_poll) から呼ぶ。
+void dictation_pump() {
+  if (!s_dict.active) return;
+  if (!ble_link_is_connected() || !fctx() || !fctx()->audio) {
+    // 切断: BULK_END は送れない。後始末して core へ知らせる。
+    const uint16_t id = s_dict.id;
+    dictation_stop(false);
+    core_lock();
+    watch::features::agent_stream_failed(id, false, *fctx());
+    core_unlock();
+    return;
+  }
+  const int64_t now = clock()->now_ms();
+
+  // 旧アプリ (BULK_ACK を一度も返さない) の検出。録音は継続し警告だけ出す。
+  if (!s_dict.ack_seen && !s_dict.warned_unsupported &&
+      now - s_dict.start_ms > kDictAckWaitMs) {
+    s_dict.warned_unsupported = true;
+    core_lock();
+    watch::features::agent_stream_failed(s_dict.id, true, *fctx());
+    core_unlock();
+  }
+
+  uint16_t chunk = ble_link_bulk_chunk_max();
+  if (chunk == 0) return;
+  if (chunk > 232) chunk = 232;
+
+  // 1 起床でリングが空になるまで (最大 kDictChunksPerPoll)。
+  // 232B × 35/s = 8KB/s を満たすには 1 起床 1 チャンクでは足りない。
+  bool drained = false;
+  for (size_t i = 0; i < kDictChunksPerPoll; ++i) {
+    uint8_t frame[watch::proto::kBulkChunkHead + 232];
+    size_t got = chunk;
+    // offset は AudioPort の累積位置。リング溢れで古い音声を捨てた場合は
+    // 飛ぶので、スマホ側はデコーダを初期化する (protocol-v1.md)。
+    const uint32_t offset = fctx()->audio->record_stream_offset();
+    if (!fctx()->audio->record_stream_read(
+            frame + watch::proto::kBulkChunkHead, &got)) {
+      // ストリームが無効化された (失敗経路)。後始末して core へ。
+      const uint16_t id = s_dict.id;
+      dictation_stop(false);
+      core_lock();
+      watch::features::agent_stream_failed(id, false, *fctx());
+      core_unlock();
+      return;
+    }
+    if (got == 0) {
+      drained = true;
+      break;
+    }
+    watch::proto::bulk_chunk_head(s_dict.id, offset, frame);
+    if (ble_link_bulk_send(0x11, s_dict.id, frame,
+                           watch::proto::kBulkChunkHead + got) != ESP_OK) {
+      // NimBLE の mbuf 詰まりなど。次の起床で同じ位置から再試行する。
+      static int64_t s_congested_log_ms = 0;
+      if (now - s_congested_log_ms > 1000) {
+        s_congested_log_ms = now;
+        ESP_LOGW(TAG, "dictation send congested (sent=%lu)",
+                 (unsigned long)s_dict.sent);
+      }
+      break;
+    }
+    s_dict.sent += got;
+    s_dict.last_audio_ms = now;
+  }
+
+  // ACK は待たないが、未 ACK が 8KB を超えたら古い音声は捨てた扱いにする
+  // (再送しない。リアルタイム優先)。
+  if (s_dict.sent - s_dict.acked > kDictUnackedMax) {
+    s_dict.unacked_dropped += s_dict.sent - s_dict.acked - kDictUnackedMax;
+    s_dict.acked = s_dict.sent - kDictUnackedMax;
+  }
+
+  // 停止要求: 残りを吐き切ってから BULK_END。
+  if (s_dict.end_pending) {
+    if (s_dict.end_started_ms == 0) s_dict.end_started_ms = now;
+    const bool timeout = now - s_dict.end_started_ms > kDictEndDrainMs;
+    if (drained || timeout) {
+      const uint16_t id = s_dict.id;
+      const bool ok = dictation_stop(true);
+      core_lock();
+      if (ok) {
+        watch::features::agent_stream_stopped(id, *fctx());
+      } else {
+        watch::features::agent_stream_failed(id, false, *fctx());
+      }
+      core_unlock();
+    }
+    return;
+  }
+
+  // 録音中に 5 秒以上音声が来ないのはマイク異常 (無音でもデータは来る)。
+  if (s_dict.sent == 0 && now - s_dict.last_audio_ms > kDictSilenceMs) {
+    const uint16_t id = s_dict.id;
+    dictation_stop(false);
+    core_lock();
+    watch::features::agent_stream_failed(id, false, *fctx());
+    core_unlock();
+  }
+}
+
+// 切断時に dictation を畳む (BULK_END は送れない)。
+void agent_dictation_abort() { dictation_stop(false); }
 
 void write_evt_agent_request(watch::cbor::Writer& w, void* ctx) {
   const auto& p = *static_cast<const watch::features::AgentPending*>(ctx);
   w.map(2).text("id").uint_v(p.id).text("text").text(p.text);
 }
 
+// core の送信要求を処理する (定型質問の EVT と dictation の START/STOP)。
 void agent_poll_send() {
+  // 定型質問。
   watch::features::AgentPending p;
   core_lock();
   const bool has = watch::features::agent_pending(&p);
   core_unlock();
-  if (!has || !ble_link_is_connected()) {
-    return;  // 未接続は feature の tick がエラーにする
-  }
-  if (p.audio) {
-    // 録音 (ADP1) を BULK kind="agent_audio" で push。
-    if (bulk_out_begin(p.file_id, "agent_audio", p.id, agent_bulk_done)) {
-      core_lock();
-      watch::features::agent_send_started(p.id);
-      core_unlock();
-    }
-  } else {
+  if (has && ble_link_is_connected()) {
     uint8_t buf[160];
     watch::cbor::Writer w(buf, sizeof(buf));
     if (watch::proto::encode_evt(&w, "agent.request",
@@ -266,6 +462,37 @@ void agent_poll_send() {
       core_unlock();
     }
   }
+
+  // dictation の開始/停止。
+  watch::features::AgentStreamRequest req;
+  core_lock();
+  const bool has_stream = watch::features::agent_stream_pending(&req);
+  core_unlock();
+  if (has_stream) {
+    if (req.cmd == watch::features::AgentStreamCmd::Start) {
+      if (dictation_start(req.id)) {
+        core_lock();
+        watch::features::agent_stream_started(req.id);
+        core_unlock();
+      } else {
+        // bulk 未購読/未接続 = 旧アプリ扱い。録音は継続させる。
+        core_lock();
+        watch::features::agent_stream_failed(req.id, true, *fctx());
+        core_unlock();
+      }
+    } else if (req.cmd == watch::features::AgentStreamCmd::Stop) {
+      if (s_dict.active && s_dict.id == req.id) {
+        s_dict.end_pending = true;
+        s_dict.end_started_ms = clock()->now_ms();
+      } else {
+        core_lock();
+        watch::features::agent_stream_failed(req.id, false, *fctx());
+        core_unlock();
+      }
+    }
+  }
+
+  dictation_pump();
 }
 #endif  // SAS_APP_AGENT
 
@@ -561,6 +788,12 @@ size_t ble_dispatch(const uint8_t* req, size_t req_len, uint8_t* res,
     return watch::features::agent_on_reply(
         id, text, len, *static_cast<watch::FeatureContext*>(c));
   };
+  // agent.partial: リアルタイム文字起こしの途中経過 (CUMULATIVE)。
+  svc.agent_partial = [](uint16_t id, const char* text, size_t len, bool final,
+                         void* c) {
+    return watch::features::agent_on_partial(
+        id, text, len, final, *static_cast<watch::FeatureContext*>(c));
+  };
 #endif
 #if SAS_APP_ALARM
   svc.alarm_count = [](void*) {
@@ -843,6 +1076,11 @@ void ble_glue_poll() {
     if (conn == 0 && s_out.active) {
       bulk_out_stop("disconnected");
     }
+#endif
+#if SAS_APP_AGENT
+    // dictation 中なら切断で後始末 (BULK_END は送れない。core は tick で
+    // 切断を検知してエラーにする)。
+    if (conn == 0) agent_dictation_abort();
 #endif
 #if SAS_APP_MEDIA
     if (conn == 0) asset_discard();  // アートは接続中だけ有効

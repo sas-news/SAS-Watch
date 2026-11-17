@@ -11,6 +11,7 @@ import dev.sasnews.amoledwatch.R
 import dev.sasnews.amoledwatch.WatchApp
 import dev.sasnews.amoledwatch.agent.AgentConfig
 import dev.sasnews.amoledwatch.agent.AgentEngine
+import dev.sasnews.amoledwatch.agent.VoskModelStore
 import dev.sasnews.amoledwatch.ble.BleScanner
 import dev.sasnews.amoledwatch.connection.LinkState
 import dev.sasnews.amoledwatch.notif.NotificationForwarder
@@ -60,6 +61,21 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     /** AI の会話履歴 (直近10往復)。 */
     val agentHistory: StateFlow<List<AgentEngine.Turn>> = watchApp.agentBridge.history
     val agentBusy: StateFlow<Int> = watchApp.agentBridge.busy
+
+    // ---- Muse チャット画面 ----
+    val museChats = watchApp.agentBridge.museChats
+    val museChatId = watchApp.agentBridge.museChatId
+    val museMessages = watchApp.agentBridge.museMessages
+    val museLoading = watchApp.agentBridge.museLoading
+    val museBusy = watchApp.agentBridge.museBusy
+    val museApproval = watchApp.agentBridge.museApproval
+    val museNotice = watchApp.agentBridge.museNotice
+
+    // ---- オフライン音声認識 (Vosk) ----
+    val voskState = watchApp.voskModel.state
+
+    /** 有料の上級者向け設定を表示するか。 */
+    val advancedAi = watchApp.agentBridge.advancedAi
 
     /** 画面表示用に EVT を文字列化して溜める。 */
     private val _recentEvents = MutableStateFlow<List<String>>(emptyList())
@@ -170,11 +186,32 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
     fun saveAgentConfig(c: AgentConfig) = watchApp.agentBridge.updateConfig(c)
     fun clearAgentHistory() = watchApp.agentBridge.clearHistory()
 
+    // ---- オフライン音声認識 (Vosk) ----
+    fun downloadVoskModel() = watchApp.voskModel.download()
+
+    /** 上級者向け設定 (有料の Muse / Meta ASR) の表示切り替え。 */
+    fun setAdvancedAi(enabled: Boolean) = watchApp.agentBridge.setAdvancedAi(enabled)
+
+    // ---- Muse チャット ----
+    fun refreshMuseChats() = watchApp.agentBridge.refreshMuseChats()
+    fun openMuseChat(chatId: String) = watchApp.agentBridge.openMuseChat(chatId)
+    fun newMuseChat() = watchApp.agentBridge.newMuseChat()
+    fun sendMuseText(text: String) = watchApp.agentBridge.sendMuseText(text)
+    fun dismissMuseApproval() = watchApp.agentBridge.dismissMuseApproval()
+    fun consumeMuseNotice() = watchApp.agentBridge.consumeMuseNotice()
+    fun clearMuseHistory() = watchApp.agentBridge.clearMuseHistory()
+
     /** デバッグ: 仮想時計が定型質問を投げたことにする。 */
     fun fakeAgentRequest(text: String) =
         manager.fakeConnection()?.fake?.simulateAgentRequest(text)
     /** デバッグ: 仮想時計が「話しかけた」ことにする (ADP1 を BULK push)。 */
     fun fakeAgentAudio() = manager.fakeConnection()?.fake?.simulateAgentAudio()
+
+    /** デバッグ: 仮想時計が dictation (リアルタイム文字起こし) を流す。 */
+    fun fakeDictation() = manager.simulateDictation()
+
+    /** デバッグ: BULK_END が来ない dictation (5 秒無音の自動確定を試す)。 */
+    fun fakeDictationWithoutEnd() = manager.simulateDictationWithoutEnd()
 
     // ---------------- メモ ----------------
 

@@ -1322,3 +1322,138 @@ TEST(DispatchWalk, TruncatesAtUtf8Boundary) {
       static_cast<uint8_t>(f.walk_seen.route[std::strlen(f.walk_seen.route) - 1]);
   EXPECT_LT(last, 0x80u);
 }
+
+// ---------- Agent (agent.reply / agent.partial) ----------
+
+namespace {
+
+// agent.* のコールバック引数を捕捉する。
+struct AgentCapture {
+  int calls = 0;
+  uint16_t id = 0;
+  std::string text;
+  bool final = false;
+
+  static bool partial(uint16_t i, const char* t, size_t n, bool f, void* c) {
+    auto* self = static_cast<AgentCapture*>(c);
+    ++self->calls;
+    self->id = i;
+    self->text.assign(t, n);
+    self->final = f;
+    return true;
+  }
+  static bool reply(uint16_t, const char*, size_t, void*) {
+    // reply の捕捉は使わない (ここでは partial だけ検証する)。
+    return true;
+  }
+};
+
+// {"m":"agent.partial","p":{...}} を dispatch する。
+size_t dispatch_partial(AgentCapture& cap, const uint8_t* req, size_t req_len,
+                        uint8_t* res, size_t res_cap,
+                        proto::DispatchError* out_err) {
+  proto::Services svc;
+  svc.agent_partial = &AgentCapture::partial;
+  svc.agent_reply = &AgentCapture::reply;
+  svc.ctx = &cap;
+  cbor::Writer w(res, res_cap);
+  const proto::DispatchError err =
+      proto::dispatch_req(req, req_len, svc, &w);
+  if (out_err) *out_err = err;
+  return w.size();
+}
+
+}  // namespace
+
+TEST(DispatchAgent, PartialCallsHandlerWithFinal) {
+  AgentCapture cap;
+  uint8_t req[256];
+  cbor::Writer w(req, sizeof(req));
+  w.map(2).text("m").text("agent.partial").text("p");
+  w.map(3)
+      .text("id")
+      .uint_v(7)
+      .text("text")
+      .text("今日の予定は")
+      .text("final")
+      .bool_v(true);
+  ASSERT_TRUE(w.ok());
+  uint8_t res[64];
+  proto::DispatchError err;
+  const size_t n =
+      dispatch_partial(cap, req, w.size(), res, sizeof(res), &err);
+  EXPECT_EQ(err, proto::DispatchError::Ok);
+  EXPECT_EQ(cap.calls, 1);
+  EXPECT_EQ(cap.id, 7);
+  EXPECT_EQ(cap.text, "今日の予定は");
+  EXPECT_TRUE(cap.final);
+  // RES は {ok:true, r:{}}。
+  cbor::Value top{res, res + n};
+  cbor::Value v;
+  bool ok = false;
+  ASSERT_TRUE(cbor::map_find(top, "ok", &v));
+  ASSERT_TRUE(cbor::as_bool(v, &ok));
+  EXPECT_TRUE(ok);
+}
+
+TEST(DispatchAgent, PartialDefaultsToNotFinalAndAllowsEmptyText) {
+  AgentCapture cap;
+  uint8_t req[128];
+  cbor::Writer w(req, sizeof(req));
+  w.map(2).text("m").text("agent.partial").text("p");
+  w.map(2).text("id").uint_v(3).text("text").text("");
+  ASSERT_TRUE(w.ok());
+  uint8_t res[64];
+  proto::DispatchError err;
+  dispatch_partial(cap, req, w.size(), res, sizeof(res), &err);
+  EXPECT_EQ(err, proto::DispatchError::Ok);
+  EXPECT_EQ(cap.calls, 1);
+  EXPECT_EQ(cap.id, 3);
+  EXPECT_EQ(cap.text, "");
+  EXPECT_FALSE(cap.final);  // 省略時 false (途中経過)
+}
+
+TEST(DispatchAgent, PartialBadParams) {
+  AgentCapture cap;
+  uint8_t out[64];
+  // text 無し → bad_request
+  {
+    uint8_t req[128];
+    cbor::Writer w(req, sizeof(req));
+    w.map(2).text("m").text("agent.partial").text("p");
+    w.map(1).text("id").uint_v(1);
+    ASSERT_TRUE(w.ok());
+    proto::DispatchError err;
+    dispatch_partial(cap, req, w.size(), out, sizeof(out), &err);
+    EXPECT_EQ(err, proto::DispatchError::BadRequest);
+  }
+  // final の型違い (uint) → bad_request
+  {
+    uint8_t req[128];
+    cbor::Writer w(req, sizeof(req));
+    w.map(2).text("m").text("agent.partial").text("p");
+    w.map(3)
+        .text("id")
+        .uint_v(1)
+        .text("text")
+        .text("x")
+        .text("final")
+        .uint_v(1);
+    ASSERT_TRUE(w.ok());
+    proto::DispatchError err;
+    dispatch_partial(cap, req, w.size(), out, sizeof(out), &err);
+    EXPECT_EQ(err, proto::DispatchError::BadRequest);
+  }
+  // id 範囲外 → bad_request
+  {
+    uint8_t req[128];
+    cbor::Writer w(req, sizeof(req));
+    w.map(2).text("m").text("agent.partial").text("p");
+    w.map(2).text("id").uint_v(70000).text("text").text("x");
+    ASSERT_TRUE(w.ok());
+    proto::DispatchError err;
+    dispatch_partial(cap, req, w.size(), out, sizeof(out), &err);
+    EXPECT_EQ(err, proto::DispatchError::BadRequest);
+  }
+  EXPECT_EQ(cap.calls, 0);
+}
