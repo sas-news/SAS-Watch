@@ -90,6 +90,17 @@ python -m esp_idf_monitor --port /dev/ttyACM0 build/sas_watch.elf   # 終了: Ct
 `idf.py flash` は cmake を再実行する。`IDF_CCACHE_ENABLE=1` を付けずに呼ぶと
 全リビルドになるので注意。同梱テーマの書き込みはリポジトリ直下の AGENTS.md を参照。
 
+`firmware/dependencies.lock` は vendor コンポーネントの**作者マシンの絶対パス**を
+記録しているため、別の場所で clone すると素の `idf.py build` が configure で
+path エラーになる。ローカルではビルド前に次を実行して読み替える (CI は同じ
+スクリプトを自動実行している)。コミット前に lock を戻すこと。
+
+```sh
+tools/fix_deps_lock.sh          # このチェックアウトのパスに読み替える
+idf.py build
+git checkout -- firmware/dependencies.lock   # ローカル専用の変更を戻す
+```
+
 ### シリアルのデバッグコマンド
 
 モニタ (USB-Serial/JTAG) に 1 文字送ると実行する (`watch_app.cpp` の serial_dbg_task)。
