@@ -5,6 +5,7 @@ idf_component_register(
                   board diag ble_link theme_store
                   watch_core platform_esp watch_app ui ota
                   waveshare__esp32_s3_touch_amoled_2_06
+                  muse_link
 )
 
 # アプリの有効/無効 define (app_main.cpp の face hooks ガード用)。

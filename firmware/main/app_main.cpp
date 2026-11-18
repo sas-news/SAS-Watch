@@ -58,6 +58,10 @@ static void clear_ui_guard(void*) {
 
 #endif
 
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+#include "muse_link/muse_link.h"
+#endif
+
 // 電池ポーリング (AXP IRQ 線が無いので定期 — plan.md A-3)。
 // 変化があったときだけ Event を出す。VBUS 有無は usb_keep_awake の
 // スリープ抑制に使うので PowerPolicy へも通知する。
@@ -150,6 +154,14 @@ extern "C" void app_main(void)
         ESP_LOGE(TAG, "watch_app start failed");
         return;
     }
+
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+    // Muse chat/Noise 層の土台 (T50 Phase 1)。既定 off。
+    // NVS (namespace "muse") の host/vm_id/token を読んで状態を出すだけで、
+    // ネットワーク接続・セッションタスク・大きな PSRAM 確保はしない (Phase 2)。
+    // 資格情報が無ければ no-op。
+    muse_link_init();
+#endif
 
     // 文字盤の補助データ (ui/face_data.hpp)。歩数は steps Feature と
     // settings.steps_goal から。通知数は notify Feature、次のアラームは

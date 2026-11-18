@@ -1,0 +1,95 @@
+# muse_link — Muse chat/Noise 層の土台 (T50 Phase 1)
+
+Meta の [Muse Gadget SDK](https://github.com/facebookincubator/muse-gadget-sdk)
+(pinned **`ec976f0`**, Apache-2.0) の「Muse と話す」層を SAS-Watch に組み込むための
+コンポーネント。**Phase 1 は土台のみ**で、既定は無効 (`CONFIG_WATCH_ENABLE_MUSE_LINK=n`)。
+
+- 設計・サイズ実測・Phase 2 の残作業: [`docs/muse-bmin.md`](../../../docs/muse-bmin.md)
+- 移植可否の調査: [`docs/muse-port.md`](../../../docs/muse-port.md)
+- IDF 5.5.1 でのコンパイル検証: [`docs/muse-chat-spike.md`](../../../docs/muse-chat-spike.md)
+- スパイク (独立プロジェクト): [`tools/muse-gadget/spike/`](../../../tools/muse-gadget/spike/)
+
+## 既定ビルドへの影響
+
+`CONFIG_WATCH_ENABLE_MUSE_LINK=n` (既定) では `CMakeLists.txt` の `SRCS` が空になり、
+このコンポーネントは**ヘッダだけの存在**になる。バイナリへの追加は **0B**
+(`sas_watch.bin` は 2,184,064B のまま)。起動時の処理も `app_main.cpp` の
+`#if CONFIG_WATCH_ENABLE_MUSE_LINK` で丸ごと外れる。
+
+## 有効にしたとき
+
+```sh
+cd firmware
+# sdkconfig (または menuconfig) で
+#   Component config > muse_link (Muse chat/Noise, Phase 1) > Muse chat/Noise layer
+# を有効にする
+idf.py build
+```
+
+Phase 1 で起動時にやること:
+
+1. NVS namespace `muse` の `host` / `vm_id` / `token` を読む (README のスキーマ)。
+2. `muse_link` タグで host / vm / token の有無をログに出す (**token の値は出さない**)。
+3. それだけ。Wi-Fi / TLS / Noise セッション / セッションタスクは作らない。
+
+実測 (T50, IDF 5.5.1): `sas_watch.bin` 2,184,064B → **2,281,312B (+97,248B)**、
+静的 DIRAM 321,271 → 327,047B (空き 20,489 → 14,713B)、静的 PSRAM +4,704B、IRAM 0B。
+内訳は `docs/muse-bmin.md` §3。
+
+資格情報の投入 (NVS 書き込み) は Phase 2。Phase 1 では読み出しのみ。
+
+## NVS スキーマ (namespace `muse`)
+
+| key | 型 | 内容 |
+|---|---|---|
+| `host` | str | VM のホスト。未設定なら SDK 既定 `hatch.metaaivm.com` |
+| `vm_id` | str | VM ID (空 = アカウント既定 VM) |
+| `token` | str | device token または VM token。**ログ・UI に出さない** |
+
+値はコードにもドキュメントにも埋めない。書き込みは Phase 2 で
+`settings.set` / シリアルコマンドから行う予定。
+
+## 中身
+
+| パス | 出どころ | 備考 |
+|---|---|---|
+| `sdk/noise_core/src/*.cpp` (7) | SDK `esp32/components/noise_core/src` | **無改変** (Apache-2.0) |
+| `sdk/include/xplat/noise/core/*.h` | 同 `include/xplat/...` | **無改変** |
+| `sdk/chat/src/*.c|cpp` (5) | SDK `esp32/components/muse` | **無改変**。`muse_chat.c` / `muse_chat_session.cpp` / `muse_chat_text.c` / `muse_account_api.c` / `muse_text.c` |
+| `sdk/include/*.h` (10) | 同 `components/muse` のヘッダ | **無改変**。MbedtlsCryptoBackend (IDF6 専用ヘッダ使用) はコピーしない |
+| `sdk/minimp3_shim/minimp3.h` | T49 スパイク | 音声再生をしない B-min 用シム (実 MP3 デコードは Phase 3) |
+| `src/muse_link.cpp` | SAS-Watch | 公開 API + NVS 読み出し |
+| `src/muse_adapters.cpp` | SAS-Watch | SDK が要求する 20 関数 + MP3 シンボル 2 個 + リンク維持表 |
+| `include/muse_link/muse_link.h` | SAS-Watch | 公開 API (`muse_link_init` / `ready` / `status` / `chat`) |
+
+sha256 (SDK ミラーと一致することを確認済み。詳細は `docs/muse-bmin.md`):
+
+```
+6a65c3cb0937f8d50701fb125a701ed4edaf0f63e885eaf79b928bde14e28772  sdk/chat/src/muse_chat_session.cpp
+542780738f73beb2d03ca7a19504ea8b6bc1a4b343c868c3e8b84fb2329ce930  sdk/chat/src/muse_chat.c
+5863e14ae2a356f5e415fa1e61a3e6b5c5a07b049909a96954a5f659acf1247c  sdk/chat/src/muse_chat_text.c
+0b9174e2d9fa6d9d68431ef83a4cadf106c3de0b10ae1d3b2db9ca7b6469d523  sdk/chat/src/muse_account_api.c
+3866362e50c085e27f7f2dc6be1888e6ca37aa171408eac3e23e7dbf4491381e  sdk/chat/src/muse_text.c
+```
+
+noise_core はディレクトリ内の全ファイルの中身を連結した sha256 が
+`cf99bff2ee479ae052549eeebaab1936d28af753e3411d3f28e08629ee25b7ff` (ミラーと一致)。
+
+## アダプタの TODO
+
+- `muse_link_hatch_linked()` / `muse_link_hatch_vm()`: 常に false (B-min は
+  Muse アプリの BLE ペアリングを使わない)。TODO(muse): M1 で token が得られない
+  場合は B-full (ペアリング移植) を再検討。
+- `muse_wifi_connected()`: `wifi::connected()`。TODO(hw): Phase 2 で
+  「画面 ON + 送受信中だけ Wi-Fi」の状態を返す。
+- `muse_state_page()`: 固定 20 桁 × 8 行。TODO(hw): AI 画面の実効幅で調整。
+- `muse_options_*`: 全 no-op (選択肢 UI はスコープ外)。TODO(muse): Phase 3。
+- リンク維持表 `s_link_keep`: Phase 1 はセッションを開始しないため、
+  chat オブジェクトがリンカに落とされないよう参照するだけ。TODO(muse):
+  Phase 2 でセッション開始を実装したら削除。
+
+## ライセンス
+
+`firmware/components/muse_link/sdk/` 配下は Meta Platforms, Inc. and affiliates の
+Apache License 2.0 (各ファイルのヘッダを保持)。SAS-Watch 側のファイル
+(`src/`, `include/`, `CMakeLists.txt`, `Kconfig`) は SAS-Watch のライセンスに従う。

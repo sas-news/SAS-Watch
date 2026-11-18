@@ -32,6 +32,17 @@
   必要スタブ 20 関数 + minimp3 シム。B-min は技術的には GO で 4〜6 人日。
   残る GO 条件は M1 (Muse の VM/デバイストークンを外部調達できるか) と
   実機 TLS 内部 RAM。詳細: `docs/muse-chat-spike.md`。
+- **T50 (Phase 1 統合)**: `firmware/components/muse_link/` に SDK chat/Noise 層を
+  Apache-2.0 コピーで取り込み、SAS-Watch アダプタ (NVS `muse` 読み出し/Wi-Fi 状態/
+  字幕 20 桁×8 行) を実装。`CONFIG_WATCH_ENABLE_MUSE_LINK` 既定 off。
+  **off のビルドはサイズ差分 0**、on で flash +97,248B / 静的 DIRAM +5,776
+  (空き 14,713B) / 静的 PSRAM +4,704 / IRAM 0。off/on ともビルド成功、
+  core 273/273、sim 監査 0。Phase 2 (資格情報投入・Wi-Fi on-demand・
+  セッション+RAM トリム+実機 TLS 実測・音声・UI 字幕) は 4〜6 人日で M1 待ち。
+  詳細: `docs/muse-bmin.md`。
+  - 既知: `firmware/dependencies.lock` の旧絶対パスで現パスの素ビルドが
+    configure 失敗 (CI は sed 済み)。T51 候補。
+
 
 ### 2026-11-17 フェーズ: Muse 連携 + リアルタイム文字起こし + 軽量化 (実装済み・実機確認待ち)
 

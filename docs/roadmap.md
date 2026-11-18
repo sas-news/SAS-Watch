@@ -1150,6 +1150,34 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、コンパイル GO・実機未検証)
 
+## T50. Muse chat/Noise 層を SAS-Watch ファームへ Phase 1 統合 — 難度 M (完了)
+
+- `firmware/components/muse_link/` を追加。SDK (pinned ec976f0, Apache-2.0) の
+  chat 5 ソース + noise_core 7 ソース + ヘッダを無改変コピーし、SAS-Watch 側の
+  20 スタブをアダプタで実装。T49 のスパイクを本体へ移した土台。
+- `CONFIG_WATCH_ENABLE_MUSE_LINK` (default n)。**既定 off のビルドはサイズ差分 0**
+  (muse_link のオブジェクト 0 個)。off/on ともビルド成功、core 273/273、sim 監査 0。
+- Kconfig on の増分 (実測): **flash +97,248B** (T49 の 77,763B は PSA コア
+  +19,455B を見落としていた)、静的 DIRAM +5,776 (空き 20,489→14,713)、
+  静的 PSRAM +4,704、IRAM 0。app 空き 47.9%→45.6%。
+- Phase 1 は NVS `muse` (host/vm_id/token) の読み出しと状態ログのみ。
+  ネットワーク接続・タスク・大確保はしない。
+- Phase 2 残作業 = 4〜6 人日 (資格情報投入 / Wi-Fi on-demand / セッション+RAM
+  トリム+実機 TLS 実測 / 音声アダプタ / UI 字幕 / 回帰)。前提は M1 の GO。
+- 詳細: `docs/muse-bmin.md`。
+
+状態: 完了 (2026-11-18、Phase 1 土台。実機未書き込み)
+
+## T51. firmware/dependencies.lock のパス可搬性 — 難度 S
+
+- `firmware/dependencies.lock` に旧ワークスペースの絶対パス 3 件が残り、
+  現ワークスペースでは素の `idf.py build` が configure で失敗する
+  (CI は sed で回避済み)。
+- 対応案: (a) ビルド前の正規化ヘルパ (`tools/fix_deps_lock.sh`) + README、
+  (b) lock を管理外化して yml から再解決、(c) CMake で一時的に書き換え。
+  リスクが低い (a) を第一候補。
+- 状態: 未着手 (T50 の検証中に発見)
+
 ## T48. Muse Gadget M0/M1 実機検証 — 難度 M
 
 - M0: 32MB 全量バックアップ → 公式ファーム書き込み → SDK token 投入

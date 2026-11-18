@@ -1,0 +1,21 @@
+# Muse chat/Noise 層 (T50 Phase 1)
+#
+# 既定は無効。有効にすると firmware/components/muse_link の SDK コピーと
+# アダプタがリンクされる (実測: flash +97,248B / 静的 DIRAM +5,776B / 静的 PSRAM +4,704B)。
+# 実測は docs/muse-bmin.md。実接続は Phase 2 (M1 の資格情報が前提)。
+
+menu "muse_link (Muse chat/Noise, Phase 1)"
+
+    config WATCH_ENABLE_MUSE_LINK
+        bool "Muse chat/Noise layer (foundation only)"
+        default n
+        help
+            Meta の Muse Gadget SDK (pinned ec976f0, Apache-2.0) の chat/Noise 層を
+            SAS-Watch に組み込む土台。Phase 1 は起動時に NVS (namespace "muse") の
+            host/vm_id/token を読んで状態をログに出すだけ。ネットワーク接続・
+            セッションタスク・大きな PSRAM 確保はせず、未設定なら no-op。
+
+            Phase 2 でセッションタスク、音声アダプタ、UI 統合を足す。
+            注意: 有効時のフラッシュ/PSRAM 増分は docs/muse-bmin.md 参照。
+
+endmenu
