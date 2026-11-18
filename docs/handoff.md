@@ -51,6 +51,16 @@
   パーサのホストテスト 22 ケース (`firmware/components/muse_link/test/`)。
   M1 手順は `docs/muse-m1.md` (公式ファームの NVS から nvs_tool.py で
   host/vm/token を抽出 → SAS-Watch へ投入)。残 Phase 2 は 3.5〜5.5 人日。
+- **T53 (M1 ツール)**: `tools/muse-gadget/export_credentials.py` (NVS から
+  host/vm/token を抽出、値を出さない) と `m0_m1.sh` (既定 dry-run の
+  M0→M1 ランブック、feed-serial は応答確認後に投入) を追加、テスト 50 件 OK。
+  発見: flash.sh のバックアップは M0 前なので資格情報を含まない →
+  ペアリング後に NVS を再ダンプ。`M` 行モードは 1 行ごとに M が必要。
+- **T54 (Phase 2 ②④)**: Wi-Fi on-demand (所有権方式、アイドル 60 秒) と
+  16kHz PCM→WAV/base64 音声アダプタ (SDK 形式、逐次変換、上限 60 秒) を実装。
+  off 0x215380 不変、on 0x22e730。ホストテスト all pass、core 273、sim 監査 0。
+  Phase 2 残りは ③ セッション+RAM+実機TLS / ⑤ UI字幕 / ⑥ 回帰で 2.5〜4 人日。
+
 
 
 

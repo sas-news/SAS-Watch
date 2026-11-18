@@ -1188,6 +1188,38 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、実機未確認 TODO(hw))
 
+## T53. M1 自動化ツール (NVS 抽出 + M0/M1 ランブック) — 難度 M (完了)
+
+- `tools/muse-gadget/export_credentials.py`: フルフラッシュ/NVS 単体から
+  namespace `muse` の host/vm/token を自前パースで抽出。`--check` は値と長さを
+  出さず、`--out/--shell` は 0600 atomic。CRC/欠落/空/長さ/旧キーを検証。
+- `tools/muse-gadget/m0_m1.sh`: 既定 dry-run の M0→M1 ランブック
+  (backup / flash-muse / dump-nvs / check / export / restore-saswatch /
+  feed-serial)。feed-serial は M 行モードの応答を確認してから値を送り、
+  token_len を照合。
+- テスト 50 件 OK (ESP-IDF 非同梱の合成 NVS + IDF nvs_partition_gen 生成 NVS +
+  CLI + 擬似シリアル)。値が stdout/stderr/例外に出ないことを assert。
+- 発見: flash.sh の 32MB バックアップは M0 前の SAS-Watch 状態なので資格情報を
+  含まない → ペアリング後に NVS を再ダンプする。SAS-Watch の `M` 行モードは
+  1 行ごとに M が必要 (docs/muse-bmin.md の例を修正)。
+
+状態: 完了 (2026-11-18、実機未検証)
+
+## T54. Phase 2 ② Wi-Fi on-demand + ④ 音声アダプタ — 難度 M (完了)
+
+- Wi-Fi は「自分が session_start したときだけ release」する所有権方式。
+  `muse_link_wifi_ensure/release/touch/poll(_at)`、アイドル 60 秒
+  (`CONFIG_WATCH_MUSE_WIFI_IDLE_S`)。OTA 等の Wi-Fi は落とさない。
+- 音声: SDK 形式 (16kHz/16bit/mono WAV 44B・RIFF/data=0xFFFFFFFF・base64・
+  JSON `data_base64`) に一致する純 C アダプタ。逐次変換で一括バッファなし、
+  上限 60 秒 (UI 推奨 15 秒)。
+- サイズ: off 0x215380 不変、on 0x22e730 (T52 から +2,528B / off +103,344B)。
+  静的 DIRAM +8B。ホストテスト 2 本 all pass、core 273/273、sim 監査 0。
+- 残 Phase 2: ③ セッション+RAM トリム+実機 TLS 実測 (1.5〜2 人日) /
+  ⑤ UI 字幕 (1〜1.5) / ⑥ 回帰 (1)。
+
+状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+
 ## T51. firmware/dependencies.lock のパス可搬性 — 難度 S
 
 - `firmware/dependencies.lock` に旧ワークスペースの絶対パス 3 件が残り、

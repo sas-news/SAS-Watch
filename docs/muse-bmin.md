@@ -23,6 +23,7 @@
 | 既存機能への影響 | core 273/273 pass、sim 監査 0 件、既定ビルドサイズ不変。BLE/LVGL/電池のコードは未変更 |
 | 判定 | **Phase 1 完了 (GO)**。Phase 2 の残作業は §6 (4〜6 人日) |
 | T52 追記 | **Phase 2 ① (資格情報の投入・確認・消去) 実装済み**。on ビルドは 0x22dd50 (+100,816B vs off)。詳細は §9。既定 off は 0x215380 のまま (不変) |
+| T54 追記 | **Phase 2 ② (Wi-Fi on-demand) と ④ (16kHz PCM→WAV/base64) 実装済み**。on ビルドは 0x22e730 (T52 から +2,528B)。詳細は §11。既定 off は 0x215380 のまま (不変) |
 
 > **T49 の数字の訂正**: T49 は「SAS-Watch への増分 = flash +77,763B / PSA 増分 0」と見積もったが、
 > 本統合の実測は **+97,248B**。PSA crypto は SAS-Watch にリンク済みでも、noise が使う
@@ -74,6 +75,13 @@ idf.py build
 idf.py menuconfig   # 上記を y
 idf.py build
 ```
+
+関連 Kconfig:
+
+| オプション | 既定 | 内容 |
+|---|---|---|
+| `CONFIG_WATCH_ENABLE_MUSE_LINK` | n | コンポーネント全体 (off で追加 0B) |
+| `CONFIG_WATCH_MUSE_WIFI_IDLE_S` | 60 (10〜600) | Muse が上げた Wi-Fi を、最終アクティビティからこの秒数で落とす (T54 ②) |
 
 `CONFIG_WATCH_ENABLE_MUSE_LINK=n` (既定) のとき:
 
@@ -175,6 +183,8 @@ load、`:315-340` で save)。**公式ファームの NVS ダンプからその�
 | `void muse_link_clear(void)` | **T52**: NVS namespace `muse` を全消去 (再起動不要) |
 | `bool muse_link_get_status(char*, size_t)` | **T52**: `{"configured":..,"ready":..,"wifi":..,"host":"..","vm":"..","token_len":N}`。token は長さのみ |
 | `bool muse_link_console_line(const char*)` | **T52**: シリアル 1 行 (`muse ...`) を解釈して実行。watch_app の serial_dbg_task 専用 |
+| `muse_link_wifi_ensure/release/touch/poll` ほか | **T54 ②**: Wi-Fi on-demand。所有権/アイドルは §11.1 |
+| `muse_link_voice_*` (`muse_link_voice.h`) | **T54 ④**: 16kHz PCM → WAV/base64 の逐次変換。§11.2 |
 
 アダプタ 20 関数の Phase 1 の値: settings は NVS キャッシュ、link は false、wifi は
 `wifi::connected()`、options は全 no-op、`muse_state_page` は 20 桁 × 8 行。
@@ -189,12 +199,12 @@ TODO(muse): Phase 2 でセッション開始を実装したら削除する。
 | # | 作業 | 見積り | 備考 |
 |---|---|---:|---|
 | 1 | ~~資格情報の投入経路~~ **完了 (T52)** | ~~0.5 日~~ | シリアル `muse` コマンドで投入・確認・消去。BLE `settings.set` 経路は未実装 (シリアルのみ) |
-| 2 | Wi-Fi の on-demand 制御 (`wifi::session_start/end` を「画面 ON + 送受信中」だけ) | 0.5〜1 日 | `ota.cpp:118,159` と同じ作法。電池の要 |
+| 2 | ~~Wi-Fi の on-demand 制御~~ **完了 (T54)** | ~~0.5〜1 日~~ | `muse_link_wifi_ensure/release/poll`。所有権とアイドルは §11.1 |
 | 3 | セッション開始 (`muse_hatch_start` 相当) + **RAM トリム** + **実機 TLS 内部 RAM 実測** | 1.5〜2 日 | ここが実質の GO/NO-GO。素の 1.33MB PSRAM を 250〜300KB に削る。mbedTLS の PSRAM 化 or 動的バッファを決める |
-| 4 | 音声アダプタ (16kHz PCM → WAV/base64、20ms チャンク) | 0.5 日 | T47 §5。スピーカー無効・字幕のみ |
+| 4 | ~~音声アダプタ (16kHz PCM → WAV/base64)~~ **完了 (T54)** | ~~0.5 日~~ | `muse_link_voice_*`。逐次変換/60 秒上限は §11.2 |
 | 5 | UI 統合 (`apps/agent` の partial/reply へ、15 秒上限、960B ページング、日本語エラー) | 1〜1.5 日 | T47 §8。core/protocol の変更は不要 |
 | 6 | 回帰 (core/sim/firmware、`b` ベンチ全テーマ、`int_free`/`psram_free`) | 1 日 | AGENTS のメモリ/描画ルール |
-| | **合計 (T52 後)** | **3.5〜5.5 人日** | T50 の 4〜6 人日から Phase 2 ① (0.5 日) を引いた残り。②〜⑥ は未着手 |
+| | **合計 (T54 後)** | **2.5〜4.0 人日** | 残りは ③セッション+RAM トリム (1.5〜2)、⑤UI 字幕 (1〜1.5)、⑥回帰 (1) |
 
 前提: **M1 (資格情報) が GO**。M1 が NO-GO なら B-min は成立せず、T47 の推奨どおり C 継続
 (B-full のペアリング移植は 9〜15 人日)。
@@ -297,13 +307,14 @@ M1 (実アカウント) が無くても実装・ビルド・パース検証が�
 USB-Serial/JTAG のモニタで **大文字 `M`** を送ると行モードに入る
 (小文字 `m` は従来どおり More へ遷移。**Kconfig off では `M` も従来どおり More**)。
 
+**1 行ごとに先頭へ `M` を付ける**（改行で行モードを抜ける実装のため）。
+
 ```
-M
-muse status
-muse set host hatch.metaaivm.com
-muse set vm <vm-id>
-muse set token <token>
-muse clear
+M muse status
+M muse set host hatch.metaaivm.com
+M muse set vm <vm-id>
+M muse set token <token>
+M muse clear
 ```
 
 | 仕様 | 値 / 挙動 |
@@ -409,18 +420,18 @@ M1 = 資格情報を外部から調達して B-min の接続を検証するま�
 
    ダンプはホスト側の一時領域に置き、リポジトリに入れない。読み終わったら消す。
 3. **NVS から値を読む**: namespace `muse` の `host` / `vm` / `token`。
-   NVS の形式は IDF の `nvs_partition_tool` / `nvs_partition_gen.py` と同じ。
-   予定: `tools/muse-gadget/export_credentials.py` のようなヘルパーで
-   「値を画面に出さず、SAS-Watch 投入用の行だけを作る」形にする (**未実装**、Phase 2)。
+   `tools/muse-gadget/export_credentials.py --flash <backup>.bin --check`
+   でキーの有無と長さだけ確認し、`--out/--shell` で 0600 のファイルに書き出す
+   (値を画面に出さない)。`tools/muse-gadget/m0_m1.sh` が M0→M1 を半自動化する
+   (既定 dry-run、`--execute` で実行)。詳細は `docs/muse-m1.md`。
 4. **SAS-Watch へ投入**: シリアルで `M` → 次の 3 行 → `muse status` で
    `token_len` だけ確認 → 再起動して再確認。
 
    ```
-   M
-   muse set host <host>
-   muse set vm <vm>
-   muse set token <token>
-   muse status
+   M muse set host <host>
+   M muse set vm <vm>
+   M muse set token <token>
+   M muse status
    ```
 
 5. **接続検証 (M1 の GO/NO-GO)**: Phase 2 後半のセッション実装後、
@@ -435,3 +446,134 @@ M1 = 資格情報を外部から調達して B-min の接続を検証するま�
   移すのはキーと値だけ (§9.2 のコマンド)。
 - 取得した値は Muse アカウントに紐づく資格情報。漏えいしたら失効・再ペアリング。
 - M1 の結果 (可否・寿命・更新方法・NVS 再投入の要否) は、値抜きで本文書に追記する。
+
+---
+
+## 11. Phase 2 ② Wi-Fi on-demand / ④ 音声アダプタ (T54 実装)
+
+実機・資格情報なしで「ビルド + ホストテスト」まで完了した部分。
+実接続 (Phase 2 ③) はまだ。
+
+### 11.1 ② Wi-Fi on-demand
+
+SAS-Watch の既存方針「Wi-Fi は使うときだけ上げ、使い終わったら完全に落とす」
+(`firmware/components/wifi`: `session_start/end/connected/configured`) に合わせ、
+Muse 側でも所有権を管理する。**既存 wifi コンポーネントは変更しない。**
+
+| API | 挙動 |
+|---|---|
+| `bool muse_link_wifi_ensure(uint32_t timeout_ms)` | 既に接続済みなら即 true。自分が未所有なら `wifi::session_start(timeout)`。他機能 (OTA 等) が上げている場合は**所有権を取らず** true |
+| `void muse_link_wifi_release(void)` | **自分が session_start したときだけ** `wifi::session_end()`。他機能の Wi-Fi は落とさない |
+| `void muse_link_wifi_touch(void)` | 送受信のたびにアイドルタイマーをリセット |
+| `void muse_link_wifi_poll(void)` | アイドル超過なら release。**app タスクのループから呼ぶ** (Phase 2 ③ でセッションと一緒に回す) |
+| `void muse_link_wifi_poll_at(uint32_t now_ms)` | テスト用に時刻を注入して同じ判定 |
+| `muse_link_wifi_state()` / `wifi_owned()` / `wifi_idle_ms()` | 状態参照 |
+
+所有権のルール:
+
+```
+ensure():
+  自分が所有 (s_wifi_owned) かつ connected   -> true (何もしない)
+  自分が所有だが切断                        -> session_end して上げ直す
+  未所有で connected (OTA 等が保持)         -> 所有権を取らず true (release で落とさない)
+  未所有で未接続                            -> session_start -> 成功したら s_wifi_owned=true
+release(): s_wifi_owned のときだけ session_end
+poll():    s_wifi_owned かつ 最終アクティビティから idle 秒経過 -> release
+```
+
+- アイドル: `CONFIG_WATCH_MUSE_WIFI_IDLE_S` (既定 **60 秒**、10〜600)。`ensure()` と
+  `touch()` が最終アクティビティを更新する。
+- **自動タイマータスクは作らない** (タスク/ヒープ節約)。判定は `poll()` を呼ぶ側
+  (Phase 2 ③ のセッションタスク/app タスク) が回す。呼ばない間は Wi-Fi が残るので、
+  ③ では必ずセッション終了時に `release()` する。
+- `wifi::session_start` は最大 timeout_ms ブロックするので **app タスクから呼ぶ**
+  (LVGL タスクから呼ばない: AGENTS.md のスレッド制約)。
+- OTA との競合: OTA が先に起動している場合は Muse は所有権を取らない。
+  逆に Muse が上げた後で OTA が `session_end()` すると Muse の接続も落ちる
+  (既存 API の制約)。その場合 Muse は次の `ensure()` で上げ直す。
+- `muse status` の JSON に `wifi_state` (`off`/`starting`/`connected`) と
+  `wifi_owned` を追加した (秘密なし)。
+
+実機未確認 (TODO(hw)): Wi-Fi の実起動/停止、接続時間、BLE との共存、
+`session_start` 中の電池、OTA との同時利用。
+
+### 11.2 ④ 音声アダプタ (16kHz PCM16 mono → WAV/base64)
+
+SDK の音声ノート形式を実装で確認した:
+
+| 項目 | 値 | 根拠 |
+|---|---|---|
+| PCM | 16kHz / 16bit / mono (時計の録音と同じ) | `components/muse/muse_chat_session.cpp:101` (`MIC_RATE 16000`), `muse_chat.h:84` |
+| WAV | RIFF 44B。**RIFF/data サイズは `0xFFFFFFFF`** (長さ未確定のストリーミング) | `components/muse/muse_chat_text.c:41-54` (`muse_hatch_wav_header`) |
+| base64 | 標準アルファベット、改行なし、末尾 `=` | `muse_chat_text.c:57-79` (`muse_hatch_base64`) |
+| JSON | `{"message":"","output_modality":"text","device":"mcu-wearable","items":[{"type":"file","mime_type":"audio/wav","filename":"voice_note.wav","data_base64":"..."}]}` | `components/muse/muse_chat_priv.h:81-87` |
+| 送出 | `POST /chat/stream` の body に上記 JSON をストリーム | `muse_chat_session.cpp:1200-1230` |
+
+実装 (`include/muse_link/muse_link_voice.h` / `src/muse_voice_note.c`) は
+**純 C・ESP-IDF 非依存**。使い方 (Phase 2 ③ で TLS に流す想定):
+
+```
+prefix を送る → wav_header (streaming) を送る
+  → PCM を 20ms (640B) ずつ b64_feed しては送る
+  → b64_finish で '=' を送る → suffix を送る
+```
+
+| API | 内容 |
+|---|---|
+| `muse_link_voice_validate(pcm, bytes)` | 0B / 奇数長 / 60 秒超を検出 |
+| `muse_link_voice_note_plan(bytes, &sizes)` | WAV/base64/JSON の必要サイズ |
+| `muse_link_voice_wav_header()` | SDK と同じストリーミングヘッダ (0xFFFFFFFF) |
+| `muse_link_voice_wav_header_sized()` | 実サイズ入り (テスト/デバッグ用) |
+| `muse_link_voice_base64_len()` | パディング込み長 |
+| `muse_link_voice_b64_init/feed/finish()` | 逐次 base64 (端数 2B まで内部保持) |
+| `muse_link_voice_note_json_prefix/suffix()` | SDK と同じ JSON 前後 |
+
+メモリ / 上限:
+
+- **一度に PCM 全部・base64 全部を持たない** (逐次変換。呼び出し側がチャンクを渡す)。
+  120 秒 = 3.84MB を確保する経路は無い。
+- 上限は **60 秒** = PCM 1,920,000B / base64 2,560,000B (`MUSE_LINK_VOICE_MAX_*`)。
+  超えたらエラー。ただし **Muse は 15 秒で打ち切る** ので、UI は 15 秒を推奨
+  (SDK `muse_chat_session.cpp:155` のコメント/`esp32/README.md:387-392`)。
+- 変換状態は 3B の端数だけ (内蔵 SRAM をほぼ使わない)。
+
+ホストテスト (`test/test_muse_voice.c`、`test/run.sh` に統合) の検証内容:
+
+- WAV: RIFF/WAVE/fmt/data、PCM=1、mono、16000Hz、byte rate 32000、align 2、bits 16、
+  ストリーミングの 0xFFFFFFFF、実サイズ版の RIFF=36+data
+- base64: RFC 4648 の 7 ベクタ + 1〜8 バイト刻みの逐次 feed が一括と一致 +
+  出力バッファ不足で失敗し書き込まない
+- 上限: 0B / 奇数長 / 60 秒ちょうど OK / +1 サンプルで拒否
+- JSON: `device=mcu-wearable` / `mime_type=audio/wav` / `filename=voice_note.wav` /
+  前後の文字列、バッファ不足で 0
+
+実機未確認 (TODO(hw)): 実音声での変換・送信 (Phase 2 ③)、15 秒上限の UI、
+録音経路 (T18) との接続、実機の PSRAM/CPU 負荷。
+
+### 11.3 サイズ実測 (T54 後)
+
+| 指標 | off (既定) | T52 on | **T54 on** | T54 差分 | off から累計 |
+|---|---:|---:|---:|---:|---:|
+| `sas_watch.bin` | 2,184,064B (0x215380) | 2,284,880B (0x22dd50) | **2,287,408B (0x22e730)** | **+2,528B** | +103,344B |
+| Flash Code | 1,459,840 | 1,548,592 | 1,550,280 | +1,688 | +90,440 |
+| .rodata | 539,236 | 549,100 | 549,948 | +848 | +10,712 |
+| 静的 PSRAM (.ext_ram.bss) | 55,352 | 63,200 | 63,200 | 0 | +7,848 |
+| 静的 DIRAM (内蔵) | 321,271 (空き 20,489) | 326,039 (空き 15,721) | **326,047 (空き 15,713)** | +8 | +4,776 |
+| IRAM | 16,384 (100%) | 16,384 | 16,384 | 0 | 0 |
+
+- 追加されたオブジェクト: `muse_link.cpp` 5,080B (code 2,823、Wi-Fi 制御を含む) /
+  `muse_voice_note.c` 1,201B (code 976、rodata 225)。
+- ②④ の API は Phase 2 ③ まで呼ばれないため、リンカ GC で消えないよう
+  `muse_link.cpp` の `s_api_keep[]` で参照だけ保持している (実行はしない)。
+  ③ で実際に使うようになったらこの表は不要 (TODO(muse))。
+
+### 11.4 検証結果 (T54)
+
+| 検証 | 結果 |
+|---|---|
+| 既定 off ビルド | ✅ `0x215380` (2,184,064B) **不変** |
+| on ビルド | ✅ 0x22e730。警告 0 (`muse_*` の新規コード) |
+| ホストテスト | ✅ `test/run.sh` → `test_muse_console` / `test_muse_voice` とも all passed |
+| core | ✅ 273/273 pass |
+| sim | ✅ ビルド + snapshot 監査 0 件 |
+| lock | ✅ `tools/fix_deps_lock.sh` → build → `git checkout -- firmware/dependencies.lock` で復元 (git clean) |

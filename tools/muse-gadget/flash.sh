@@ -209,7 +209,9 @@ if [ "$do_backup" = "1" ]; then
             die "バックアップのサイズが想定と違います ($actual バイト)。書き込みは行いません:
   $backup_path"
         fi
-        info "バックアップ完了: $backup_path ($actual バイト)"
+        # 全体バックアップには Wi-Fi 認証情報などが含まれるので本人だけ読めるようにする。
+        chmod 600 "$backup_path" 2>/dev/null || true
+        info "バックアップ完了: $backup_path ($actual バイト, 0600)"
         info "  sha256: $(sha256sum "$backup_path" | cut -d' ' -f1)"
     fi
 else

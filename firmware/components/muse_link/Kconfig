@@ -16,6 +16,16 @@ menu "muse_link (Muse chat/Noise, Phase 1)"
             セッションタスク・大きな PSRAM 確保はせず、未設定なら no-op。
 
             Phase 2 でセッションタスク、音声アダプタ、UI 統合を足す。
+
+    config WATCH_MUSE_WIFI_IDLE_S
+        int "Release Muse Wi-Fi after this many idle seconds"
+        depends on WATCH_ENABLE_MUSE_LINK
+        range 10 600
+        default 60
+        help
+            Muse が自分で Wi-Fi を上げた (muse_link_wifi_ensure) 場合、最後の
+            アクティビティからこの秒数で session_end する。他機能 (OTA 等) が
+            上げている Wi-Fi は落とさない。0 は不可 (10〜600)。
             注意: 有効時のフラッシュ/PSRAM 増分は docs/muse-bmin.md 参照。
 
 endmenu

@@ -116,6 +116,42 @@ python -m esptool --chip esp32s3 -p /dev/ttyACM0 -b 921600 write-flash 0 \
 
 PWR ボタンは SDK では AXP2101 経由の aux ボタン扱い (詳細は docs を参照)。
 
+## M1: 資格情報の取り出しと投入 (公式ファーム → SAS-Watch)
+
+M0 (公式ファーム + ペアリング) の後、公式ファームが NVS (namespace `muse`,
+offset `0x11000` / size `0xC000`) に保存した `host` / `vm` / `token` を
+**値を画面に出さずに**取り出し、SAS-Watch のシリアル `M` 行モードへ投入する
+ツール。詳細は [`docs/muse-m1.md`](../../docs/muse-m1.md)。
+
+```sh
+# M0 (公式ファーム)
+tools/muse-gadget/m0_m1.sh --backup --execute      # SAS-Watch の 32MB バックアップ
+tools/muse-gadget/m0_m1.sh --flash-muse --execute  # 公式ファーム書き込み
+# → Muse アプリでペアリング (ユーザー操作。開発者モード ON → Add Device → BOOT)
+
+# M1 (資格情報)
+tools/muse-gadget/m0_m1.sh --dump-nvs --execute     # ペアリング後に NVS を実機から読む
+tools/muse-gadget/m0_m1.sh --check                  # キーと長さだけ確認 (値は出ない)
+tools/muse-gadget/m0_m1.sh --export --execute       # out/credentials/ へ (0600)
+tools/muse-gadget/m0_m1.sh --restore-saswatch --execute
+# → SAS-Watch を CONFIG_WATCH_ENABLE_MUSE_LINK=y でビルドして書き込み (ユーザー操作)
+tools/muse-gadget/m0_m1.sh --feed-serial --execute  # M 行モードで投入し token_len を確認
+```
+
+- `m0_m1.sh` は既定が **dry-run**。実行には `--execute`。Muse アプリの
+  ペアリングだけはユーザー操作なので、チェックリストを表示する。
+- SAS-Watch の `M` 行モードは **1 行ごとに `M` が必要**（改行で抜ける）。
+  `--feed-serial` は行ごとに `M` を送り、受理ログを確認してから次の行へ進む。
+- **`flash.sh` の 32MB バックアップは M0 前の SAS-Watch の状態**で、Muse の
+  資格情報は入っていない。資格情報はペアリング後に `--dump-nvs` で読む。
+- 個別に使うなら `tools/muse-gadget/export_credentials.py`:
+  `--nvs FILE` / `--flash FILE`、`--check` (キーの有無と長さのみ)、
+  `--out JSON` / `--shell FILE` (0600)、`--force` (上書き)。
+- 出力は 0600・atomic。値は標準出力/エラー/ログに出さない。使い終わったら削除する。
+- テスト: `python3 -m unittest discover -s tools/muse-gadget/test -v`
+  (ESP-IDF の `nvs_partition_gen.py` を使うテストは IDF python env が無い環境では
+  skip と明示される)。
+
 ## 日本語字幕
 
 `build.sh` が既定で `CONFIG_MUSE_CJK_FONT=y` (GNU Unifont 16px, flash +約1.2MB)

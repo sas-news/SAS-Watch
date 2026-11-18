@@ -17,6 +17,7 @@
 
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs.h"
 
 #include "muse_console_parse.h"
@@ -45,6 +46,49 @@ char s_vm[MUSE_VM_MAX + 1];
 // (AGENTS.md のメモリ予算)。読み書きは init/provision 時と SDK 側コピーのみ。
 EXT_RAM_BSS_ATTR char s_token[MUSE_TOKEN_MAX + 1];
 size_t s_token_len = 0;
+
+// ---- Wi-Fi on-demand の状態 (T54 Phase 2 ②) ----
+// 所有権: 自分が session_start したときだけ s_wifi_owned=true。release は
+// そのときだけ session_end する (OTA 等が上げている Wi-Fi は落とさない)。
+// 呼び出しは app タスク前提 (LVGL から呼ばない)。
+bool s_wifi_owned = false;
+uint32_t s_wifi_last_ms = 0;
+
+#ifndef CONFIG_WATCH_MUSE_WIFI_IDLE_S
+#define CONFIG_WATCH_MUSE_WIFI_IDLE_S 60  /* Kconfig off 時 (このファイルは未コンパイル) */
+#endif
+constexpr uint32_t kIdleMs = (uint32_t)CONFIG_WATCH_MUSE_WIFI_IDLE_S * 1000u;
+
+uint32_t now_ms(void) {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+// Phase 2 ②(Wi-Fi)/④(音声) の API は Phase 2 ③ (セッション) まで誰も呼ばない。
+// -ffunction-sections のリンカ GC で落ちてしまうと「有効時に何がリンクされるか」の
+// 実測ができず、Phase ③ での取りこぼしにも気づけないため、参照だけ保持する
+// (実行はしない)。T50 の muse_adapters.cpp の s_link_keep と同じ考え方。
+static void* const volatile s_api_keep[] __attribute__((used)) = {
+    // Wi-Fi on-demand
+    reinterpret_cast<void*>(muse_link_wifi_ensure),
+    reinterpret_cast<void*>(muse_link_wifi_release),
+    reinterpret_cast<void*>(muse_link_wifi_touch),
+    reinterpret_cast<void*>(muse_link_wifi_poll),
+    reinterpret_cast<void*>(muse_link_wifi_poll_at),
+    reinterpret_cast<void*>(muse_link_wifi_state),
+    reinterpret_cast<void*>(muse_link_wifi_owned),
+    reinterpret_cast<void*>(muse_link_wifi_idle_ms),
+    // 音声ノート変換 (Phase 2 ④)
+    reinterpret_cast<void*>(muse_link_voice_validate),
+    reinterpret_cast<void*>(muse_link_voice_note_plan),
+    reinterpret_cast<void*>(muse_link_voice_wav_header),
+    reinterpret_cast<void*>(muse_link_voice_wav_header_sized),
+    reinterpret_cast<void*>(muse_link_voice_base64_len),
+    reinterpret_cast<void*>(muse_link_voice_b64_init),
+    reinterpret_cast<void*>(muse_link_voice_b64_feed),
+    reinterpret_cast<void*>(muse_link_voice_b64_finish),
+    reinterpret_cast<void*>(muse_link_voice_note_json_prefix),
+    reinterpret_cast<void*>(muse_link_voice_note_json_suffix),
+};
 
 // muse_link_console_line の値コピー先 (token 1023B をスタックに置かない)。
 // シリアルタスクからのみ呼ばれる前提 (docs/muse-bmin.md)。こちらも PSRAM。
@@ -145,6 +189,7 @@ extern "C" esp_err_t muse_link_init(void) {
              s_vm[0] ? s_vm : "(default)", s_token_len ? "set" : "unset",
              static_cast<unsigned>(s_token_len));
     ESP_LOGI(kTag, "foundation only (no network, no session task)");
+    (void)s_api_keep[0];  // リンカ GC よけ (Wi-Fi/音声 API をリンクに残す)
     muse_link_keep_linked();  // Phase 1: chat オブジェクトをリンクに残すだけ (実行しない)
     return ESP_OK;
 }
@@ -237,12 +282,15 @@ extern "C" bool muse_link_get_status(char* out, size_t cap) {
     json_escape(s_vm, vm_e, sizeof(vm_e));
     const bool configured = s_token_len > 0 && s_host[0] != '\0';
     const bool wifi = wifi::connected();
+    const char* wstate = wifi ? "connected" : (s_wifi_owned ? "starting" : "off");
     const int n = snprintf(out, cap,
                            "{\"configured\":%s,\"ready\":%s,\"wifi\":%s,"
+                           "\"wifi_state\":\"%s\",\"wifi_owned\":%s,"
                            "\"host\":\"%s\",\"vm\":\"%s\",\"token_len\":%u}",
                            configured ? "true" : "false",
                            (configured && wifi) ? "true" : "false",
-                           wifi ? "true" : "false", host_e, vm_e,
+                           wifi ? "true" : "false", wstate,
+                           s_wifi_owned ? "true" : "false", host_e, vm_e,
                            static_cast<unsigned>(s_token_len));
     return n > 0 && static_cast<size_t>(n) < cap;
 }
@@ -258,6 +306,10 @@ extern "C" void muse_link_status(muse_link_status_t* out) {
     memset(out, 0, sizeof(*out));
     out->configured = s_token_len > 0 && s_host[0] != '\0';
     out->wifi = wifi::connected();
+    out->wifi_owned = s_wifi_owned;
+    out->wifi_state = (int)(out->wifi ? MUSE_LINK_WIFI_CONNECTED
+                                     : (s_wifi_owned ? MUSE_LINK_WIFI_STARTING
+                                                     : MUSE_LINK_WIFI_OFF));
     out->ready = out->configured && out->wifi;
     strncpy(out->host, s_host, sizeof(out->host) - 1);
     strncpy(out->vm_id, s_vm, sizeof(out->vm_id) - 1);
@@ -275,6 +327,93 @@ extern "C" esp_err_t muse_link_chat(const char* text, muse_link_chat_cb cb, void
         ESP_LOGW(kTag, "chat is not implemented yet; ESP_ERR_NOT_SUPPORTED");
     }
     return ESP_ERR_NOT_SUPPORTED;
+}
+
+// ---- Wi-Fi on-demand (T54 Phase 2 ②) ----
+
+extern "C" bool muse_link_wifi_ensure(uint32_t timeout_ms) {
+    s_wifi_last_ms = now_ms();
+
+    // 自分が上げた Wi-Fi がまだ生きている。
+    if (s_wifi_owned) {
+        if (wifi::connected()) {
+            return true;
+        }
+        // 落ちた: いったん片付けて上げ直す。
+        ESP_LOGW(kTag, "wifi dropped; restarting session");
+        wifi::session_end();
+        s_wifi_owned = false;
+    } else if (wifi::connected()) {
+        // OTA など他機能が上げている。所有権は取らない (release で落とさない)。
+        ESP_LOGI(kTag, "wifi already up (owned by another user); not taking ownership");
+        return true;
+    }
+
+    if (!wifi::configured()) {
+        ESP_LOGW(kTag, "wifi not configured (no ssid)");
+        return false;
+    }
+    ESP_LOGI(kTag, "wifi session_start (timeout %u ms)", (unsigned)timeout_ms);
+    if (!wifi::session_start(timeout_ms)) {
+        ESP_LOGW(kTag, "wifi session_start failed");
+        s_wifi_owned = false;
+        return false;
+    }
+    s_wifi_owned = true;
+    s_wifi_last_ms = now_ms();
+    ESP_LOGI(kTag, "wifi connected (owned by muse_link)");
+    return true;
+}
+
+extern "C" void muse_link_wifi_release(void) {
+    if (!s_wifi_owned) {
+        ESP_LOGI(kTag, "wifi release: not owned (left to the other user)");
+        return;
+    }
+    s_wifi_owned = false;
+    wifi::session_end();
+    ESP_LOGI(kTag, "wifi released (session_end)");
+}
+
+extern "C" void muse_link_wifi_touch(void) {
+    if (s_wifi_owned) {
+        s_wifi_last_ms = now_ms();
+    }
+}
+
+extern "C" void muse_link_wifi_poll_at(uint32_t now_ms_arg) {
+    if (!s_wifi_owned) {
+        return;
+    }
+    if (wifi::connected()) {
+        if ((uint32_t)(now_ms_arg - s_wifi_last_ms) < kIdleMs) {
+            return;
+        }
+        ESP_LOGI(kTag, "wifi idle %u s; releasing",
+                 (unsigned)(kIdleMs / 1000u));
+    } else {
+        ESP_LOGW(kTag, "wifi gone while owned; cleaning up");
+    }
+    muse_link_wifi_release();
+}
+
+extern "C" void muse_link_wifi_poll(void) {
+    muse_link_wifi_poll_at(now_ms());
+}
+
+extern "C" muse_link_wifi_state_t muse_link_wifi_state(void) {
+    if (wifi::connected()) {
+        return MUSE_LINK_WIFI_CONNECTED;
+    }
+    return s_wifi_owned ? MUSE_LINK_WIFI_STARTING : MUSE_LINK_WIFI_OFF;
+}
+
+extern "C" bool muse_link_wifi_owned(void) {
+    return s_wifi_owned;
+}
+
+extern "C" uint32_t muse_link_wifi_idle_ms(void) {
+    return kIdleMs;
 }
 
 // ---- シリアル `muse` コマンド (T52) ----

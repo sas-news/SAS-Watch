@@ -14,7 +14,8 @@ if(CONFIG_WATCH_ENABLE_MUSE_LINK)
     list(APPEND MUSE_LINK_SRCS
         "src/muse_link.cpp"
         "src/muse_adapters.cpp"
-        "src/muse_console_parse.c")
+        "src/muse_console_parse.c"
+        "src/muse_voice_note.c")
     # SDK の chat 層 (無改変)
     list(APPEND MUSE_LINK_SRCS
         "sdk/chat/src/muse_chat.c"

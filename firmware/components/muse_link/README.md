@@ -105,6 +105,54 @@ sha256 (SDK ミラーと一致することを確認済み。詳細は `docs/muse
 noise_core はディレクトリ内の全ファイルの中身を連結した sha256 が
 `cf99bff2ee479ae052549eeebaab1936d28af753e3411d3f28e08629ee25b7ff` (ミラーと一致)。
 
+## Wi-Fi on-demand (T54 Phase 2 ②)
+
+Muse は使うときだけ Wi-Fi を上げ、使い終わったら完全に落とす (常時接続しない)。
+
+```c
+if (muse_link_wifi_ensure(20000)) {      // app タスクから呼ぶ
+    /* ... 送受信のたびに muse_link_wifi_touch() ... */
+    muse_link_wifi_poll();               // app タスクのループで回す
+}
+muse_link_wifi_release();                // 自分が上げたときだけ落ちる
+```
+
+- 所有権は `muse_link` 側で管理する。OTA 等が上げている Wi-Fi は落とさない
+  (逆に OTA が落とした場合は次の `ensure` で上げ直す)。
+- アイドル `CONFIG_WATCH_MUSE_WIFI_IDLE_S` (既定 60 秒、10〜600) で release。
+  自動タイマータスクは作らない (`poll()` を呼ぶ側が回す)。
+- `wifi::session_start` は最大 timeout ブロックするので **LVGL タスクから呼ばない**。
+
+## 音声アダプタ (T54 Phase 2 ④)
+
+`include/muse_link/muse_link_voice.h`。16kHz/16bit/mono PCM → WAV/base64 の逐次変換
+(SDK の音声ノート形式: RIFF 44B、RIFF/data サイズは 0xFFFFFFFF のストリーミング、
+JSON は `data_base64` / `audio/wav` / `voice_note.wav`)。
+
+```c
+muse_link_voice_wav_header(h, MUSE_LINK_VOICE_SAMPLE_RATE);   // prefix の後
+muse_link_voice_b64_init(&b);
+/* PCM チャンクごとに */
+muse_link_voice_b64_feed(&b, pcm, bytes, out, cap, &written);
+muse_link_voice_b64_finish(&b, out, cap, &written);           // 最後に '=' を出す
+```
+
+- **PCM 全部・base64 全部を一度に持たない** (逐次変換、確保なし)。
+- 上限 60 秒 (PCM 1,920,000B)。Muse は 15 秒で打ち切るので UI は 15 秒を推奨。
+- 実送信は Phase 2 ③ (セッション実装後)。
+
+## テスト (ホスト)
+
+```sh
+firmware/components/muse_link/test/run.sh
+```
+
+- `test_muse_console.c`: シリアル `muse ...` 行のパーサ (T52)
+- `test_muse_voice.c`: WAV ヘッダ / base64 (RFC 4648 ベクタ + 逐次一致) / 上限 /
+  JSON エンベロープ (T54)
+
+ESP-IDF も実機も要らない (`cc -std=c99 -Wall -Wextra -Werror`)。
+
 ## アダプタの TODO
 
 - `muse_link_hatch_linked()` / `muse_link_hatch_vm()`: 常に false (B-min は
