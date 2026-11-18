@@ -1168,6 +1168,18 @@ int main(int argc, char** argv) {
                 "Wi-Fi に接続できませんでした", "");
   pump(1500);
   ok &= save(out, "56_muse_error");
+
+  // T57: 音声入力 (15 秒の音声ノート)。録音中と送信中を出す。
+  // 音声は Muse に送られ、時計には保存されない (画面にも明記)。
+  sim::muse_set(true, watch::MuseState::Ready, "", "");
+  pump(1500);
+  sim::muse_set_voice(watch::MuseVoiceState::Recording, 5, "");
+  pump(1500);
+  ok &= save(out, "57_muse_voice_recording");
+
+  sim::muse_set_voice(watch::MuseVoiceState::Sending, 15, "");
+  pump(1500);
+  ok &= save(out, "58_muse_voice_sending");
   back_home();
 #endif
 

@@ -17,6 +17,8 @@ namespace watch {
 namespace features {
 
 constexpr size_t kMuseReplyMax = 960;   // 表示する返答の上限 (agent.reply と同じ)
+constexpr uint32_t kMuseVoiceMaxSec = 15;   // Muse 音声ノートの上限 (秒)
+constexpr int64_t kMuseVoicePumpMs = 20;    // 録音中の app ポンプ周期
 constexpr size_t kMusePageBytes = 300;  // 1ページの目安バイト数 (UTF-8 境界で切る)
 constexpr int64_t kMusePageMs = 15000;  // 自動ページ送りの間隔
 constexpr size_t kMuseErrorMax = 96;    // 日本語エラーの表示上限
@@ -36,6 +38,13 @@ bool muse_page_text(char* out, size_t cap);
 
 // 次のページへ (タップ/「次へ」ボタン)。最後まで行ったら先頭へ戻る。
 void muse_next_page();
+
+// ---- 音声入力 (15 秒の音声ノート / ファイル保存なし) ----
+MuseVoiceState muse_voice_state();
+uint32_t muse_voice_elapsed_s();
+const char* muse_voice_error();  // 空なら ""
+// 「話す」/「停止して送信」(ActionType::MuseVoiceToggle から呼ぶ)。
+void muse_voice_toggle(FeatureContext& ctx);
 
 // ---- 操作 (Feature handle / 画面ボタンから) ----
 void muse_request_start(FeatureContext& ctx);  // 未接続なら接続

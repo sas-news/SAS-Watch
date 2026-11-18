@@ -19,12 +19,19 @@
 namespace {
 
 using watch::MuseState;
+using watch::MuseVoiceState;
 
 struct M {
   lv_obj_t* state_cap = nullptr;
   lv_obj_t* state_l = nullptr;
   lv_obj_t* error_l = nullptr;
   lv_obj_t* toggle_btn = nullptr;
+  lv_obj_t* voice_cap = nullptr;
+  lv_obj_t* voice_card = nullptr;
+  lv_obj_t* voice_l = nullptr;
+  lv_obj_t* voice_note_l = nullptr;
+  lv_obj_t* voice_bar = nullptr;
+  lv_obj_t* voice_btn = nullptr;
   lv_obj_t* reply_cap = nullptr;
   lv_obj_t* reply_card = nullptr;
   lv_obj_t* reply_l = nullptr;
@@ -78,6 +85,7 @@ const char* toggle_label(bool available, MuseState st) {
 }
 
 void refresh() {
+  const ui::Theme& t = ui::theme();
   const bool avail = watch::features::muse_available();
   const MuseState st = watch::features::muse_state();
 
@@ -100,6 +108,60 @@ void refresh() {
     lv_obj_remove_flag(s.toggle_btn, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(s.toggle_btn, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  // 音声入力 (15 秒の音声ノート。音声は保存しない)。
+  const MuseVoiceState vs = watch::features::muse_voice_state();
+  const uint32_t vel = watch::features::muse_voice_elapsed_s();
+  const char* verr = watch::features::muse_voice_error();
+  const bool voice_ready = avail && st == MuseState::Ready;
+  char vbuf[80];
+  if (vs == MuseVoiceState::Recording) {
+    std::snprintf(vbuf, sizeof(vbuf), "聞き取り中 %lu 秒（最大 %lu）",
+                  static_cast<unsigned long>(vel),
+                  static_cast<unsigned long>(watch::features::kMuseVoiceMaxSec));
+    set_text(s.voice_l, vbuf);
+    lv_obj_set_style_text_color(s.voice_l, t.text, 0);
+  } else if (vs == MuseVoiceState::Sending) {
+    set_text(s.voice_l, "送信中…（Muse が音声を聞き取っています）");
+    lv_obj_set_style_text_color(s.voice_l, t.text, 0);
+  } else if (vs == MuseVoiceState::Error) {
+    set_text(s.voice_l, (verr && *verr) ? verr : "音声入力を失敗しました");
+    lv_obj_set_style_text_color(s.voice_l, t.danger, 0);
+  } else if (!avail) {
+    set_text(s.voice_l, "このファームでは音声入力を使えません");
+    lv_obj_set_style_text_color(s.voice_l, t.text_dim, 0);
+  } else if (!voice_ready) {
+    set_text(s.voice_l, "Muse に接続すると音声を送れます");
+    lv_obj_set_style_text_color(s.voice_l, t.text_dim, 0);
+  } else {
+    set_text(s.voice_l, "「話す」で 15 秒の音声ノートを送ります");
+    lv_obj_set_style_text_color(s.voice_l, t.text_dim, 0);
+  }
+
+  // 「話す」/「停止して送信」(ActionType::MuseVoiceToggle)。
+  const char* vlabel = nullptr;
+  if (avail && vs == MuseVoiceState::Recording) {
+    vlabel = "停止して送信";
+  } else if (voice_ready && (vs == MuseVoiceState::Idle ||
+                             vs == MuseVoiceState::Error)) {
+    vlabel = "話す";
+  }
+  if (vlabel) {
+    set_text(lv_obj_get_child(s.voice_btn, 0), vlabel);
+    lv_obj_remove_flag(s.voice_btn, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(s.voice_btn, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  // 録音中の経過バー (0..15 秒)。
+  if (vs == MuseVoiceState::Recording) {
+    const uint32_t pct = (vel * 100) / watch::features::kMuseVoiceMaxSec;
+    lv_bar_set_value(s.voice_bar, static_cast<int32_t>(pct > 100 ? 100 : pct),
+                     LV_ANIM_OFF);
+    lv_obj_remove_flag(s.voice_bar, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(s.voice_bar, LV_OBJ_FLAG_HIDDEN);
   }
 
   // 返答本文 (1 ページ分) とページ番号。
@@ -181,7 +243,33 @@ lv_obj_t* build(lv_obj_t* scr) {
       st_card, "接続",
       [](lv_event_t*) { ui::emit(watch::ActionType::PrimaryAction); }, nullptr);
 
-  // 2) 返答カード: 本文 (折り返し) + ページ表示 + 次へ。
+  // 2) 音声入力カード: 「話す」(15 秒の音声ノート) + 案内 + 経過バー。
+  //    音声は PSRAM 上で PCM にして送るだけで、時計のファイルには保存しない。
+  s.voice_cap = ui::c::caption(col, "音声入力");
+  s.voice_card = ui::c::card(col);
+  s.voice_l = lv_label_create(s.voice_card);
+  lv_obj_set_width(s.voice_l, LV_PCT(100));
+  lv_obj_set_style_text_font(s.voice_l, t.font_body, 0);
+  lv_obj_set_style_text_color(s.voice_l, t.text_dim, 0);
+  lv_label_set_long_mode(s.voice_l, LV_LABEL_LONG_WRAP);
+  s.voice_note_l = lv_label_create(s.voice_card);
+  lv_obj_set_width(s.voice_note_l, LV_PCT(100));
+  lv_obj_set_style_text_font(s.voice_note_l, t.font_body, 0);
+  lv_obj_set_style_text_color(s.voice_note_l, t.text_dim, 0);
+  lv_label_set_long_mode(s.voice_note_l, LV_LABEL_LONG_WRAP);
+  set_text(s.voice_note_l, "音声は Muse に送られ、時計には保存されません");
+  s.voice_bar = lv_bar_create(s.voice_card);
+  lv_bar_set_range(s.voice_bar, 0, 100);
+  lv_obj_set_size(s.voice_bar, LV_PCT(100), 14);
+  lv_obj_set_style_bg_color(s.voice_bar, t.surface2, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s.voice_bar, t.primary, LV_PART_INDICATOR);
+  lv_obj_add_flag(s.voice_bar, LV_OBJ_FLAG_HIDDEN);
+  s.voice_btn = ui::c::button_primary(
+      s.voice_card, "話す",
+      [](lv_event_t*) { ui::emit(watch::ActionType::MuseVoiceToggle); },
+      nullptr);
+
+  // 3) 返答カード: 本文 (折り返し) + ページ表示 + 次へ。
   //    カードのタップでも次ページへ (15 秒の自動送りを待たずに読める)。
   s.reply_cap = ui::c::caption(col, "返答");
   s.reply_card = ui::c::card(col);

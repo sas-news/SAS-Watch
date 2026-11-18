@@ -186,15 +186,19 @@ bool muse_link_session_status_json(char* out, size_t cap, const muse_link_status
     char host_e[160];
     char vm_e[160];
     char err_e[256];
+    char verr_e[256];
     json_escape(f->host, host_e, sizeof(host_e));
     json_escape(f->vm, vm_e, sizeof(vm_e));
     json_escape(f->last_error ? f->last_error : "", err_e, sizeof(err_e));
+    json_escape(f->voice_error ? f->voice_error : "", verr_e, sizeof(verr_e));
 
     const int n = snprintf(out, cap,
                            "{\"configured\":%s,\"ready\":%s,\"wifi\":%s,"
                            "\"wifi_state\":\"%s\",\"wifi_owned\":%s,"
                            "\"session\":\"%s\",\"last_reply_len\":%u,"
                            "\"total_reply_len\":%u,\"last_error\":\"%s\","
+                           "\"voice\":\"%s\",\"voice_elapsed_s\":%u,"
+                           "\"voice_error\":\"%s\","
                            "\"host\":\"%s\",\"vm\":\"%s\",\"token_len\":%u}",
                            f->configured ? "true" : "false",
                            f->ready ? "true" : "false",
@@ -203,6 +207,9 @@ bool muse_link_session_status_json(char* out, size_t cap, const muse_link_status
                            f->wifi_owned ? "true" : "false",
                            state_name(f->session),
                            (unsigned)f->last_reply_len, (unsigned)f->total_reply_len,
-                           err_e, host_e, vm_e, (unsigned)f->token_len);
+                           err_e,
+                           f->voice_state ? f->voice_state : "idle",
+                           (unsigned)f->voice_elapsed_s, verr_e,
+                           host_e, vm_e, (unsigned)f->token_len);
     return n > 0 && (size_t)n < cap;
 }

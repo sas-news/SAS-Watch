@@ -11,6 +11,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -36,6 +37,10 @@ typedef struct {
     int wifi_state;    // muse_link_wifi_state_t
     int session_state; // muse_link_session_state_t
     size_t last_reply_len;
+    // 音声入力 (T57)。音声そのものは含まない (状態と日本語エラーだけ)。
+    int voice_state;        // muse_link_voice_state_t
+    uint32_t voice_elapsed_s;
+    char voice_error[96];
     char host[64];     // NVS "muse"/"host" (未設定なら既定ホスト)
     char vm_id[64];    // NVS "muse"/"vm" (空 = アカウント既定 VM)
 } muse_link_status_t;
@@ -173,6 +178,32 @@ uint32_t muse_link_wifi_idle_ms(void);
 // 16kHz/16bit/mono PCM → WAV/base64 (SDK の音声ノート形式)。
 // 逐次変換のみ (PCM 全部・base64 全部を一度に持たない)。上限 60 秒。
 // 実送信は Phase 2 ③。API は muse_link_voice.h を参照。
+
+// ---- 音声入力 (T57 Phase 2 ⑤): 15 秒の音声ノート ----
+// 時計マイクの 16kHz PCM を PSRAM (480,000B) に溜めてから muse_link_send_voice_note()
+// で送る。**音声はファイルに保存しない** (PSRAM は開始時に確保し、送信/停止で解放)。
+// 録音の実体 (AudioPort の ADPCM リング読み出しとデコード) は watch_app の
+// MusePort アダプタが行い、ここは PCM バッファと状態機械・送信を持つ。
+// 呼び出しは app タスクから (LVGL タスクから録音開始しない)。
+typedef enum {
+    MUSE_LINK_VOICE_IDLE = 0,  // 待機
+    MUSE_LINK_VOICE_RECORDING, // 録音中 (PCM を PSRAM に蓄積)
+    MUSE_LINK_VOICE_SENDING,   // Muse へ送信中
+    MUSE_LINK_VOICE_ERROR,     // エラー (muse_link_voice_error 参照)
+} muse_link_voice_state_t;
+
+// 録音を開始する。max_sec は 1..15 にクランプ。セッションが READY でなければ false。
+bool muse_link_voice_start(uint32_t max_sec);
+// PCM サンプル (16kHz mono PCM16) を追記する。容量超過なら false。
+bool muse_link_voice_append(const int16_t* pcm, size_t samples);
+// 録音を止めて Muse へ送る (状態 SENDING)。録音していなければ何もしない。
+void muse_link_voice_stop(void);
+// 送らずに破棄する (録音していなければ何もしない)。
+void muse_link_voice_cancel(void);
+// 現在の状態。SENDING はセッションが BUSY でなくなったら IDLE に戻る。
+muse_link_voice_state_t muse_link_voice_state(void);
+uint32_t muse_link_voice_elapsed_s(void);
+const char* muse_link_voice_error(void);
 
 // ---- チャット (未実装) ----
 

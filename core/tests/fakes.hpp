@@ -325,6 +325,25 @@ class FakeMuse : public MusePort {
     return true;
   }
 
+  // ---- 音声入力 (15 秒の音声ノート) ----
+  MuseVoiceState voice_state() override { return voice_; }
+  bool voice_start(uint32_t max_sec) override {
+    ++voice_start_calls;
+    if (voice_ == MuseVoiceState::Recording) return false;
+    voice_max_sec = max_sec;
+    voice_ = MuseVoiceState::Recording;
+    voice_elapsed = 0;
+    voice_error_[0] = '\0';
+    return true;
+  }
+  void voice_stop() override {
+    ++voice_stop_calls;
+    if (voice_ == MuseVoiceState::Recording) voice_ = MuseVoiceState::Sending;
+  }
+  uint32_t voice_elapsed_s() override { return voice_elapsed; }
+  const char* voice_error() override { return voice_error_; }
+  void voice_pump() override { ++voice_pump_calls; }
+
   // ---- テスト用の操作 ----
   void set_state(MuseState st) { state_ = st; }
   void set_error(const char* msg) {
@@ -334,9 +353,23 @@ class FakeMuse : public MusePort {
     reply_ = text ? text : "";
     ++generation_;
   }
+  void set_voice(MuseVoiceState st, uint32_t elapsed, const char* err) {
+    voice_ = st;
+    voice_elapsed = elapsed;
+    std::snprintf(voice_error_, sizeof(voice_error_), "%s", err ? err : "");
+  }
+
+  // 音声入力のテストノブ / 呼び出し回数。
+  uint32_t voice_max_sec = 0;
+  uint32_t voice_elapsed = 0;
+  int voice_start_calls = 0;
+  int voice_stop_calls = 0;
+  int voice_pump_calls = 0;
 
  private:
   MuseState state_ = MuseState::Off;
+  MuseVoiceState voice_ = MuseVoiceState::Idle;
+  char voice_error_[96] = {};
   char error_[128] = {};
   std::string reply_;
   uint32_t generation_ = 0;

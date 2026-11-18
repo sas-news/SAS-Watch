@@ -19,6 +19,7 @@ using watch::ActionType;
 using watch::EventBus;
 using watch::FeatureContext;
 using watch::MuseState;
+using watch::MuseVoiceState;
 using watch::Navigator;
 using watch::PowerPolicy;
 using watch::Route;
@@ -320,4 +321,108 @@ TEST(Muse, ResetClearsSnapshot) {
   EXPECT_EQ(watch::features::muse_state(), MuseState::Unavailable);
   EXPECT_EQ(watch::features::muse_pages(), 0u);
   EXPECT_EQ(watch::features::muse_reply_revision(), 0u);
+}
+
+// ---- 音声入力 (15 秒の音声ノート / ファイル保存なし) ----
+
+TEST(Muse, VoiceToggleStartsOnlyWhenReady) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Ready);
+  f.tick(1000);
+  f.act(ActionType::MuseVoiceToggle);
+  EXPECT_EQ(f.muse.voice_start_calls, 1);
+  EXPECT_EQ(f.muse.voice_max_sec, watch::features::kMuseVoiceMaxSec);
+  f.tick(2000);
+  EXPECT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Recording);
+  // 録音中は ADPCM ポンプのために 20ms 周期で app タスクを起こす。
+  EXPECT_EQ(kMuse.next_deadline_ms(), 2000 + watch::features::kMuseVoicePumpMs);
+  EXPECT_GE(f.muse.voice_pump_calls, 1);
+}
+
+TEST(Muse, VoiceStartRequiresSessionReady) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Off);
+  f.tick(1000);
+  f.act(ActionType::MuseVoiceToggle);
+  EXPECT_EQ(f.muse.voice_start_calls, 0);
+
+  f.muse.set_state(MuseState::Busy);
+  f.tick(2000);
+  f.act(ActionType::MuseVoiceToggle);
+  EXPECT_EQ(f.muse.voice_start_calls, 0);
+}
+
+TEST(Muse, VoiceToggleStopsAndSends) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Ready);
+  f.tick(1000);
+  f.act(ActionType::MuseVoiceToggle);
+  f.tick(2000);
+  ASSERT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Recording);
+  f.act(ActionType::MuseVoiceToggle);  // 停止 → 送信
+  EXPECT_EQ(f.muse.voice_stop_calls, 1);
+  f.tick(2100);
+  EXPECT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Sending);
+}
+
+TEST(Muse, VoiceAutoStopsAtFifteenSeconds) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Ready);
+  f.tick(1000);
+  f.act(ActionType::MuseVoiceToggle);
+  f.tick(2000);
+  ASSERT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Recording);
+
+  f.muse.voice_elapsed = watch::features::kMuseVoiceMaxSec - 1;
+  f.tick(3000);
+  EXPECT_EQ(f.muse.voice_stop_calls, 0);  // まだ止めない
+  EXPECT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Recording);
+
+  f.muse.voice_elapsed = watch::features::kMuseVoiceMaxSec;
+  f.tick(4000);
+  EXPECT_EQ(f.muse.voice_stop_calls, 1);  // 15 秒で自動停止 → 送信
+  f.tick(5000);
+  EXPECT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Sending);
+}
+
+TEST(Muse, VoicePumpKeepsRunningWhenScreenHidden) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Ready);
+  f.tick(1000);
+  f.act(ActionType::MuseVoiceToggle);
+  f.tick(2000);
+  ASSERT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Recording);
+
+  f.nav.pop();  // 録音中に別画面へ
+  const int pumps = f.muse.voice_pump_calls;
+  f.tick(3000);
+  EXPECT_GT(f.muse.voice_pump_calls, pumps);  // ポンプは続く
+  EXPECT_EQ(kMuse.next_deadline_ms(), 3000 + watch::features::kMuseVoicePumpMs);
+}
+
+TEST(Muse, VoiceErrorIsShown) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Ready);
+  f.muse.set_voice(MuseVoiceState::Error, 0,
+                   "PSRAM が不足しています（テーマを軽くしてください）");
+  f.tick(1000);
+  EXPECT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Error);
+  EXPECT_STREQ(watch::features::muse_voice_error(),
+               "PSRAM が不足しています（テーマを軽くしてください）");
+  // エラー後は再試行できる (Idle/Error で「話す」)。
+  f.act(ActionType::MuseVoiceToggle);
+  EXPECT_EQ(f.muse.voice_start_calls, 1);
+}
+
+TEST(Muse, ResetClearsVoiceState) {
+  MuseFixture f;
+  f.muse.set_state(MuseState::Ready);
+  f.tick(1000);
+  f.act(ActionType::MuseVoiceToggle);
+  f.tick(2000);
+  ASSERT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Recording);
+  watch::features::muse_reset_state();
+  EXPECT_EQ(watch::features::muse_voice_state(), MuseVoiceState::Idle);
+  EXPECT_EQ(watch::features::muse_voice_elapsed_s(), 0u);
+  EXPECT_STREQ(watch::features::muse_voice_error(), "");
 }

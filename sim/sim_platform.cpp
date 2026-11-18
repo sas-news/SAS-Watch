@@ -180,6 +180,32 @@ class SimMuse : public watch::MusePort {
   void stop() override { state_ = watch::MuseState::Off; }
   bool send_text(const char*) override { return true; }
 
+  // ---- 音声入力 (15 秒) ----
+  watch::MuseVoiceState voice_state() override { return voice_; }
+  bool voice_start(uint32_t max_sec) override {
+    voice_max_sec_ = max_sec;
+    voice_ = watch::MuseVoiceState::Recording;
+    voice_elapsed_ = 0;
+    voice_error_[0] = '\0';
+    return true;
+  }
+  void voice_stop() override {
+    if (voice_ == watch::MuseVoiceState::Recording) {
+      voice_ = watch::MuseVoiceState::Sending;
+    }
+  }
+  uint32_t voice_elapsed_s() override { return voice_elapsed_; }
+  const char* voice_error() override { return voice_error_; }
+  void voice_pump() override {}
+
+  void set_voice(watch::MuseVoiceState st, uint32_t elapsed,
+                 const char* error) {
+    voice_ = st;
+    voice_elapsed_ = elapsed;
+    std::snprintf(voice_error_, sizeof(voice_error_), "%s",
+                  error ? error : "");
+  }
+
   void set(bool available, watch::MuseState state, const char* error,
            const char* reply) {
     available_ = available;
@@ -195,6 +221,10 @@ class SimMuse : public watch::MusePort {
   char error_[128] = {};
   std::string reply_;
   uint32_t generation_ = 0;
+  watch::MuseVoiceState voice_ = watch::MuseVoiceState::Idle;
+  uint32_t voice_elapsed_ = 0;
+  uint32_t voice_max_sec_ = 15;
+  char voice_error_[96] = {};
 };
 
 static SimMuse s_muse;
@@ -208,6 +238,11 @@ watch::MusePort& muse() { return s_muse; }
 void muse_set(bool available, watch::MuseState state, const char* error,
               const char* reply) {
   s_muse.set(available, state, error, reply);
+}
+
+void muse_set_voice(watch::MuseVoiceState state, uint32_t elapsed_s,
+                    const char* error) {
+  s_muse.set_voice(state, elapsed_s, error);
 }
 
 }  // namespace sim

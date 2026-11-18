@@ -128,6 +128,9 @@ static void test_status_json(void)
     f.vm = "vm-1";
     f.token_len = 42;
     f.last_error = "";
+    f.voice_state = "recording";
+    f.voice_elapsed_s = 7;
+    f.voice_error = "";
 
     CHECK(muse_link_session_status_json(buf, sizeof(buf), &f), "status json builds");
     CHECK(strstr(buf, "\"session\":\"busy\"") != NULL, "session state name");
@@ -136,6 +139,8 @@ static void test_status_json(void)
     CHECK(strstr(buf, "\"total_reply_len\":4096") != NULL, "total reply len");
     CHECK(strstr(buf, "\"token_len\":42") != NULL, "token len");
     CHECK(strstr(buf, "\"host\":\"hatch.metaaivm.com\"") != NULL, "host");
+    CHECK(strstr(buf, "\"voice\":\"recording\"") != NULL, "voice state");
+    CHECK(strstr(buf, "\"voice_elapsed_s\":7") != NULL, "voice elapsed");
     // token の値そのものは入らない (長さだけ)。
     CHECK(strstr(buf, "token\":\"") == NULL, "no token value field");
 

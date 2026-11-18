@@ -43,6 +43,8 @@ enum class ActionType : uint16_t {
   AgentClear,         // 返答/エラー表示を閉じる
   // Walk (歩く大会)
   WalkRefresh,        // 電話へ今の状態を要求する (最短 1.2 秒間隔で間引き)
+  // Muse (音声入力)
+  MuseVoiceToggle,    // 15 秒の音声ノート: 開始/停止 (停止で Muse へ送信)
   // Settings / System
   SetBrightness,  // arg0 = 0-100
   SetScreenOffAfter, // arg0 = 画面OFFまでの秒数 (5-600 にクランプ)

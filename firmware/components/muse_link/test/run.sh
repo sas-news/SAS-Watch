@@ -5,6 +5,7 @@
 #
 # - test_muse_console.c : シリアル `muse ...` 行のパーサ
 # - test_muse_voice.c   : 16kHz PCM -> WAV / base64 の変換
+# - test_muse_voice_capture.c : 音声入力 (15 秒) の純 C 状態機械 (T57)
 # - test_muse_session.c : セッション状態機械 / 開始前チェック / status JSON
 # いずれも ESP_IDF 非依存 (src/muse_console_parse.c, src/muse_voice_note.c)。
 set -euo pipefail
@@ -30,6 +31,13 @@ echo "== test_muse_voice"
     "$here/test_muse_voice.c" \
     -o "$tmpdir/test_muse_voice"
 "$tmpdir/test_muse_voice"
+
+echo "== test_muse_voice_capture"
+"$cc" "${cflags[@]}" \
+    "$here/../src/muse_voice_logic.c" \
+    "$here/test_muse_voice_capture.c" \
+    -o "$tmpdir/test_muse_voice_capture"
+"$tmpdir/test_muse_voice_capture"
 
 echo "== test_muse_session"
 "$cc" "${cflags[@]}" \

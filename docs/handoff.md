@@ -76,6 +76,15 @@
   firmware は on のときだけ muse_port アダプタをコンパイル。off 0x215fa0
   (+3,104B)、on 0x230330 (+3,648B)、静的 DIRAM off +1,152 (空き19,337)。
   core 289/289、off/on build 成功。残りは実機回帰と音声 UI (BOOT 15 秒)。
+- **T57 (Muse 音声 UI)**: `MuseVoiceState` + MusePort voice API + `MuseVoiceToggle`。
+  muse_link に voice 状態機械と PSRAM 480,000B キャプチャ、T38 の録音ストリーム
+  (ファイル非保存) で ADPCM→PCM→`send_voice_note`。UI は「話す」「聞き取り中 n 秒
+  (最大15)」「停止して送信」「送信中…」と「音声は Muse に送られ、時計には
+  保存されません」。sim 57/58 追加。off 0x216550 (+1,456B)、on 0x231800
+  (T56 +5,328B)。core 296/296、muse_link host 4本 all pass、sim 監査0。
+  実機未確認: 実録音/送信、PSRAM×テーマ、20ms ポンプ音質、BLE dictation 同時、
+  電池。⑥ 回帰は core/sim/firmware の範囲で完了。
+
 
 
 

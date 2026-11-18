@@ -1188,6 +1188,25 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、実機未確認 TODO(hw))
 
+## T57. Muse 音声 UI (15秒音声ノート, ファイル非保存) — 難度 H (完了)
+
+- core: `MuseVoiceState` + MusePort voice API + `ActionType::MuseVoiceToggle`。
+  録音中は 20ms 周期で app タスクが voice_pump を回し、15 秒で自動停止 → 送信。
+- firmware: `muse_link_voice_start/append/stop/cancel/state/elapsed_s/error`。
+  純 C 状態機械 (`muse_voice_logic`) + PSRAM 480,000B キャプチャ
+  (`muse_voice_capture.cpp`)。**T38 の録音ストリームのみ使用**し
+  ファイル/tmp は作らない。ADPCM→`ImaAdpcmDecoder`→PCM→送信。
+- UI: 「話す」/「聞き取り中 n 秒 (最大15)」+バー/「停止して送信」/
+  「送信中…」/エラー。**「音声は Muse に送られ、時計には保存されません」常時表示**。
+- sim: `57_muse_voice_recording` / `58_muse_voice_sending` 追加、監査0。
+- サイズ: off 0x216550 (+1,456B)、on 0x231800 (T56 +5,328B)、
+  静的 DIRAM off +136B / on +392B。core 296/296、muse_link host 4本 all pass。
+- 実機未確認: 実録音→送信、PSRAM 480KB×テーマ、20ms ポンプの音質、
+  BLE dictation との同時 (マイク1系統)、電池、UI 反映。
+- ⑥ 回帰: T57 時点で core 296、sim 監査0、off/on build 成功、docs スクショ更新。
+
+状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+
 ## T56. Phase 2 ⑤ Muse アプリ (UI 字幕) — 難度 M (完了)
 
 - core に `MuseState` (7状態) と `MusePort`、`FeatureContext::muse` を追加

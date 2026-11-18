@@ -26,6 +26,7 @@
 | T54 追記 | **Phase 2 ② (Wi-Fi on-demand) と ④ (16kHz PCM→WAV/base64) 実装済み**。on ビルドは 0x22e730 (T52 から +2,528B)。詳細は §11。既定 off は 0x215380 のまま (不変) |
 | T55 追記 | **Phase 2 ③ (Muse セッション: start/stop/send_text/send_voice_note/last_reply) 実装済み**。on ビルドは 0x22f4f0 (T54 から +3,520B)。実 TLS/RAM は実機未検証 (手順は §12.6)。詳細は §12 |
 | T56 追記 | **Phase 2 ⑤ (UI 字幕: Muse アプリ + core MusePort) 実装済み**。off は 0x215fa0 (+3,104B、目標 +10KB 以内)、on は 0x230330 (+3,648B)。既定 off ではアプリは「このファームでは Muse が無効です」表示。実セッションでの字幕表示は実機未確認 (§12.6 と同時)。詳細は §13 |
+| T57 追記 | **Phase 2 ⑤ (音声 UI: 15 秒の音声ノートを Muse へ / ファイル非保存) 実装済み**。off は 0x216550 (+1,456B)、on は 0x231800 (+5,328B)。録音は T38 のファイル無しストリーム → PSRAM 480KB に PCM → `send_voice_note`。実録音/送信/PSRAM/電池は実機未確認 (§14.7)。詳細は §14 |
 
 > **T49 の数字の訂正**: T49 は「SAS-Watch への増分 = flash +77,763B / PSA 増分 0」と見積もったが、
 > 本統合の実測は **+97,248B**。PSA crypto は SAS-Watch にリンク済みでも、noise が使う
@@ -840,3 +841,133 @@ MusePort は nullptr で、アプリは「このファームでは Muse が無�
 - テキスト入力 (send_text) は API のみ。画面から送る導線は未実装。
 - 実機のスクショは `docs/screenshots/` へ `./sim/build/snapshot --out docs/screenshots` で
   生成できるが、既存 applist ショットは Muse 行の追加で差し替えになる (Lead がまとめる)。
+
+## 14. Phase 2 ⑤ 音声 UI (15 秒の音声ノート / ファイル非保存) (T57)
+
+2026-11-18。Muse アプリに音声入力を追加した。時計マイクから **15 秒の音声ノート** を
+録り、PSRAM 上で PCM にして `muse_link_send_voice_note()` で Muse へ送る。
+**音声はファイルに保存しない** (T38 の「録音ストリーム (ADPCM, ファイル無し)」経路のみ)。
+既定 off では音声 UI は「使えません」表示で、muse_link 側の追加コードは 0B。
+
+### 14.1 追加・変更したファイル
+
+| 種別 | ファイル | 内容 |
+|---|---|---|
+| core 変更 | `core/include/watch/muse.hpp` | `MuseVoiceState` (Idle/Recording/Sending/Error) と voice API (voice_state/voice_start/voice_stop/voice_elapsed_s/voice_error/voice_pump) |
+| core 変更 | `core/include/watch/action.hpp` | `ActionType::MuseVoiceToggle` (UI → app タスク) |
+| core 変更 | `core/include/watch/features/muse.hpp` / `apps/muse/feature/muse.cpp` | 音声状態のスナップショット、15 秒自動停止、録音中の 20ms ポンプ期限 |
+| app 変更 | `apps/muse/screen.cpp` | 「話す」/「停止して送信」/録音中 n 秒バー/送信中/エラー + 「音声は Muse に送られ、時計には保存されません」 |
+| app 変更 | `apps/muse/test_muse.cpp` | Fake MusePort による voice 遷移/自動停止/裏画面ポンプ/エラー/再試行 |
+| test 変更 | `core/tests/fakes.hpp` | `FakeMuse` に voice API |
+| fw 新規 | `firmware/components/muse_link/src/muse_voice_logic.{h,c}` | **純 C** の音声状態機械 (容量 15 秒・経過秒・自動停止・日本語エラー) |
+| fw 新規 | `firmware/components/muse_link/src/muse_voice_capture.cpp` | PSRAM 480,000B の確保/解放・PCM 蓄積・send_voice_note・status 反映 |
+| fw 変更 | `muse_link/include/muse_link/muse_link.h` | voice API・`muse_link_voice_state_t`・status 構造体に voice 3 フィールド |
+| fw 変更 | `muse_link/src/{muse_link.cpp,session_logic.h,session_logic.c,CMakeLists.txt}` | status JSON に `voice`/`voice_elapsed_s`/`voice_error`、on のとき新ソースを追加、`muse status` の JSON バッファ 256→512B |
+| fw 変更 | `watch_app/src/muse_port.cpp` | アダプタの音声実装 (AudioPort stream → ADPCM → PCM → muse_link_voice_append。LVGL から録音開始しない) |
+| fw test 新規 | `muse_link/test/test_muse_voice_capture.c` / `run.sh` | voice 状態機械のホストテストを追加、status JSON の voice フィールド検証 |
+| sim 変更 | `sim/sim_platform.{hpp,cpp}` / `sim/snapshot.cpp` | `SimMuse` voice 状態 + `57_muse_voice_recording` / `58_muse_voice_sending` |
+
+### 14.2 音声フロー (ファイル保存なし)
+
+```
+[Muse 画面「話す」] --ActionType::MuseVoiceToggle--> [app タスク: features::kMuse.handle]
+  -> MusePort::voice_start(15)
+     -> セッション READY 確認 (未接続は「Muse に接続してから話してください」)
+     -> audio::port()->record_stream_enable(true)   // T38: ファイル無しストリーム
+     -> audio::port()->record_begin(kMuseVoiceFileId=0x80000001, 15)
+     -> muse_link_voice_start(15)                   // PSRAM 480,000B 確保 + RECORDING
+  -> 録音中: feature が 20ms 周期で app タスクを起こす
+       -> MusePort::voice_pump()
+          -> audio ring read (ADPCM) -> ImaAdpcmDecoder -> PCM
+          -> muse_link_voice_append(PCM)            // PSRAM に蓄積
+       -> 15 秒で自動 voice_stop()                  // 画面表示中でなくても止める
+  -> voice_stop()
+     -> ring を吐き切り -> record_end(false) + record_stream_enable(false)
+     -> muse_link_voice_stop() -> muse_link_send_voice_note(PCM, samples) -> SENDING
+  -> セッションのターン完了 (BUSY 解除) で voice 状態は IDLE に戻る
+```
+
+- **ファイル/tmp は作らない**。record_begin は stream モードなので `memo_path` を設定せず、
+  rec_task も `fopen`/`patch_header`/`rename`/`remove` を通らない (T38 実装のまま)。
+- ADPCM リングは 16KB。app のポンプが 20ms 周期なので通常は溢れないが、
+  溢れて古い音声が捨てられた場合はリング offset の飛びで `ImaAdpcmDecoder::reset()`
+  して以降のセグメントを復号する (音質は一瞬乱れるが破綻しない)。
+- 画面は「音声は Muse に送られ、時計には保存されません」を常時表示する。
+
+### 14.3 PSRAM / スタック / メモリ
+
+| 項目 | 値 / 挙動 |
+|---|---|
+| 音声キャプチャ PCM | **PSRAM 480,000B** を voice_start で確保し、送信/停止/エラーで即解放 |
+| 送信バッファ | muse_link のセッション開始時バッファ (T55, 480,000B) へ `send_voice_note` がコピー |
+| 同時保持 | 録音中は上記 2 本で最大 ~960KB。送信開始後はキャプチャ側を解放して 480KB に戻る |
+| 内蔵 SRAM | 静的增加は僅少 (off +136B / on +392B)。ADPCM/PCM の作業バッファは app タスクのスタック (128B + 512B) のみ |
+| スタック | 画面に大構造体を置かない。feature のスナップショットは静的 (960B 返答 + 状態) |
+| テーマとの競合 | cute/cyber 等は PSRAM の最大連続空きが ~500KB まで下がる。**480KB の確保に失敗したら日本語エラー「PSRAM が不足しています（テーマを軽くしてください）」で中止**し、Muse セッションは維持する |
+
+> TODO(muse): セッション側の送信バッファ (480,000B) を録音バッファとして再利用すれば
+> 同時保持を 480KB に減らせる。T57 では「開始時確保・送信/停止で解放」を優先して
+> 別バッファにした (docs の要求どおり)。実機の空きを見てから統合する。
+
+### 14.4 サイズ実測 (T57 後)
+
+| 指標 | off (T56) | **off (T57)** | T57 差分 | on (T56) | **on (T57)** | T57 差分 |
+|---|---:|---:|---:|---:|---:|---:|
+| `sas_watch.bin` | 2,187,168B (0x215fa0) | **2,188,624B (0x216550)** | **+1,456B** | 2,294,576B (0x230330) | **2,299,904B (0x231800)** | **+5,328B** |
+| app 空き | 2,007,136B (48%) | **2,005,680B (48%)** | −1,456B | 1,899,728B (45%) | **1,894,400B (45%)** | −5,328B |
+| Flash Code | 1,462,272 | **1,463,352** | +1,080 | 1,555,460 | **1,559,440** | +3,980 |
+| Flash Data (.rodata) | 539,908 | **540,292** | +384 | 551,840 | **553,184** | +1,344 |
+| 静的 DIRAM (内蔵) | 322,423 (空き 19,337) | **322,559 (空き 19,201)** | **+136** | 327,471 (空き 14,289) | **327,863 (空き 13,897)** | **+392** |
+| IRAM | 16,384 | 16,384 | 0 | 16,384 | 16,384 | 0 |
+
+- off の +1,456B は音声 UI (画面/feature/Action) 分。**既定 off では muse_link の音声コードは
+  0B** (Kconfig off で SRCS から外れる)。off を T56 と完全に不変にはできない
+  (アプリの UI/状態が増えるため) が、+1.5KB に収めた。
+- on の +5,328B は純 C 状態機械 + PSRAM 管理 + status JSON + アダプタ音声分。
+
+### 14.5 画面仕様 (音声)
+
+- 「音声入力」カード: 状態行 + 注意書き「音声は Muse に送られ、時計には保存されません」。
+  - セッション Ready かつ音声 Idle/Error: 「**話す**」ボタン。押すと `MuseVoiceToggle`。
+  - 録音中: 「**聞き取り中 n 秒（最大 15）**」+ 0..15 秒のバー + 「**停止して送信**」。
+  - 送信中: 「送信中…（Muse が音声を聞き取っています）」。
+  - エラー: 日本語エラー (danger 色)。「話す」で再試行できる。
+  - 未接続: 「Muse に接続すると音声を送れます」。無効ファーム: 「このファームでは音声入力を使えません」。
+- 録音中は画面を離れても 15 秒で自動停止して送信する (ポンプは app タスクで継続)。
+- 15 秒固定 (Muse 側の打ち切り)。延長・複数ターンの連続送信はしない。
+
+### 14.6 テスト (実機なし)
+
+- core: **296/296 pass** (T56 の 289 + voice 7)。voice の開始条件 (Ready のみ)/開始→停止→送信/
+  15 秒自動停止/裏画面でもポンプ継続/エラー表示と再試行/reset。
+- muse_link ホストテスト (`firmware/components/muse_link/test/run.sh`):
+  console / voice / **voice_capture (新規)** / session の **4 本とも all passed**。
+  voice_capture は max_sec クランプ (1..15)、容量 240,000 samples、容量超過の日本語エラー、
+  経過秒と 15 秒自動停止判定、状態名、エラー→再試行、SENDING 中の再開始拒否を検証。
+- sim: ビルド OK、**監査 0 件**。新ショット `57_muse_voice_recording` (5 秒・バー・停止ボタン)、
+  `58_muse_voice_sending` (送信中)。
+- firmware: off/on ともビルド成功 (上表)。
+
+### 14.7 実機未確認 (TODO(hw))
+
+| # | 内容 | 確認方法 |
+|---|---|---|
+| 1 | 実録音 → デコード → Muse 送信が通るか (TLS/RAM は §12.6 と同じ GO/NO-GO) | on 実機で Muse アプリ「接続」→「話す」→ 15 秒 → 返答 |
+| 2 | PSRAM 480KB の確保がテーマ (standard/cute/cyber) + セッション中に成功するか | 各テーマで「話す」。失敗時は画面に PSRAM エラー |
+| 3 | 録音中の ADPCM 溢れ/音質 (20ms ポンプで 8KB/s を維持できるか) | 15 秒発話の送信結果。`voice stop` ログの samples が 240,000 近くか |
+| 4 | **BLE dictation (T38) との同時使用**。マイクは 1 系統なので、エージェント録音中に Muse 音声を開始すると `record_begin` が失敗する | 同時操作でエラーになること (クラッシュしないこと) を確認 |
+| 5 | 電池: Wi-Fi + マイク + PSRAM 480KB の 15 秒 (と Wi-Fi idle 60 秒) | 電池ログ/`h` |
+| 6 | 送信完了 (SENDING→IDLE) の遷移タイミングと UI 反映 (1 秒ポーリング) | 実機で目視 |
+| 7 | `muse status` の voice/voice_elapsed_s/voice_error 表示 | シリアル `M` → `muse status` |
+
+### 14.8 ⑥ 回帰への申し送り
+
+- 変更した既存面: `ActionType` に `MuseVoiceToggle` を追加 (内部 enum。永続値ではない)、
+  `muse_link_status_t` と status JSON に voice フィールド追加 (`muse status` のバッファを 512B に)、
+  `FeatureContext` は T56 のまま (追加なし)。
+- off の基準サイズは **0x216550**、静的 DIRAM 322,559 (空き 19,201)。on は **0x231800**、
+  静的 DIRAM 327,863 (空き 13,897)。⑥ 回帰はこの値と sim 監査 0 を基準にする。
+- 音声は「Muse direct (Wi-Fi)」経路で、スマホ経由の BLE dictation (T38) とは別。
+  マイクの同時利用は不可 (audio コンポーネントは録音中に再生/ビープもしない)。
+- 実機スクショは `./sim/build/snapshot --out docs/screenshots` で生成できる
+  (54/55/56/57/58 が Muse。既存ショットは維持)。

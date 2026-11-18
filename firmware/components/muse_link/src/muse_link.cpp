@@ -11,6 +11,7 @@
 // 秘密の扱い: token の値はログ・UI・シリアル出力に一切出さない (長さだけ)。
 // NVS には平文で入る (T52 時点)。暗号化は Phase 2 の課題 (docs/muse-bmin.md)。
 #include "muse_link/muse_link.h"
+#include "muse_voice_logic.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -257,6 +258,10 @@ extern "C" bool muse_link_get_status(char* out, size_t cap) {
     f.host = s_host;
     f.vm = s_vm;
     f.token_len = s_token_len;
+    // 音声入力 (T57) の状態。音声そのものは含めない。
+    f.voice_state = muse_voice_state_name((int)muse_link_voice_state());
+    f.voice_elapsed_s = muse_link_voice_elapsed_s();
+    f.voice_error = muse_link_voice_error();
     muse_link_session_fill_status(&f);
     return muse_link_session_status_json(out, cap, &f);
 }
@@ -279,6 +284,10 @@ extern "C" void muse_link_status(muse_link_status_t* out) {
     out->ready = out->configured && out->wifi;
     out->session_state = (int)muse_link_session_state();
     out->last_reply_len = muse_link_total_reply_len();
+    out->voice_state = (int)muse_link_voice_state();
+    out->voice_elapsed_s = muse_link_voice_elapsed_s();
+    strncpy(out->voice_error, muse_link_voice_error(),
+            sizeof(out->voice_error) - 1);
     strncpy(out->host, s_host, sizeof(out->host) - 1);
     strncpy(out->vm_id, s_vm, sizeof(out->vm_id) - 1);
 }
@@ -403,7 +412,8 @@ extern "C" bool muse_link_console_line(const char* line) {
             return true;
 
         case MUSE_CONSOLE_STATUS: {
-            char buf[256];
+            // T57: voice の状態/エラーを足したので 512B 必要 (256 では不足)。
+            char buf[512];
             if (muse_link_get_status(buf, sizeof(buf))) {
                 ESP_LOGI(kTag, "status %s", buf);
             } else {

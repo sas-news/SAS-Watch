@@ -59,6 +59,10 @@ typedef struct {
     const char* vm;
     size_t token_len;
     const char* last_error;    // 日本語/英語の短い文言 (NULL 可)
+    // 音声入力 (T57): 状態名 / 経過秒 / 日本語エラー (NULL 可)。
+    const char* voice_state;
+    uint32_t voice_elapsed_s;
+    const char* voice_error;
 } muse_link_status_fields_t;
 
 bool muse_link_session_status_json(char* out, size_t cap,

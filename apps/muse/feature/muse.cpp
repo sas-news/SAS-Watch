@@ -28,6 +28,10 @@ struct Snapshot {
   uint32_t revision = 0;   // 返答が更新されるたびに増える
   uint16_t page = 0;       // 現在ページ (0 始まり)
   uint16_t pages = 0;      // 総ページ数
+  // 音声入力 (15 秒の音声ノート。音声は保存しない)
+  MuseVoiceState voice = MuseVoiceState::Idle;
+  uint32_t voice_elapsed_s = 0;
+  char voice_error[kMuseErrorMax] = {};
 };
 Snapshot s_snap;
 
@@ -35,6 +39,7 @@ Snapshot s_snap;
 uint16_t s_page_start[kMuseMaxPages + 1] = {};
 int64_t s_now_ms = 0;         // 直近 tick の monotonic
 int64_t s_wake_ms = 0;        // 次の起床期限
+int64_t s_voice_wake_ms = 0;  // 音声入力ポンプの次回起床
 int64_t s_page_ms = 0;        // 現在ページを表示し始めた時刻
 uint32_t s_gen = 0;           // 取り込み済みの port 世代
 bool s_polling = false;       // 画面が見えているか
@@ -99,11 +104,20 @@ void update_from_port(FeatureContext& c, int64_t now_ms) {
     s_snap.reply[0] = '\0';
     s_snap.pages = 0;
     s_snap.page = 0;
+    s_snap.voice = MuseVoiceState::Idle;
+    s_snap.voice_elapsed_s = 0;
+    s_snap.voice_error[0] = '\0';
     return;
   }
   s_snap.available = true;
   s_snap.state = c.muse->state();
   copy_utf8(s_snap.error, sizeof(s_snap.error), c.muse->last_error());
+
+  // 音声入力の状態 (録音中/送信中/エラー)。
+  s_snap.voice = c.muse->voice_state();
+  s_snap.voice_elapsed_s = c.muse->voice_elapsed_s();
+  copy_utf8(s_snap.voice_error, sizeof(s_snap.voice_error),
+            c.muse->voice_error());
 
   const uint32_t gen = c.muse->reply_generation();
   if (gen != s_gen) {
@@ -140,6 +154,17 @@ void tick(int64_t now_ms, FeatureContext& c) {
   s_now_ms = now_ms;
   update_from_port(c, now_ms);
 
+  // 音声入力は画面から離れても止めない (15 秒で自動停止)。録音中は
+  // 20ms 周期で ADPCM リングを PCM にデコードする (app タスクのポンプ)。
+  s_voice_wake_ms = 0;
+  if (c.muse && s_snap.voice == MuseVoiceState::Recording) {
+    c.muse->voice_pump();
+    if (c.muse->voice_elapsed_s() >= kMuseVoiceMaxSec) {
+      c.muse->voice_stop();  // 15 秒で自動停止 → 送信
+    }
+    s_voice_wake_ms = now_ms + kMuseVoicePumpMs;
+  }
+
   const bool visible =
       c.nav && c.nav->current() == kMuse.route && !c.nav->has_modal() &&
       c.power && c.power->state() == PowerState::Active;
@@ -160,7 +185,13 @@ void tick(int64_t now_ms, FeatureContext& c) {
   }
 }
 
-int64_t next_deadline() { return s_polling ? s_wake_ms : 0; }
+int64_t next_deadline() {
+  int64_t d = s_polling ? s_wake_ms : 0;
+  if (s_voice_wake_ms != 0 && (d == 0 || s_voice_wake_ms < d)) {
+    d = s_voice_wake_ms;
+  }
+  return d;
+}
 
 bool handle(const Action& a, FeatureContext& c) {
   if (a.type == ActionType::PrimaryAction) {
@@ -172,6 +203,10 @@ bool handle(const Action& a, FeatureContext& c) {
                st == MuseState::Busy) {
       muse_request_stop(c);
     }
+    return true;
+  }
+  if (a.type == ActionType::MuseVoiceToggle) {
+    muse_voice_toggle(c);
     return true;
   }
   if (a.type == ActionType::LongPress) {
@@ -206,6 +241,23 @@ bool muse_page_text(char* out, size_t cap) {
 
 void muse_next_page() { next_page(s_now_ms); }
 
+MuseVoiceState muse_voice_state() { return s_snap.voice; }
+uint32_t muse_voice_elapsed_s() { return s_snap.voice_elapsed_s; }
+const char* muse_voice_error() { return s_snap.voice_error; }
+
+void muse_voice_toggle(FeatureContext& c) {
+  if (!c.muse || !c.muse->available()) return;
+  const MuseVoiceState vs = c.muse->voice_state();
+  if (vs == MuseVoiceState::Recording) {
+    c.muse->voice_stop();  // 停止 → Muse へ送信
+  } else if (vs == MuseVoiceState::Idle || vs == MuseVoiceState::Error) {
+    // セッションが Ready のときだけ話せる (UI 側でもボタンを出し分ける)。
+    if (c.muse->state() != MuseState::Ready) return;
+    c.muse->voice_start(kMuseVoiceMaxSec);
+  }
+  update_from_port(c, s_now_ms);
+}
+
 void muse_request_start(FeatureContext& c) {
   if (!c.muse || !c.muse->available()) return;
   c.muse->start();
@@ -232,6 +284,7 @@ void muse_reset_state() {
   s_gen = 0;
   s_polling = false;
   s_was_visible = false;
+  s_voice_wake_ms = 0;
 }
 
 const FeatureDescriptor kMuse = {

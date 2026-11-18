@@ -16,6 +16,8 @@ if(CONFIG_WATCH_ENABLE_MUSE_LINK)
         "src/muse_adapters.cpp"
         "src/muse_console_parse.c"
         "src/muse_voice_note.c"
+        "src/muse_voice_logic.c"
+        "src/muse_voice_capture.cpp"
         "src/session_logic.c"
         "src/muse_session.cpp")
     # SDK の chat 層 (無改変)

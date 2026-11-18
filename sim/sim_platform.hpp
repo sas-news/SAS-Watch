@@ -43,5 +43,8 @@ void set_ota_debug(int stage, int pct, const char* msg, const char* version);
 watch::MusePort& muse();
 void muse_set(bool available, watch::MuseState state, const char* error,
               const char* reply);
+// 音声入力 (15 秒) のサンプル状態を差し替える。
+void muse_set_voice(watch::MuseVoiceState state, uint32_t elapsed_s,
+                    const char* error);
 
 }  // namespace sim

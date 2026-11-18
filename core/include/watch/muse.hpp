@@ -25,6 +25,15 @@ enum class MuseState : uint8_t {
   Error,            // エラー (last_error() 参照)
 };
 
+// 音声入力 (15 秒の音声ノート) の状態。
+// 音声はファイルに保存しない (PSRAM 上で PCM にして送るだけ)。
+enum class MuseVoiceState : uint8_t {
+  Idle = 0,   // 待機
+  Recording,  // 録音中 (マイク → PSRAM、ファイル無し)
+  Sending,    // Muse へ送信中
+  Error,      // 音声入力のエラー (voice_error() 参照)
+};
+
 // Muse セッションの実装 (firmware 側)。全メソッドは app タスクから呼ぶ。
 // LVGL タスクからは呼ばない (実装はブロック/ロックする可能性がある)。
 class MusePort {
@@ -56,6 +65,20 @@ class MusePort {
 
   // テキスト送信。この UI ではまだ使わない (音声/テキスト入力は次の段階)。
   virtual bool send_text(const char* text) = 0;
+
+  // ---- 音声入力 (15 秒の音声ノート。ファイル保存なし) ----
+  // 録音は app タスクで始める (LVGL タスクから録音開始しない)。
+  virtual MuseVoiceState voice_state() = 0;
+  // 録音を開始する。max_sec は上限 (Muse 側の打ち切りに合わせ 15 秒)。
+  // 失敗したら false。理由は voice_error()。
+  virtual bool voice_start(uint32_t max_sec) = 0;
+  // 録音を止めて Muse へ送る (idle/sending へ)。録音していなければ何もしない。
+  virtual void voice_stop() = 0;
+  virtual uint32_t voice_elapsed_s() = 0;
+  virtual const char* voice_error() = 0;
+  // app タスクのポンプ。録音中だけ feature が ~20ms 周期で呼ぶ
+  // (ADPCM リングを drain して PCM にデコードし、PSRAM へ積む)。
+  virtual void voice_pump() {}
 };
 
 }  // namespace watch
