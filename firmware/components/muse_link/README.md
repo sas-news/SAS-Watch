@@ -40,14 +40,44 @@ Phase 1 で起動時にやること:
 
 ## NVS スキーマ (namespace `muse`)
 
+SDK の `components/muse/muse_settings.c` と同じキー名に揃えている
+(公式ファームの NVS ダンプからそのまま移せる: docs/muse-bmin.md §M1)。
+
 | key | 型 | 内容 |
 |---|---|---|
 | `host` | str | VM のホスト。未設定なら SDK 既定 `hatch.metaaivm.com` |
-| `vm_id` | str | VM ID (空 = アカウント既定 VM) |
-| `token` | str | device token または VM token。**ログ・UI に出さない** |
+| `vm` | str | VM ID (空 = アカウント既定 VM)。旧 Phase 1 の `vm_id` も読み出しのみ受ける |
+| `token` | str | device token または VM token (最大 1023B)。**ログ・UI・シリアル出力に出さない** |
 
-値はコードにもドキュメントにも埋めない。書き込みは Phase 2 で
-`settings.set` / シリアルコマンドから行う予定。
+値はコードにもドキュメントにも埋めない。投入・確認・消去は T52 で追加した
+シリアル `muse` コマンド (§シリアル投入) か `muse_link_provision()`。
+
+## シリアル投入 (T52)
+
+USB-Serial/JTAG のモニタで **大文字 `M`** を送ると行モードに入る
+(小文字 `m` は従来どおり More へ遷移)。改行までを 1 行として解釈する。
+
+```
+M
+muse status
+muse set host hatch.metaaivm.com
+muse set vm <vm-id>
+muse set token <token>
+muse clear
+```
+
+- 行モードは 30 秒入力が無ければ自動で抜ける。最大 1100B/行 (token 1023B 用)。
+- 行の内容はログに出さない (token を含みうる)。長さだけ出す。
+- `muse set <field>` の値を空にするとその項目だけ消す。
+- 反映は即時 (NVS 保存 + メモリ内キャッシュ更新)。再起動は不要。
+- 有効化は `CONFIG_WATCH_ENABLE_MUSE_LINK=y` が必要 (既定 off)。off のとき
+  `M` は行モードにならず、従来どおり More へ遷移する。
+
+`muse status` の出力例 (token は長さのみ):
+
+```
+{"configured":true,"ready":false,"wifi":false,"host":"hatch.metaaivm.com","vm":"...","token_len":42}
+```
 
 ## 中身
 

@@ -13,7 +13,8 @@ if(CONFIG_WATCH_ENABLE_MUSE_LINK)
     # SAS-Watch 側のアダプタ (NVS/ワット/字幕/選択肢の差し替え)
     list(APPEND MUSE_LINK_SRCS
         "src/muse_link.cpp"
-        "src/muse_adapters.cpp")
+        "src/muse_adapters.cpp"
+        "src/muse_console_parse.c")
     # SDK の chat 層 (無改変)
     list(APPEND MUSE_LINK_SRCS
         "sdk/chat/src/muse_chat.c"

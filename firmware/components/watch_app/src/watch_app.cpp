@@ -28,6 +28,15 @@
 #include "watch/input_mapper.hpp"
 #include "watch/platform.hpp"
 
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+// muse_link の公開 API は 1 つだけ使う (T52)。watch_app の CMakeLists は
+// 本タスクの書き込みスコープ外なので include ではなく宣言で受ける。
+// リンクは main が muse_link を PRIV_REQUIRES しているため解決する。
+// TODO(muse): 別タスクで watch_app の PRIV_REQUIRES に muse_link を足し、
+//             "muse_link/muse_link.h" の include に戻す。
+extern "C" bool muse_link_console_line(const char* line);
+#endif
+
 namespace watch_app {
 
 void input_init(watch::InputMapper* mapper);  // input.cpp
@@ -76,6 +85,56 @@ constexpr uint32_t kSleepDiagMagic = 0x5A5A0001;
 // USB-Serial/JTAG の 's' 入力で強制 deep sleep できるデバッグ経路。
 // 自動深眠 (wants_deep_sleep) とは独立に常時有効 (serial_dbg_task)。
 volatile bool s_serial_sleep_req = false;
+
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+// シリアル 'M' (大文字) で行モードに入り、改行までを muse_link に渡す (T52)。
+//   - 既存の 1 文字コマンドはそのまま。'm' (小文字) は従来どおり More へ遷移。
+//   - token (最大 1023B) を受けるため、行は最大 1100B。ホスト側で
+//     "muse set token <token>" を一気に送ればよい。
+//   - 30 秒入力が無ければ行モードを抜ける (打ち間違いで 1 文字コマンドが
+//     死んだままになるのを防ぐ)。
+//   - 行の内容は決してログに出さない (token を含みうる)。長さだけ出す。
+constexpr size_t kMuseLineMax = 1100;
+constexpr uint32_t kMuseLineTimeoutMs = 30000;
+// 行バッファは PSRAM に置く (内蔵 SRAM は常に逼迫: AGENTS.md のメモリ予算)。
+// シリアルタスクからの逐次アクセスなので PSRAM で問題ない。
+EXT_RAM_BSS_ATTR char s_muse_line[kMuseLineMax];
+size_t s_muse_len = 0;
+bool s_muse_line_active = false;
+bool s_muse_overflow = false;
+TickType_t s_muse_last_tick = 0;
+
+void muse_line_feed(char c) {
+  s_muse_last_tick = xTaskGetTickCount();
+  if (c == '\r' || c == '\n') {
+    s_muse_line[s_muse_len] = '\0';
+    s_muse_line_active = false;
+    if (s_muse_overflow) {
+      ESP_LOGW(TAG, "serial: muse line too long (max %u)",
+               static_cast<unsigned>(kMuseLineMax - 1));
+    } else if (s_muse_len > 0) {
+      // 中身は出さない (token を含みうる)。バイト数だけ。
+      ESP_LOGI(TAG, "serial: muse line (%u bytes)",
+               static_cast<unsigned>(s_muse_len));
+      muse_link_console_line(s_muse_line);
+    }
+    s_muse_len = 0;
+    s_muse_overflow = false;
+    return;
+  }
+  if (c == 0x08 || c == 0x7f) {  // backspace / DEL
+    if (s_muse_len > 0) {
+      --s_muse_len;
+    }
+    return;
+  }
+  if (s_muse_len + 1 < kMuseLineMax) {
+    s_muse_line[s_muse_len++] = c;
+  } else {
+    s_muse_overflow = true;
+  }
+}
+#endif
 
 void enter_deep_sleep() {
   ESP_LOGI(TAG, "deep sleep");
@@ -286,6 +345,7 @@ void log_wake_reason() {
 }
 
 // USB-Serial/JTAG からのデバッグ入力 + 起床診断の再出力。
+// T52: 'M' (大文字) で行モード (muse 資格情報の投入)。詳細は docs/muse-bmin.md。
 // ブート +6s で wake reason/diag を再出 (モニタ再接続遅延で最初のログを
 // 逃すため)。その後は 's' 入力をポーリング → 強制 deep sleep。
 // stdin は USJ no-driver vfs なので read は FIFO 空なら即 0 を返す
@@ -302,6 +362,21 @@ void serial_dbg_task(void*) {
     char buf[32];
     const ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
     for (ssize_t i = 0; i < n; ++i) {
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+      if (s_muse_line_active) {
+        muse_line_feed(buf[i]);
+        continue;
+      }
+      if (buf[i] == 'M') {  // 大文字のみ。小文字 'm' は従来どおり More へ。
+        s_muse_line_active = true;
+        s_muse_len = 0;
+        s_muse_overflow = false;
+        s_muse_last_tick = xTaskGetTickCount();
+        ESP_LOGI(TAG,
+                 "serial: muse line mode ('M'): type \"muse ...\" then Enter");
+        continue;
+      }
+#endif
       if (buf[i] == 's' || buf[i] == 'S') {
         s_serial_sleep_req = true;
         ESP_LOGI(TAG, "serial: deep sleep requested ('s')");
@@ -435,6 +510,7 @@ void serial_dbg_task(void*) {
         ESP_LOGI(TAG, "serial: theme -> %s", id);
       } else if (buf[i] == 'm' || buf[i] == 'M') {
         // 'm': アプリ一覧 (More) へ遷移。
+        // (muse_link 有効時は大文字 'M' が上の行モードで先に消費される)
         watch::Action a;
         a.type = watch::ActionType::Navigate;
         a.source = watch::ActionSource::Touch;
@@ -503,6 +579,15 @@ void serial_dbg_task(void*) {
                  esp_err_to_name(ar), (int)gpio_get_level(GPIO_NUM_21));
       }
     }
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+    if (s_muse_line_active &&
+        (xTaskGetTickCount() - s_muse_last_tick) >
+            pdMS_TO_TICKS(kMuseLineTimeoutMs)) {
+      s_muse_line_active = false;
+      s_muse_len = 0;
+      ESP_LOGW(TAG, "serial: muse line mode timeout");
+    }
+#endif
     vTaskDelay(pdMS_TO_TICKS(150));
   }
 }

@@ -42,6 +42,16 @@
   詳細: `docs/muse-bmin.md`。
   - 既知: `firmware/dependencies.lock` の旧絶対パスで現パスの素ビルドが
     configure 失敗 (CI は sed 済み)。T51 候補。
+- **T52 (Phase 2 ① 資格情報)**: `muse_link_provision/clear/get_status/
+  console_line` を追加。NVS は SDK 互換 (`muse` namespace, keys host/vm/token,
+  token 1023B)。シリアルは大文字 `M` で行モード (`muse status` /
+  `muse set host|vm|token` / `muse clear`)。token はログ・status に出さない。
+  off build はサイズ不変、on は 0x22dd50 (+100,816B from off、
+  T50 から +3,568B)。大きいバッファは PSRAM へ移して DIRAM は T50 より減。
+  パーサのホストテスト 22 ケース (`firmware/components/muse_link/test/`)。
+  M1 手順は `docs/muse-m1.md` (公式ファームの NVS から nvs_tool.py で
+  host/vm/token を抽出 → SAS-Watch へ投入)。残 Phase 2 は 3.5〜5.5 人日。
+
 
 
 ### 2026-11-17 フェーズ: Muse 連携 + リアルタイム文字起こし + 軽量化 (実装済み・実機確認待ち)

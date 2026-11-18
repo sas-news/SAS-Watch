@@ -38,7 +38,37 @@ bool muse_link_ready(void);
 // 現在の状態を書き出す (秘密は含まない)。
 void muse_link_status(muse_link_status_t* out);
 
-// テキストを Muse に送る。Phase 1 は未実装 (常に ESP_ERR_NOT_SUPPORTED)。
+// ---- 資格情報の投入・確認・消去 (T52 Phase 2 ①) ----
+// NVS namespace "muse"、キー "host" / "vm" / "token" (SDK の muse_settings.c と同じ)。
+// token の値はログ・シリアル・UI に一切出さない (長さだけ)。
+// T52 時点は NVS に平文で保存する (暗号化は Phase 2 の課題。docs/muse-bmin.md)。
+
+// token の最大長 (SDK の MUSE_TOKEN_MAX と同じ 1023)。
+#define MUSE_LINK_TOKEN_MAX 1023
+
+// 資格情報を保存する。NULL = その項目は変更しない / "" = その項目を消す。
+// すべての値は事前検証され、1 つでも不正なら何も保存しない。
+// 各上限: host 63B / vm 63B / token 1023B。印字可能な非空白 ASCII のみ。
+bool muse_link_provision(const char* host, const char* vm, const char* token);
+
+// NVS namespace "muse" を消す (host/vm/token すべて)。再起動は不要。
+void muse_link_clear(void);
+
+// 状態を 1 行の JSON で返す。token は長さだけ。
+// 例: {"configured":true,"ready":false,"wifi":false,"host":"...","vm":"...","token_len":16}
+// バッファ不足なら false。
+bool muse_link_get_status(char* out, size_t cap);
+
+// シリアルから渡された 1 行 (`muse status` など) を解釈して実行する。
+// watch_app の serial_dbg_task 専用 (値を静的バッファにコピーするため単一呼び出し元)。
+// コマンド語: muse status | muse set host <v> | muse set vm <v> |
+//             muse set token <v> | muse clear | muse help
+// 値は一切ログに出さない (token は長さだけ)。
+bool muse_link_console_line(const char* line);
+
+// ---- チャット (未実装) ----
+
+// テキストを Muse に送る。Phase 1/2① は未実装 (常に ESP_ERR_NOT_SUPPORTED)。
 // TODO(muse): Phase 2 で chat セッション (POST /chat/stream + /chat/subscribe)
 // につなぎ、応答の断片を callback で返す。
 typedef void (*muse_link_chat_cb)(const char* text, bool done, void* ctx);

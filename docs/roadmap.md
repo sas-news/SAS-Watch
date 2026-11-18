@@ -1168,6 +1168,26 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、Phase 1 土台。実機未書き込み)
 
+## T52. Muse 資格情報の投入経路 (Phase 2 ①) — 難度 M (完了)
+
+- `muse_link_provision(host, vm, token)` / `muse_link_clear()` /
+  `muse_link_get_status()` / `muse_link_console_line()` を追加。
+  NVS は SDK 互換の namespace `muse` / キー `host`・`vm`・`token`
+  (token 1023B)。token の値はログ・status に出さない (長さのみ)。
+- シリアルは大文字 `M` で行モード (最大 1100B/行・30s タイムアウト・BS 可)。
+  `muse status` / `muse set host|vm|token` / `muse clear`。既存の小文字 `m`
+  (More) は不変。Kconfig off では行モードのコードごと消える。
+- 既定 off build はサイズ不変 (0x215380)。on は T50 から +3,568B
+  (0x22dd50, +100,816B from off)。token 等の大きいバッファは
+  `EXT_RAM_BSS_ATTR` で PSRAM へ移し、静的 DIRAM は T50 より −1,008B。
+- パーサのホストテスト 22 ケース追加 (`firmware/components/muse_link/test/run.sh`)。
+- M1 手順を `docs/muse-m1.md` に整理 (公式ファームの NVS @0x11000/0xC000 から
+  `nvs_tool.py` で host/vm/token を読み、SAS-Watch へ投入)。
+- 残 Phase 2: ②Wi-Fi on-demand / ③セッション+RAMトリム+実機TLS実測 /
+  ④音声 / ⑤UI字幕 / ⑥回帰 = 3.5〜5.5 人日。
+
+状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+
 ## T51. firmware/dependencies.lock のパス可搬性 — 難度 S
 
 - `firmware/dependencies.lock` に旧ワークスペースの絶対パス 3 件が残り、
