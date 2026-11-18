@@ -26,6 +26,13 @@
 - ユーザー作業待ち: 実機 USB 接続、SDK token 発行 (gadgets.muse.ai)、
   Muse アプリ Developer mode でのペアリング。
 
+- **T49 (コンパイル・スパイク)**: SDK の chat 5 ソース + noise_core 7 ソースを
+  **ESP-IDF 5.5.1 で無改変ビルド成功** (IDF6 移行不要)。SAS-Watch への増分は
+  flash +77,763B / 静的 DIRAM +3,090B / PSRAM +3,864B / IRAM 0B。
+  必要スタブ 20 関数 + minimp3 シム。B-min は技術的には GO で 4〜6 人日。
+  残る GO 条件は M1 (Muse の VM/デバイストークンを外部調達できるか) と
+  実機 TLS 内部 RAM。詳細: `docs/muse-chat-spike.md`。
+
 ### 2026-11-17 フェーズ: Muse 連携 + リアルタイム文字起こし + 軽量化 (実装済み・実機確認待ち)
 
 ユーザー方針: 実用化を進める。**軽量化 = 時計ファームの軽量化**、

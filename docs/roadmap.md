@@ -1135,6 +1135,21 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、調査・設計)
 
+## T49. Muse chat/Noise 層の IDF 5.5.1 コンパイル・スパイク — 難度 M (完了)
+
+- `tools/muse-gadget/spike/` (独立 IDF 5.5.1 プロジェクト) で、SDK の chat 5 ソース +
+  noise_core 7 ソース + ヘッダ 10 個を **無改変でコンパイル・リンク成功**。
+  IDF6 専用 API の書き換えは 0 件 (IDF6 が要るのはペアリング層のみ)。
+- 必要なスタブは 20 関数 + 埋め込み MP3 シンボル 2 個 + minimp3 シム (5 API)。
+  cJSON は IDF 同梱、PSA crypto は SAS-Watch が既にリンク済みで追加 0B。
+- SAS-Watch への増分: **flash +77,763B / 静的 DIRAM +3,090B / 静的 PSRAM
+  +3,864B / IRAM 0B**。app 空き 2.01MB・内蔵 SRAM 18〜21KB に載る。
+- 残る GO 条件: (i) M1 資格情報 (Muse アカウント/VM トークンの外部調達)、
+  (ii) 実機 TLS ハンドシェイクの内部 RAM / Wi-Fi+BLE 同時 (B1 冒頭で実測)。
+- B-min 工数更新: 4〜6 人日。詳細: `docs/muse-chat-spike.md`。
+
+状態: 完了 (2026-11-18、コンパイル GO・実機未検証)
+
 ## T48. Muse Gadget M0/M1 実機検証 — 難度 M
 
 - M0: 32MB 全量バックアップ → 公式ファーム書き込み → SDK token 投入

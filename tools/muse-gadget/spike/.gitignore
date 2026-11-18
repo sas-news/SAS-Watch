@@ -1,0 +1,13 @@
+# T49 spike: Muse chat/Noise 層を ESP-IDF 5.5.1 でコンパイルする
+# 生成物
+build/
+build-*/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+*.map
+*.bin
+*.elf
+# 実測の生データ (idf_size.py の CSV / ビルドログ)。再生成できる。
+measurements/
