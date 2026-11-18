@@ -34,6 +34,8 @@ typedef struct {
     bool wifi;         // Wi-Fi 接続中か
     bool wifi_owned;   // このコンポーネントが session_start したか (release 対象)
     int wifi_state;    // muse_link_wifi_state_t
+    int session_state; // muse_link_session_state_t
+    size_t last_reply_len;
     char host[64];     // NVS "muse"/"host" (未設定なら既定ホスト)
     char vm_id[64];    // NVS "muse"/"vm" (空 = アカウント既定 VM)
 } muse_link_status_t;
@@ -76,6 +78,67 @@ bool muse_link_get_status(char* out, size_t cap);
 //             muse set token <v> | muse clear | muse help
 // 値は一切ログに出さない (token は長さだけ)。
 bool muse_link_console_line(const char* line);
+
+// ---- Muse セッション (T55 Phase 2 ③) ----
+// SDK の chat/Noise セッションを起動し、テキスト/音声ノートを送る。
+// Kconfig on のみ。既定 off ではこのコードはコンパイルされない。
+
+typedef enum {
+    MUSE_LINK_SESSION_OFF = 0,  // 停止
+    MUSE_LINK_SESSION_STARTING, // 起動中 (Wi-Fi/VM 接続待ち)
+    MUSE_LINK_SESSION_READY,    // 接続済み・待機
+    MUSE_LINK_SESSION_BUSY,     // 送信中/返答待ち
+    MUSE_LINK_SESSION_ERROR,    // エラー (last_error 参照)
+} muse_link_session_state_t;
+
+typedef enum {
+    MUSE_LINK_START_OK = 0,
+    MUSE_LINK_START_ERR_NOT_CONFIGURED,
+    MUSE_LINK_START_ERR_WIFI_NOT_CONFIGURED,
+    MUSE_LINK_START_ERR_NO_INTERNAL_RAM,
+    MUSE_LINK_START_ERR_NO_PSRAM,
+    MUSE_LINK_START_ERR_WIFI_FAILED,
+    MUSE_LINK_START_ERR_SESSION_START_FAILED,
+    MUSE_LINK_START_ERR_BUSY,
+} muse_link_start_error_t;
+
+// セッションを開始する (資格情報チェック → Wi-Fi ensure → SDK セッション)。
+// ブロックするのは Wi-Fi 接続待ちの最大 timeout_ms まで。SDK の VM 接続は
+// 専用タスクで進み、状態は muse_link_session_state() で STARTING→READY に変わる。
+// 失敗時は false。理由は muse_link_last_error() (日本語) と status JSON に出る。
+bool muse_link_start(uint32_t wifi_timeout_ms);
+
+// セッションを止める (Wi-Fi を release し、状態を OFF にする)。
+// 注: SDK のセッションタスク自体は停止 API が無いため残る (docs/muse-bmin.md §12)。
+void muse_link_stop(void);
+
+// テキストを送る (SDK の typed turn)。本文はログに出さない。
+bool muse_link_send_text(const char* text);
+
+// 16kHz/16bit/mono PCM を音声ノートとして送る (T54 の形式)。
+// samples は 16kHz のサンプル数 (最大 15 秒 = 240000)。PCM は開始時に確保した
+// PSRAM バッファへコピーしてから専用タスクが送る (呼び出しは短時間で返る)。
+bool muse_link_send_voice_note(const int16_t* pcm, size_t samples);
+
+// 最新の返答テキストをコピーする (秘密ではないが、ログ/シリアルには出さない)。
+// 返り値はコピーしたバイト数。UI (Phase 2 ⑤) が使う。
+size_t muse_link_last_reply(char* out, size_t cap);
+
+// 返答の総バイト数 (保持バッファより長い場合も実数を数える)。
+size_t muse_link_total_reply_len(void);
+
+// 保持している返答の長さ (muse_link_last_reply でコピーできる最大量)。
+size_t muse_link_last_reply_len(void);
+
+// 返答が更新されたときに呼ばれるコールバック (任意)。引数は総バイト数。
+typedef void (*muse_link_reply_cb)(size_t total_len, void* ctx);
+void muse_link_set_reply_callback(muse_link_reply_cb cb, void* ctx);
+
+muse_link_session_state_t muse_link_session_state(void);
+const char* muse_link_last_error(void);
+// 開始前チェックに使う閾値 (Kconfig 由来)。0 はチェック無効。
+size_t muse_link_min_internal_bytes(void);
+size_t muse_link_min_psram_bytes(void);
 
 // ---- Wi-Fi on-demand (T54 Phase 2 ②) ----
 // 方針: Muse は使うときだけ Wi-Fi を上げ、使い終わったら完全に落とす

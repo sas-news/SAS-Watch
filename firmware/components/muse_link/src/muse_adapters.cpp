@@ -156,27 +156,3 @@ void muse_state_page(const char* text, int* cols, int* lines) {
 extern "C" const unsigned char _binary_test_reply_mp3_start[1] = {0};
 extern "C" const unsigned char _binary_test_reply_mp3_end[1] = {0};
 
-// ---- リンク維持用の参照表 (Phase 1 のみ) ----
-// Phase 1 はセッションを開始しないため、何も参照しないとリンカが chat の
-// オブジェクトを落とし、Kconfig 有効時のサイズが実際の B-min 構成と一致しない。
-// ここで代表的な API のアドレスを保持して「リンクされる状態」を作るだけで、
-// 実行はしない (init から volatile 読みするだけ)。
-// TODO(muse): Phase 2 でセッション開始を実装したらこの表を消す。
-static void* const volatile s_link_keep[] __attribute__((used)) = {
-    reinterpret_cast<void*>(muse_hatch_start),
-    reinterpret_cast<void*>(muse_hatch_ready),
-    reinterpret_cast<void*>(muse_hatch_config_changed),
-    reinterpret_cast<void*>(muse_hatch_turn_begin),
-    reinterpret_cast<void*>(muse_hatch_turn_audio),
-    reinterpret_cast<void*>(muse_hatch_turn_end),
-    reinterpret_cast<void*>(muse_hatch_turn_event),
-    reinterpret_cast<void*>(muse_hatch_turn_caption),
-    reinterpret_cast<void*>(muse_hatch_incoming),
-    reinterpret_cast<void*>(muse_hatch_text_turn),
-    reinterpret_cast<void*>(muse_hatch_mp3_selftest),
-};
-
-extern "C" void muse_link_keep_linked(void) {
-    // リンカを騙すための 1 読み。値は使わない。
-    (void)s_link_keep[0];
-}

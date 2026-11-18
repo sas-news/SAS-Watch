@@ -17,6 +17,25 @@ menu "muse_link (Muse chat/Noise, Phase 1)"
 
             Phase 2 でセッションタスク、音声アダプタ、UI 統合を足す。
 
+    config WATCH_MUSE_MIN_INTERNAL_KB
+        int "Muse start: minimum largest free internal block (KB)"
+        depends on WATCH_ENABLE_MUSE_LINK
+        range 0 64
+        default 12
+        help
+            muse_link_start() の事前チェック。内蔵 SRAM の最大連続空きがこれ未満なら
+            「内蔵メモリ不足で Muse を開始できません」で中止する。0 でチェック無効。
+            TLS の内部 RAM 消費は実機未測定 (docs/muse-bmin.md §12 の GO/NO-GO)。
+
+    config WATCH_MUSE_MIN_PSRAM_KB
+        int "Muse start: minimum largest free PSRAM block (KB)"
+        depends on WATCH_ENABLE_MUSE_LINK
+        range 0 8192
+        default 1400
+        help
+            muse_link_start() の事前チェック。SDK のセッションは PSRAM を約 1.3MB
+            確保する。最大連続空きがこれ未満なら中止する。0 でチェック無効。
+
     config WATCH_MUSE_WIFI_IDLE_S
         int "Release Muse Wi-Fi after this many idle seconds"
         depends on WATCH_ENABLE_MUSE_LINK

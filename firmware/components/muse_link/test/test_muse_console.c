@@ -43,6 +43,16 @@ int main(void) {
     // パスワード的な文字列中の空白は parse では許容 (validate は provision 側)。
     expect_cmd("muse set host a b", MUSE_CONSOLE_SET_HOST, "a b");
 
+    // T55: セッション操作
+    expect_cmd("muse start", MUSE_CONSOLE_START, "");
+    expect_cmd("MUSE STOP", MUSE_CONSOLE_STOP, "");
+    expect_cmd("muse reply", MUSE_CONSOLE_REPLY, "");
+    expect_cmd("muse reply now", MUSE_CONSOLE_NONE, NULL);
+    expect_cmd("muse send hello world", MUSE_CONSOLE_SEND, "hello world");
+    expect_cmd("muse send   padded  ", MUSE_CONSOLE_SEND, "padded");
+    expect_cmd("muse send", MUSE_CONSOLE_SEND, "");
+    expect_cmd("muse sends", MUSE_CONSOLE_NONE, NULL);
+
     // 解釈できない行。
     expect_cmd("muse set", MUSE_CONSOLE_NONE, NULL);
     expect_cmd("muse set foo bar", MUSE_CONSOLE_NONE, NULL);

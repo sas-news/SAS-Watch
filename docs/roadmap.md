@@ -1188,6 +1188,26 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、実機未確認 TODO(hw))
 
+## T55. Phase 2 ③ Muse セッション実装 — 難度 H (実装完了・実機未検証)
+
+- `muse_link_start/stop/send_text/send_voice_note/last_reply/set_reply_callback/
+  session_state/last_error/min_internal_bytes/min_psram_bytes` を追加。
+  状態機械 `off→starting→ready⇄busy / error` を純 C (`session_logic.c`) に分離。
+- コンソール: `muse start|stop|send <text>|reply`。
+- 実行モデル: 専用 8KB 内蔵 SRAM タスク + SDK の 48KB PSRAM セッションタスク。
+  `muse_link_start` は即 return。開始前ガード `WATCH_MUSE_MIN_INTERNAL_KB` (既定12) /
+  `WATCH_MUSE_MIN_PSRAM_KB` (既定1400)。返答 PSRAM 4KB + 音声 PCM 480KB は
+  開始時確保・停止で解放。SDK 側 PSRAM 約1.3MB は停止 API が無く再起動まで残る。
+- SDK ソースは無改変のまま、`@chat` 出力フックで返答本文を PSRAM 4KB に取り込む
+  (本文はログに出さない)。
+- サイズ: off 0x215380 不変、on 0x22f4f0 (T54 から +3,520B / off +106,864B)、
+  静的 DIRAM 空き 15,449B。ホストテスト 3 本 all pass、core 273/273、sim 監査 0。
+- 実機未検証: `int_largest`/`psram_largest`、ready までの時間、TLS 内部 RAM、
+  `muse send` → `muse reply` の往復、stop の回復、`@chat` フック挙動。
+- 残り: ⑤ UI 字幕 (1〜1.5 人日) / ⑥ 回帰 (1 人日) = 2.0〜2.5 人日。
+
+状態: 実装完了 (2026-11-18、実機未検証 TODO(hw))
+
 ## T53. M1 自動化ツール (NVS 抽出 + M0/M1 ランブック) — 難度 M (完了)
 
 - `tools/muse-gadget/export_credentials.py`: フルフラッシュ/NVS 単体から

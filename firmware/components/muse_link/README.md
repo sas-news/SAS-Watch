@@ -141,6 +141,46 @@ muse_link_voice_b64_finish(&b, out, cap, &written);           // 最後に '=' �
 - 上限 60 秒 (PCM 1,920,000B)。Muse は 15 秒で打ち切るので UI は 15 秒を推奨。
 - 実送信は Phase 2 ③ (セッション実装後)。
 
+## Muse セッション (T55 Phase 2 ③)
+
+SDK の chat/Noise セッションを起動し、テキスト/音声ノートを送って返答を受け取る。
+**Kconfig on のみ**。既定 off ではコンパイルされない。
+
+```c
+muse_link_start(20000);            // 即 return (内蔵 8KB タスクで WiFi→SDK 起動)
+/* muse_link_session_state() が READY になるのを待つ */
+muse_link_send_text("こんにちは"); // 本文はログに出さない
+const int16_t pcm[...];            // 16kHz mono PCM16
+muse_link_send_voice_note(pcm, samples);   // 最大 15 秒
+char reply[256];
+muse_link_last_reply(reply, sizeof(reply)); // UI (Phase 2 ⑤) 用
+muse_link_stop();                  // WiFi release / PSRAM 解放
+```
+
+- 実行モデル: SDK のセッションタスク (48KB PSRAM スタック) が TLS/Noise/受信。
+  こちらは voice task 役の内蔵 SRAM 8KB タスク 1 本で、起動シーケンス・音声送出・
+  イベント回収・Wi-Fi idle poll を行う。**LVGL/app タスクをブロックしない**。
+- TLS を 8KB タスクで走らせないため、ターン開始前に VM 接続 (REACHABLE) を確認する。
+- RAM ガード: `CONFIG_WATCH_MUSE_MIN_INTERNAL_KB` (既定 12) /
+  `CONFIG_WATCH_MUSE_MIN_PSRAM_KB` (既定 1400)。開始時の最大連続空きが下回ると
+  日本語エラーで中止。起動ログに `int_largest` / `psram_largest` を出す。
+- 返答は PSRAM 4KB に保持 (総量は別カウント)。テキストの返答は SDK が stdout に
+  書く `@chat` 行をフックで取り込む (SDK ソースは無改変。`CMakeLists.txt` の
+  コンパイル定義でシンボル名を退避)。
+- 制約: SDK にセッション停止 API が無いため、`muse_link_stop()` 後も SDK の
+  タスク/PSRAM は再起動まで残る。実 TLS/PSRAM は実機未検証
+  (`docs/muse-bmin.md` §12)。
+
+### シリアル (行モード: 大文字 `M`)
+
+```
+muse start | muse stop | muse send <text> | muse reply
+muse status | muse set host|vm|token <v> | muse clear
+```
+
+`muse status` の JSON には `session` / `last_reply_len` / `total_reply_len` /
+`last_error` / `wifi_state` が入る。**本文・token は出さない**。
+
 ## テスト (ホスト)
 
 ```sh
@@ -150,6 +190,8 @@ firmware/components/muse_link/test/run.sh
 - `test_muse_console.c`: シリアル `muse ...` 行のパーサ (T52)
 - `test_muse_voice.c`: WAV ヘッダ / base64 (RFC 4648 ベクタ + 逐次一致) / 上限 /
   JSON エンベロープ (T54)
+- `test_muse_session.c`: セッション状態機械の全遷移 / 開始前チェック / 日本語エラー /
+  status JSON (T55)。`test/stub/esp_err.h` で IDF 型だけ与えてホストで実行
 
 ESP-IDF も実機も要らない (`cc -std=c99 -Wall -Wextra -Werror`)。
 

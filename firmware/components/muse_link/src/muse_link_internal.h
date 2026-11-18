@@ -7,6 +7,9 @@
 
 #include "muse_settings.h"  // MUSE_HOST_MAX / MUSE_VM_MAX / MUSE_TOKEN_MAX
 
+#include "muse_link/muse_link.h"
+#include "session_logic.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +19,13 @@ void muse_link_cfg_host(char out[MUSE_HOST_MAX + 1]);
 void muse_link_cfg_vm(char out[MUSE_VM_MAX + 1]);
 void muse_link_cfg_token(char out[MUSE_TOKEN_MAX + 1]);
 size_t muse_link_cfg_token_len(void);
+
+// muse_link.cpp の NVS キャッシュを、セッション側の status 組み立てに渡す。
+void muse_link_cfg_get(char* host, size_t host_cap, char* vm, size_t vm_cap,
+                       size_t* token_len);
+
+// muse_session.cpp: セッション由来の status フィールドを埋める。
+void muse_link_session_fill_status(muse_link_status_fields_t* f);
 
 #ifdef __cplusplus
 }

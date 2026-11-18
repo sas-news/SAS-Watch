@@ -11,6 +11,9 @@
 //   muse set host <value>          -> SET_HOST
 //   muse set vm <value>            -> SET_VM   (vm_id も可)
 //   muse set token <value>         -> SET_TOKEN
+//   muse start | muse stop         -> START / STOP
+//   muse send <text>               -> SEND (value = text)
+//   muse reply                     -> REPLY
 //
 // value は前後の空白を除いた残り。空 (例 "muse set token") は「その項目を消す」
 // として扱う (呼び出し側の muse_link_provision が空文字=クリア)。
@@ -31,6 +34,11 @@ typedef enum {
     MUSE_CONSOLE_SET_HOST,
     MUSE_CONSOLE_SET_VM,
     MUSE_CONSOLE_SET_TOKEN,
+    // T55 Phase 2 ③ (セッション)
+    MUSE_CONSOLE_START,
+    MUSE_CONSOLE_STOP,
+    MUSE_CONSOLE_SEND,   // value = 送るテキスト
+    MUSE_CONSOLE_REPLY,  // 最新の返答の長さだけ表示
 } muse_console_cmd_t;
 
 typedef struct {

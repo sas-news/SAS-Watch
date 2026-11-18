@@ -60,6 +60,16 @@
   16kHz PCM→WAV/base64 音声アダプタ (SDK 形式、逐次変換、上限 60 秒) を実装。
   off 0x215380 不変、on 0x22e730。ホストテスト all pass、core 273、sim 監査 0。
   Phase 2 残りは ③ セッション+RAM+実機TLS / ⑤ UI字幕 / ⑥ 回帰で 2.5〜4 人日。
+- **T55 (Phase 2 ③ セッション)**: `muse_link_start/stop/send_text/
+  send_voice_note/last_reply/set_reply_callback/session_state/last_error` を追加。
+  状態機械を純 C に分離しホストテスト追加。専用 8KB 内蔵 SRAM タスク +
+  SDK 48KB PSRAM セッションタスク。開始ガード `WATCH_MUSE_MIN_INTERNAL_KB`
+  (既定12) / `WATCH_MUSE_MIN_PSRAM_KB` (既定1400)、返答 PSRAM 4KB + 音声 480KB は
+  開始時確保・停止で解放。コンソール `muse start|stop|send|reply`。
+  off 0x215380 不変、on 0x22f4f0 (+106,864B from off、空き DIRAM 15,449B)。
+  ホストテスト 3 本 all pass、core 273、sim 監査 0。実機未検証: TLS 内部 RAM /
+  ready 時間 / send→reply 往復 / stop 回復 / @chat フック。残り ⑤ UI字幕 / ⑥ 回帰。
+
 
 
 

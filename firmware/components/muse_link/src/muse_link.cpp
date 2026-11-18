@@ -21,6 +21,7 @@
 #include "nvs.h"
 
 #include "muse_console_parse.h"
+#include "session_logic.h"
 #include "muse_link_internal.h"
 #include "wifi/wifi.hpp"
 
@@ -62,33 +63,6 @@ constexpr uint32_t kIdleMs = (uint32_t)CONFIG_WATCH_MUSE_WIFI_IDLE_S * 1000u;
 uint32_t now_ms(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
-
-// Phase 2 ②(Wi-Fi)/④(音声) の API は Phase 2 ③ (セッション) まで誰も呼ばない。
-// -ffunction-sections のリンカ GC で落ちてしまうと「有効時に何がリンクされるか」の
-// 実測ができず、Phase ③ での取りこぼしにも気づけないため、参照だけ保持する
-// (実行はしない)。T50 の muse_adapters.cpp の s_link_keep と同じ考え方。
-static void* const volatile s_api_keep[] __attribute__((used)) = {
-    // Wi-Fi on-demand
-    reinterpret_cast<void*>(muse_link_wifi_ensure),
-    reinterpret_cast<void*>(muse_link_wifi_release),
-    reinterpret_cast<void*>(muse_link_wifi_touch),
-    reinterpret_cast<void*>(muse_link_wifi_poll),
-    reinterpret_cast<void*>(muse_link_wifi_poll_at),
-    reinterpret_cast<void*>(muse_link_wifi_state),
-    reinterpret_cast<void*>(muse_link_wifi_owned),
-    reinterpret_cast<void*>(muse_link_wifi_idle_ms),
-    // 音声ノート変換 (Phase 2 ④)
-    reinterpret_cast<void*>(muse_link_voice_validate),
-    reinterpret_cast<void*>(muse_link_voice_note_plan),
-    reinterpret_cast<void*>(muse_link_voice_wav_header),
-    reinterpret_cast<void*>(muse_link_voice_wav_header_sized),
-    reinterpret_cast<void*>(muse_link_voice_base64_len),
-    reinterpret_cast<void*>(muse_link_voice_b64_init),
-    reinterpret_cast<void*>(muse_link_voice_b64_feed),
-    reinterpret_cast<void*>(muse_link_voice_b64_finish),
-    reinterpret_cast<void*>(muse_link_voice_note_json_prefix),
-    reinterpret_cast<void*>(muse_link_voice_note_json_suffix),
-};
 
 // muse_link_console_line の値コピー先 (token 1023B をスタックに置かない)。
 // シリアルタスクからのみ呼ばれる前提 (docs/muse-bmin.md)。こちらも PSRAM。
@@ -180,8 +154,6 @@ void json_escape(const char* in, char* out, size_t cap) {
 
 // ---- 公開 API ----
 
-extern "C" void muse_link_keep_linked(void);  // muse_adapters.cpp (Phase 1 のリンク維持)
-
 extern "C" esp_err_t muse_link_init(void) {
     reload_cache();
     // Phase 1/2①: 秘密は出さない (token は長さだけ)。host/vm は識別子なので出す。
@@ -189,8 +161,6 @@ extern "C" esp_err_t muse_link_init(void) {
              s_vm[0] ? s_vm : "(default)", s_token_len ? "set" : "unset",
              static_cast<unsigned>(s_token_len));
     ESP_LOGI(kTag, "foundation only (no network, no session task)");
-    (void)s_api_keep[0];  // リンカ GC よけ (Wi-Fi/音声 API をリンクに残す)
-    muse_link_keep_linked();  // Phase 1: chat オブジェクトをリンクに残すだけ (実行しない)
     return ESP_OK;
 }
 
@@ -276,23 +246,19 @@ extern "C" bool muse_link_get_status(char* out, size_t cap) {
     if (!out || cap == 0) {
         return false;
     }
-    char host_e[2 * sizeof(s_host)];
-    char vm_e[2 * sizeof(s_vm)];
-    json_escape(s_host, host_e, sizeof(host_e));
-    json_escape(s_vm, vm_e, sizeof(vm_e));
-    const bool configured = s_token_len > 0 && s_host[0] != '\0';
-    const bool wifi = wifi::connected();
-    const char* wstate = wifi ? "connected" : (s_wifi_owned ? "starting" : "off");
-    const int n = snprintf(out, cap,
-                           "{\"configured\":%s,\"ready\":%s,\"wifi\":%s,"
-                           "\"wifi_state\":\"%s\",\"wifi_owned\":%s,"
-                           "\"host\":\"%s\",\"vm\":\"%s\",\"token_len\":%u}",
-                           configured ? "true" : "false",
-                           (configured && wifi) ? "true" : "false",
-                           wifi ? "true" : "false", wstate,
-                           s_wifi_owned ? "true" : "false", host_e, vm_e,
-                           static_cast<unsigned>(s_token_len));
-    return n > 0 && static_cast<size_t>(n) < cap;
+    muse_link_status_fields_t f = {};
+    f.configured = s_token_len > 0 && s_host[0] != '\0';
+    f.wifi = wifi::connected();
+    f.wifi_owned = s_wifi_owned;
+    f.wifi_state = (int)(f.wifi ? MUSE_LINK_WIFI_CONNECTED
+                                : (s_wifi_owned ? MUSE_LINK_WIFI_STARTING
+                                                : MUSE_LINK_WIFI_OFF));
+    f.ready = f.configured && f.wifi;
+    f.host = s_host;
+    f.vm = s_vm;
+    f.token_len = s_token_len;
+    muse_link_session_fill_status(&f);
+    return muse_link_session_status_json(out, cap, &f);
 }
 
 extern "C" bool muse_link_ready(void) {
@@ -311,6 +277,8 @@ extern "C" void muse_link_status(muse_link_status_t* out) {
                                      : (s_wifi_owned ? MUSE_LINK_WIFI_STARTING
                                                      : MUSE_LINK_WIFI_OFF));
     out->ready = out->configured && out->wifi;
+    out->session_state = (int)muse_link_session_state();
+    out->last_reply_len = muse_link_total_reply_len();
     strncpy(out->host, s_host, sizeof(out->host) - 1);
     strncpy(out->vm_id, s_vm, sizeof(out->vm_id) - 1);
 }
@@ -448,6 +416,51 @@ extern "C" bool muse_link_console_line(const char* line) {
             muse_link_clear();
             return true;
 
+        case MUSE_CONSOLE_START: {
+            const bool ok = muse_link_start(20000);
+            ESP_LOGI(kTag, "console: muse start -> %s (session=%s)", ok ? "ok" : "failed",
+                     muse_link_session_state_name(muse_link_session_state()));
+            if (!ok) {
+                ESP_LOGW(kTag, "console: %s", muse_link_last_error());
+            }
+            return ok;
+        }
+
+        case MUSE_CONSOLE_STOP:
+            muse_link_stop();
+            ESP_LOGI(kTag, "console: muse stop");
+            return true;
+
+        case MUSE_CONSOLE_REPLY:
+            // 本文は出さない (長さだけ)。
+            ESP_LOGI(kTag, "console: last reply %u bytes (kept %u)",
+                     (unsigned)muse_link_total_reply_len(),
+                     (unsigned)muse_link_last_reply_len());
+            return true;
+
+        case MUSE_CONSOLE_SEND: {
+            if (p.value_len == 0) {
+                ESP_LOGW(kTag, "console: muse send needs text");
+                return false;
+            }
+            const size_t n = p.value_len < sizeof(s_console_value) - 1
+                                 ? p.value_len
+                                 : sizeof(s_console_value) - 1;
+            memcpy(s_console_value, p.value, n);
+            s_console_value[n] = '\0';
+            if (p.value_len >= sizeof(s_console_value)) {
+                ESP_LOGW(kTag, "console: text too long (max %u)",
+                         (unsigned)(sizeof(s_console_value) - 1));
+                memset(s_console_value, 0, sizeof(s_console_value));
+                return false;
+            }
+            // 本文はログに出さない。長さだけ。
+            ESP_LOGI(kTag, "console: muse send %u bytes", (unsigned)n);
+            const bool ok = muse_link_send_text(s_console_value);
+            memset(s_console_value, 0, sizeof(s_console_value));
+            return ok;
+        }
+
         case MUSE_CONSOLE_SET_HOST:
         case MUSE_CONSOLE_SET_VM:
         case MUSE_CONSOLE_SET_TOKEN: {
@@ -500,4 +513,19 @@ extern "C" void muse_link_cfg_token(char out[MUSE_TOKEN_MAX + 1]) {
 
 extern "C" size_t muse_link_cfg_token_len(void) {
     return s_token_len;
+}
+
+extern "C" void muse_link_cfg_get(char* host, size_t host_cap, char* vm, size_t vm_cap,
+                                  size_t* token_len) {
+    if (host && host_cap) {
+        strncpy(host, s_host, host_cap - 1);
+        host[host_cap - 1] = '\0';
+    }
+    if (vm && vm_cap) {
+        strncpy(vm, s_vm, vm_cap - 1);
+        vm[vm_cap - 1] = '\0';
+    }
+    if (token_len) {
+        *token_len = s_token_len;
+    }
 }

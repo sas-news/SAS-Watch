@@ -27,8 +27,9 @@ USB 未接続）。ツールは合成 NVS イメージで検証済み (§6)。
 4. SAS-Watch の全量バックアップを書き戻す（`m0_m1.sh --restore-saswatch`）。
 5. SAS-Watch ファーム（`CONFIG_WATCH_ENABLE_MUSE_LINK=y`）を書き込み、
    シリアル `M` 行モードへ投入する（`m0_m1.sh --feed-serial`）。
-6. `muse status` で長さだけ確認 → 再起動後も確認 → B-min の接続検証
-   （M1 の GO/NO-GO）。
+6. `muse status` で長さだけ確認 → 再起動後も確認。
+7. **接続検証 (T55, §5.1)**: `muse start` → `muse status` が `ready` → `muse send` →
+   `muse reply` で長さだけ確認 → `muse stop`。ここまで通れば M1 GO。
 
 > **重要な注意: flash.sh の 32MB バックアップには Muse の資格情報は入っていない。**
 > `tools/muse-gadget/flash.sh` のバックアップは **M0 を書く前の SAS-Watch の状態**を
@@ -196,6 +197,37 @@ Muse ファームは SAS-Watch と**パーティションテーブルが違う**
 | B-min のセッションで VM に接続できる | M1 GO（Phase 2 続行） |
 | 接続時に TLS 内部 RAM 不足 / PSRAM 不足 | RAM 対策（mbedTLS PSRAM 化・バッファ縮小）を先に実施 |
 
+### 5.1 SAS-Watch 側の接続検証 (Phase 2 ③, T55)
+
+資格情報の投入後、SAS-Watch のセッション実装で VM に接続する。
+**本文・token はログに残さない** (長さだけ)。
+
+```
+M
+muse status          # session: off / configured: true / token_len: N
+muse start           # 即 return。ログに int_largest / psram_largest が出る
+muse status          # session: starting → ready（最大 ~20 秒。error なら last_error）
+muse send こんにちは  # 送信（本文は出さない。長さのみ）
+muse reply           # 返答の長さだけ（本文は UI/Phase ⑤）
+muse stop            # Wi-Fi release / session off
+```
+
+判定:
+
+| 確認 | GO の条件 |
+|---|---|
+| `muse start` のログ | `int_largest` が 12KB 以上、`psram_largest` が 1400KB 以上 (Kconfig 閾値) |
+| `muse status` | `session":"ready"` になる (error でない) |
+| TLS 内部 RAM | `ready` 直後の `h` の `int_free` が起動前から大きく減っていない (目安: 残り 8KB 以上) |
+| `muse send` → `muse reply` | 返答の長さ > 0 |
+| `muse stop` | `wifi released` / `session stopped` が出て `h` が回復 |
+
+- `muse start` が「内蔵メモリ不足」「PSRAM 不足」「資格情報が未設定」で止まる場合は、
+  それぞれ §5 の表の RAM 対策 / 資格情報の再投入へ。
+- TLS で落ちる (リセット/ハンドシェイク失敗) 場合は mbedTLS の PSRAM 化が先决
+  (`docs/muse-bmin.md` §12.7)。
+- 実測手順の詳細は `docs/muse-bmin.md` §12.6。
+
 ## 6. 検証（実機なしで完了していること）
 
 合成 NVS イメージによる unittest を用意した。生成物・値はリポジトリに残さない。
@@ -235,12 +267,17 @@ python3 -m unittest discover -s tools/muse-gadget/test -v
   ツールは `M` を再試行するが、実機で確認する）。
 - シリアル投入後の `muse status` の `ready` と、再起動後の NVS 永続化。
 - USB ケーブル/ポートの安定性（esptool の read/write でリセットが入る）。
-- B-min セッション接続時の TLS 内部 RAM / PSRAM 実測（Phase 2 ③）。
+- B-min セッション接続時の TLS 内部 RAM / PSRAM 実測（Phase 2 ③、§5.1）。
+  `muse start` 前後の `h` (int_free) 差分、`muse status` の `session`、
+  `muse send` → `muse reply` の長さを記録する (本文は残さない)。
+- `muse start` が即 return する非同期起動のため、`muse status` のポーリングで
+  `ready` を待つ運用を実機で確認する。
 
 ## 8. 関連ドキュメント
 
 - `tools/muse-gadget/README.md` — M0/M1 ツールの使い方（`build.sh` / `flash.sh` も）
 - `tools/muse-gadget/export_credentials.py --help` / `tools/muse-gadget/m0_m1.sh --help`
 - `docs/muse-gadget.md` — 公式ファームのビルド・書き込み・ペアリング（M0）
-- `docs/muse-bmin.md` — SAS-Watch 側の `muse set` / シリアル `M` 行モード（T52）
+- `docs/muse-bmin.md` — SAS-Watch 側の `muse set` / シリアル `M` 行モード（T52）と
+  セッション `muse start|stop|send|reply` / RAM ガード（T55 §12）
 - `docs/muse-port.md` — SAS-Watch への移植調査（T47、M1 の位置づけ）

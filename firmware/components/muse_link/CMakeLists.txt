@@ -15,7 +15,9 @@ if(CONFIG_WATCH_ENABLE_MUSE_LINK)
         "src/muse_link.cpp"
         "src/muse_adapters.cpp"
         "src/muse_console_parse.c"
-        "src/muse_voice_note.c")
+        "src/muse_voice_note.c"
+        "src/session_logic.c"
+        "src/muse_session.cpp")
     # SDK の chat 層 (無改変)
     list(APPEND MUSE_LINK_SRCS
         "sdk/chat/src/muse_chat.c"
@@ -42,6 +44,11 @@ idf_component_register(
 )
 
 if(MUSE_LINK_SRCS)
+    # SDK の muse_hatch_console (stdout へ @chat を書く) は、SAS-Watch 側の
+    # フック (src/muse_session.cpp) に置き換える。SDK ソースは無改変のまま、
+    # このファイルだけ定義側のシンボル名を退避する。
+    set_source_files_properties("sdk/chat/src/muse_chat_text.c"
+        PROPERTIES COMPILE_DEFINITIONS "muse_hatch_console=muse_hatch_console_sdk_renamed")
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     target_compile_options(${COMPONENT_LIB} PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>

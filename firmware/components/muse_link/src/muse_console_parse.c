@@ -67,16 +67,47 @@ bool muse_console_parse(const char *line, muse_console_parsed_t *out)
         out->cmd = MUSE_CONSOLE_HELP;
         return true;
     }
+    // 引数を取らないコマンドは、語の後に余計な文字が無いこと。
     if (take_word(&p, "help")) {
+        if (*skip_space(p)) return false;
         out->cmd = MUSE_CONSOLE_HELP;
         return true;
     }
     if (take_word(&p, "status")) {
+        if (*skip_space(p)) return false;
         out->cmd = MUSE_CONSOLE_STATUS;
         return true;
     }
     if (take_word(&p, "clear")) {
+        if (*skip_space(p)) return false;
         out->cmd = MUSE_CONSOLE_CLEAR;
+        return true;
+    }
+    if (take_word(&p, "start")) {
+        if (*skip_space(p)) return false;
+        out->cmd = MUSE_CONSOLE_START;
+        return true;
+    }
+    if (take_word(&p, "stop")) {
+        if (*skip_space(p)) return false;
+        out->cmd = MUSE_CONSOLE_STOP;
+        return true;
+    }
+    if (take_word(&p, "reply")) {
+        if (*skip_space(p)) return false;
+        out->cmd = MUSE_CONSOLE_REPLY;
+        return true;
+    }
+    if (take_word(&p, "send")) {
+        // 残り全部が本文 (前後の空白だけ落とす)。
+        v = skip_space(p);
+        end = v + strlen(v);
+        while (end > v && is_space(end[-1])) {
+            --end;
+        }
+        out->cmd = MUSE_CONSOLE_SEND;
+        out->value = v;
+        out->value_len = (size_t)(end - v);
         return true;
     }
     if (!take_word(&p, "set")) {

@@ -24,6 +24,7 @@
 | 判定 | **Phase 1 完了 (GO)**。Phase 2 の残作業は §6 (4〜6 人日) |
 | T52 追記 | **Phase 2 ① (資格情報の投入・確認・消去) 実装済み**。on ビルドは 0x22dd50 (+100,816B vs off)。詳細は §9。既定 off は 0x215380 のまま (不変) |
 | T54 追記 | **Phase 2 ② (Wi-Fi on-demand) と ④ (16kHz PCM→WAV/base64) 実装済み**。on ビルドは 0x22e730 (T52 から +2,528B)。詳細は §11。既定 off は 0x215380 のまま (不変) |
+| T55 追記 | **Phase 2 ③ (Muse セッション: start/stop/send_text/send_voice_note/last_reply) 実装済み**。on ビルドは 0x22f4f0 (T54 から +3,520B)。実 TLS/RAM は実機未検証 (手順は §12.6)。詳細は §12 |
 
 > **T49 の数字の訂正**: T49 は「SAS-Watch への増分 = flash +77,763B / PSA 増分 0」と見積もったが、
 > 本統合の実測は **+97,248B**。PSA crypto は SAS-Watch にリンク済みでも、noise が使う
@@ -200,11 +201,11 @@ TODO(muse): Phase 2 でセッション開始を実装したら削除する。
 |---|---|---:|---|
 | 1 | ~~資格情報の投入経路~~ **完了 (T52)** | ~~0.5 日~~ | シリアル `muse` コマンドで投入・確認・消去。BLE `settings.set` 経路は未実装 (シリアルのみ) |
 | 2 | ~~Wi-Fi の on-demand 制御~~ **完了 (T54)** | ~~0.5〜1 日~~ | `muse_link_wifi_ensure/release/poll`。所有権とアイドルは §11.1 |
-| 3 | セッション開始 (`muse_hatch_start` 相当) + **RAM トリム** + **実機 TLS 内部 RAM 実測** | 1.5〜2 日 | ここが実質の GO/NO-GO。素の 1.33MB PSRAM を 250〜300KB に削る。mbedTLS の PSRAM 化 or 動的バッファを決める |
+| 3 | ~~セッション開始 + 送受信 (T55)~~ **完了**。実機 TLS/RAM 実測だけ残り | ~~1.5〜2 日~~ | 実装は §12。実機検証手順は §12.7 (GO/NO-GO) |
 | 4 | ~~音声アダプタ (16kHz PCM → WAV/base64)~~ **完了 (T54)** | ~~0.5 日~~ | `muse_link_voice_*`。逐次変換/60 秒上限は §11.2 |
 | 5 | UI 統合 (`apps/agent` の partial/reply へ、15 秒上限、960B ページング、日本語エラー) | 1〜1.5 日 | T47 §8。core/protocol の変更は不要 |
 | 6 | 回帰 (core/sim/firmware、`b` ベンチ全テーマ、`int_free`/`psram_free`) | 1 日 | AGENTS のメモリ/描画ルール |
-| | **合計 (T54 後)** | **2.5〜4.0 人日** | 残りは ③セッション+RAM トリム (1.5〜2)、⑤UI 字幕 (1〜1.5)、⑥回帰 (1) |
+| | **合計 (T55 後)** | **2.0〜2.5 人日** | 残りは ⑤UI 字幕 (1〜1.5) と ⑥回帰 (1)。③ は実装完了・実機検証待ち |
 
 前提: **M1 (資格情報) が GO**。M1 が NO-GO なら B-min は成立せず、T47 の推奨どおり C 継続
 (B-full のペアリング移植は 9〜15 人日)。
@@ -577,3 +578,161 @@ prefix を送る → wav_header (streaming) を送る
 | core | ✅ 273/273 pass |
 | sim | ✅ ビルド + snapshot 監査 0 件 |
 | lock | ✅ `tools/fix_deps_lock.sh` → build → `git checkout -- firmware/dependencies.lock` で復元 (git clean) |
+
+---
+
+## 12. Phase 2 ③ Muse セッション実装 (T55)
+
+SDK の chat/Noise 層を実際に起動し、T52 の資格情報・T54 の Wi-Fi/音声アダプタを
+つないで **テキスト/音声ノートを送り、返答を受け取る**ところまで実装した。
+**Kconfig on のみ**動く (既定 off は 0x215380 のまま不変)。実 TLS/電池は実機未検証。
+
+### 12.1 追加した API と実行モデル
+
+| API | 内容 |
+|---|---|
+| `bool muse_link_start(uint32_t wifi_timeout_ms)` | 開始を**受け付けて即返る**。資格情報/Wi-Fi/ヒープを専用タスクで確認し、状態は STARTING→READY/ERROR。成否は status/last_error |
+| `void muse_link_stop(void)` | ターン取消 → Wi-Fi release → PSRAM 解放 → 状態 OFF (SDK タスクは残る: §12.8) |
+| `bool muse_link_send_text(const char* text)` | typed turn でテキスト送信 (本文はログに出さない) |
+| `bool muse_link_send_voice_note(const int16_t* pcm, size_t samples)` | 16kHz mono PCM を音声ノートとして送信。最大 15 秒 (480,000B)。PCM は PSRAM にコピーしてから専用タスクが送る |
+| `size_t muse_link_last_reply(char*, size_t)` / `muse_link_last_reply_len()` / `muse_link_total_reply_len()` | 最新の返答 (保持 4KB、総量は別カウント)。UI (Phase 2 ⑤) 用 |
+| `void muse_link_set_reply_callback(cb, ctx)` | 返答完了の通知 |
+| `muse_link_session_state()` / `muse_link_last_error()` / `muse_link_min_internal_bytes()` / `muse_link_min_psram_bytes()` | 状態・日本語エラー・閾値 |
+
+実行モデル:
+
+```
+[console / app task] muse_link_start() -> 即 return
+        |
+        v  (内蔵 SRAM 8KB, core0 の専用タスク "muse_sess")
+  start_sequence: 資格情報/ヒープ確認 -> WiFi ensure -> PSRAM 確保 -> muse_hatch_start()
+        |
+        v
+  session_loop: 音声ノート送出 / SDK イベント回収 / 状態反映 / WiFi idle poll
+        ^
+        |  TLS/Noise/受信は SDK の既存タスク (48KB PSRAM スタック) が回す
+```
+
+- 起動シーケンスも専用タスクで行うため、**console (4KB スタック) や LVGL/app タスクを
+  ブロックしない**。`muse start` は即座に戻り、`muse status` で
+  `session: starting → ready` を待つ。
+- 専用タスクは「SDK の voice task」役。`muse_hatch_turn_*` と `muse_hatch_turn_event`
+  はこのタスクだけが呼ぶ (SDK の契約)。
+- **TLS ハンドシェイクはこの 8KB タスクで走らせない**: ターン開始前に
+  `muse_hatch_status()==REACHABLE` を確認し、未接続なら
+  `muse_hatch_chat_connect()` で SDK タスクに接続させるだけ。切断直後に
+  turn_begin が `ensure_connected()` に入る競合は残るため TODO(hw) (§12.8)。
+- テキストの返答は SDK の typed turn が stdout に書く `@chat {...}` 行から取る。
+  SAS-Watch では **本文をログに出さない**方針なので、SDK ソースは無改変のまま
+  `muse_chat_text.c` の当該定義だけコンパイル時にシンボル名を退避し、
+  `src/muse_session.cpp` のフック (`muse_hatch_console`) で取り込む
+  (CMakeLists.txt の `set_source_files_properties`)。返答は PSRAM の 4KB に保持。
+
+状態機械 (`src/session_logic.c`, ホストテスト対象):
+
+| 現在 \ イベント | START | WIFI_OK | WIFI_FAIL | CONNECTED | DISCONNECTED | TURN_BEGIN | TURN_DONE | TURN_ERROR | STOP |
+|---|---|---|---|---|---|---|---|---|---|
+| OFF | STARTING | — | — | — | — | — | — | — | OFF |
+| STARTING | STARTING | STARTING | ERROR | READY | ERROR | — | — | — | OFF |
+| READY | READY | — | — | READY | ERROR | BUSY | READY | ERROR | OFF |
+| BUSY | BUSY | — | — | BUSY | ERROR | BUSY | READY | ERROR | OFF |
+| ERROR | STARTING | — | — | — | ERROR | — | — | ERROR | OFF |
+
+### 12.2 起動・停止 (シリアル)
+
+Kconfig `CONFIG_WATCH_ENABLE_MUSE_LINK=y` でビルドしたファームを書き込み、
+USB-Serial/JTAG で:
+
+```
+M
+muse status            # session: off / host / token_len
+muse start             # 即 return。Wi-Fi 接続 → SDK セッション開始
+muse status            # session: starting → ready (最大 ~20 秒)
+muse send こんにちは    # テキスト送信 (本文はログに出さない。長さのみ)
+muse reply             # 返答の長さだけ表示 (本文は UI/Phase ⑤)
+muse stop              # ターン取消 + Wi-Fi release
+```
+
+- 失敗時は `muse status` の `last_error` に日本語で理由が出る
+  (資格情報なし / Wi-Fi 未設定 / 内蔵メモリ不足 / PSRAM 不足 / 接続失敗)。
+- `muse start` が「既に起動しています」で拒否されたら `muse stop` してから再試行。
+- コンソールの出力に token・本文は出さない (長さのみ)。
+
+### 12.3 RAM ガードとメモリ
+
+| 項目 | 値 / 挙動 |
+|---|---|
+| 開始前チェック | `CONFIG_WATCH_MUSE_MIN_INTERNAL_KB` (既定 12KB) と `CONFIG_WATCH_MUSE_MIN_PSRAM_KB` (既定 1400KB)。`heap_caps_get_largest_free_block()` が閾値未満なら **開始中止** (「内蔵メモリ不足…」「PSRAM 不足…」) |
+| 起動ログ | `start: configured=… wifi_configured=… int_largest=… psram_largest=… (min int=… psram=…)`。**実機でここを読むのが最初の計測** (TLS 内部 RAM 問題の GO/NO-GO) |
+| 専用タスク | 内蔵 SRAM **8KB** を起動時に確保 (`xTaskCreatePinnedToCoreWithCaps(..., MALLOC_CAP_INTERNAL)`)。失敗したら「内蔵メモリ不足で Muse を開始できません」 |
+| 音声バッファ | PSRAM **480,000B** (15 秒) を開始時確保。停止で解放 |
+| 返答バッファ | PSRAM **4KB** を開始時確保。停止で解放 (超過分は総量だけ数える) |
+| SDK 側 | セッション開始時に PSRAM 約 **1.3MB** (SDK の 48KB PSRAM スタック + 音声/受信バッファ) を確保 |
+| 停止時 | こちらのタスク/Wi-Fi/PSRAM は解放。**SDK のセッションタスクと PSRAM は残る** (§12.8) |
+| mbedTLS | SAS-Watch は `MBEDTLS_INTERNAL_MEM_ALLOC=y`。TLS の内部 30〜50KB は未計測で、**ここが実機 GO/NO-GO の本命**。今回は外部メモリ化していない (TODO(muse)) |
+
+### 12.4 サイズ実測 (T55 後)
+
+| 指標 | off (既定) | T54 on | **T55 on** | T55 差分 | off から累計 |
+|---|---:|---:|---:|---:|---:|
+| `sas_watch.bin` | 2,184,064B (0x215380) | 2,287,408B (0x22e730) | **2,290,928B (0x22f4f0)** | **+3,520B** | +106,864B |
+| Flash Code | 1,459,840 | 1,550,280 | 1,552,532 | +2,252 | +92,692 |
+| .rodata | 539,236 | 549,948 | 551,116 | +1,168 | +11,880 |
+| 静的 PSRAM (.ext_ram.bss) | 55,352 | 63,200 | 63,200 | 0 | +7,848 |
+| 静的 DIRAM (内蔵) | 321,271 (空き 20,489) | 326,047 (空き 15,713) | **326,311 (空き 15,449)** | +264 | +5,040 |
+| IRAM | 16,384 (100%) | 16,384 | 16,384 | 0 | 0 |
+
+- 追加分の主なもの (概算): `muse_session.cpp` (~3.4〜3.8KB) + `session_logic.c` (744B) +
+  `muse_link.cpp` の拡張 (~+700B)。正味 +3,264B は SDK 側の減少とリンカ GC の差し引き。T54 の `s_api_keep[]` と T50 の `s_link_keep[]` は
+  実際に参照されるようになったので削除した。SDK の `muse_chat_session` は
+  リンク維持用コードの削除で逆に ~0.8KB 減っている。
+- app 空き: 1,903,376B (45.4%)。
+
+### 12.5 ホストテスト (実機なし)
+
+`firmware/components/muse_link/test/run.sh` (cc -std=c99 -Wall -Wextra -Werror):
+
+| テスト | 検証内容 |
+|---|---|
+| `test_muse_console` | `muse` 行パーサ (status/set/clear/start/stop/send/reply、引数なしコマンドの厳密一致、1023B token) |
+| `test_muse_voice` | WAV/base64 (T54) |
+| `test_muse_session` | **状態機械の全遷移**、開始前チェック (資格情報/Wi-Fi/内蔵/PSRAM/閾値 0)、日本語エラー文言、status JSON (session/reply 長/エスケープ/バッファ不足/no token value) |
+
+実行結果: **3 テストとも all passed** (2026-11-18)。core **273/273**、sim **監査 0 件**。
+
+### 12.6 実機検証手順 (TLS/RAM の GO/NO-GO) — TODO(hw)
+
+実機 (USB 接続) で以下を実施する。**値は記録するが token/本文は残さない**。
+
+1. **準備**: `CONFIG_WATCH_ENABLE_MUSE_LINK=y` でビルドし、`0x20000` にアプリを書く
+   (firmware/README.md)。M1 で資格情報を投入済みにする (`muse status` で token_len>0)。
+2. **起動前ベースライン**: 時計が落ち着いてから `h` で `int_free`/`psram_free` を記録
+   (`h` は watch_app の 1 文字コマンド)。`muse status` も控える。
+3. **開始**: `muse start` → ログの
+   `start: ... int_largest=... psram_largest=...` と `session: off -> starting` を記録。
+4. **接続**: `muse status` を数秒おきに叩き `session` が `ready` になるか確認。
+   - `error` なら `last_error` を記録 → 資格情報 (401)、Wi-Fi、PSRAM 連続不足の切り分け。
+5. **TLS 内部 RAM の実測**: `ready` 直後に `h` を実行し、**起動前との `int_free` 差分**を
+   記録。TLS セッション常駐分 + SDK セッションの内部使用量がここに出る。
+   目安: 差分後も `int_free` が 8KB 以上あれば余裕。1〜2KB を切るなら mbedTLS の
+   PSRAM 化 (CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC) かバッファ縮小を先に行う。
+6. **送信**: `muse send <短い日本語>` → `muse reply` で長さ > 0 を確認。
+   続けて音声ノートは Phase 2 ⑤ の UI (または将来のテスト API) から。
+7. **停止**: `muse stop` → ログの `wifi released` / `session stopped` と `h` の回復を確認。
+8. **判定**: 5 が許容内 + 6 で返答が来る → **M1 GO / B-min 実機 OK**。
+   どちらかで落ちる → §12.7 の対策へ。
+
+### 12.7 既知の制約・リスク・残作業
+
+| # | 内容 | 対応 |
+|---|---|---|
+| 1 | **TLS 内部 RAM** 未計測 (§12.6-5)。足りなければ Handshake 失敗/再起動 | mbedTLS の PSRAM 化 or content len 縮小 (TODO(muse)) |
+| 2 | **PSRAM 1.3MB 連続**。cute/cyber テーマは空き ~750KB で開始ガードに引っかかる | バッファ縮小 (T47 の 250〜300KB 案) か、テーマ側の PSRAM 削減とセットで |
+| 3 | **SDK セッションの停止 API が無い**。`muse link_stop()` 後も SDK のタスクと PSRAM ~1.3MB は再起動まで残る | 停止を繰り返す運用をしない。TODO(muse): SDK パッチ or 再起動前提にする |
+| 4 | 8KB タスクで `turn_begin` が TLS に入る競合 (切断直後) | 実機でクラッシュ有無を確認。必要なら PSRAM スタック化 (TODO(hw)) |
+| 5 | typed turn の返答は `@chat` フック経由。実機で本文が取れるか未確認 | §12.6-6 で確認。取れない場合は SDK への小さな公開 API 追加を検討 |
+| 6 | 返答は 4KB で切り詰め (総量はカウント) | UI (⑤) は 960B ページング前提なので実用上は十分 |
+| 7 | mbedTLS 外部メモリ化・バッファ縮小は今回のスコープ外 | Phase 2 の残作業 (⑤⑥ の後、または GO が NG のとき先行) |
+| 8 | 実機の Wi-Fi 起動/停止・電池・BLE 共存 (T54 から継続) | §11.1 |
+
+残作業 (⑤ UI 字幕 / ⑥ 回帰) の見積り: ⑤ 1〜1.5 人日、⑥ 1 人日 → **合計 2〜2.5 人日**。
