@@ -1,6 +1,7 @@
 // sim_platform.hpp — sim_platform.cpp の実体を外部へ出す窓口。
 #pragma once
 
+#include "watch/muse.hpp"
 #include "watch/platform.hpp"
 
 namespace sim {
@@ -36,5 +37,11 @@ watch::AudioPort& audio();
 
 // OTA 画面のスナップショット用に進捗状態を差し替える。
 void set_ota_debug(int stage, int pct, const char* msg, const char* version);
+
+// Muse (Phase 2 ⑤) のメモリ実装。スナップショットごとに状態/返答を差し替える。
+// reply を渡すと世代番号が進み、feature が取り込み直す。
+watch::MusePort& muse();
+void muse_set(bool available, watch::MuseState state, const char* error,
+              const char* reply);
 
 }  // namespace sim

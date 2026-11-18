@@ -703,6 +703,7 @@ int main(int argc, char** argv) {
   static watch::FeatureContext fctx{s_bus, sim::kv(), sim::clock(),
                                     &s_nav, &s_power};
   fctx.audio = &sim::audio();
+  fctx.muse = &sim::muse();
   fctx.settings = &s_settings;
   s_fctx = &fctx;
   s_rt.init(fctx);
@@ -1135,6 +1136,39 @@ int main(int argc, char** argv) {
                                   *s_fctx);
   pump(300);
   ok &= save(out, "53_agent_reply");
+#endif
+
+#if SAS_APP_MUSE
+  // ---- Muse (Phase 2 ⑤ UI 字幕) ----
+  // 既定 off の実機では「無効」だが、sim は port を差して idle/reply/error を
+  // 描く (SimMuse)。画面は Route::App1 (app.cmake で明示)。
+  back_home();
+  // 既定 off ファーム相当 (MusePort が使えない) の表示。
+  sim::muse_set(false, watch::MuseState::Unavailable, "", "");
+  nav_to(watch::Route::App1);
+  pump(800);
+  ok &= save(out, "54_muse_disabled");
+
+  sim::muse_set(true, watch::MuseState::Off, "", "");
+  pump(1500);
+  ok &= save(out, "54_muse_idle");
+
+  // 返答 (960B まで) は 300B 目安 × UTF-8 境界のページに分かれる。
+  // ここでは 2 ページになる長さにして 1/2 を表示する。
+  sim::muse_set(
+      true, watch::MuseState::Ready, "",
+      "今日の東京は午前中は晴れ、午後は雲が広がり夕方から雨が降る見込みです。"
+      "最高気温は21度、最低気温は14度。外出には薄手の上着と折りたたみ傘があると"
+      "安心です。明日は朝から晴れて、週末にかけて空気が乾燥します。");
+  pump(1500);  // feature tick が返答を取り込み、ClockTick で再描画
+  ok &= save(out, "55_muse_reply");
+
+  // エラー (日本語の last_error をそのまま表示)。
+  sim::muse_set(true, watch::MuseState::Error,
+                "Wi-Fi に接続できませんでした", "");
+  pump(1500);
+  ok &= save(out, "56_muse_error");
+  back_home();
 #endif
 
   // ---- テーマ v2 サンプル「cosmos」 ----

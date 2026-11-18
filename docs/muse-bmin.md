@@ -25,6 +25,7 @@
 | T52 追記 | **Phase 2 ① (資格情報の投入・確認・消去) 実装済み**。on ビルドは 0x22dd50 (+100,816B vs off)。詳細は §9。既定 off は 0x215380 のまま (不変) |
 | T54 追記 | **Phase 2 ② (Wi-Fi on-demand) と ④ (16kHz PCM→WAV/base64) 実装済み**。on ビルドは 0x22e730 (T52 から +2,528B)。詳細は §11。既定 off は 0x215380 のまま (不変) |
 | T55 追記 | **Phase 2 ③ (Muse セッション: start/stop/send_text/send_voice_note/last_reply) 実装済み**。on ビルドは 0x22f4f0 (T54 から +3,520B)。実 TLS/RAM は実機未検証 (手順は §12.6)。詳細は §12 |
+| T56 追記 | **Phase 2 ⑤ (UI 字幕: Muse アプリ + core MusePort) 実装済み**。off は 0x215fa0 (+3,104B、目標 +10KB 以内)、on は 0x230330 (+3,648B)。既定 off ではアプリは「このファームでは Muse が無効です」表示。実セッションでの字幕表示は実機未確認 (§12.6 と同時)。詳細は §13 |
 
 > **T49 の数字の訂正**: T49 は「SAS-Watch への増分 = flash +77,763B / PSA 増分 0」と見積もったが、
 > 本統合の実測は **+97,248B**。PSA crypto は SAS-Watch にリンク済みでも、noise が使う
@@ -736,3 +737,106 @@ muse stop              # ターン取消 + Wi-Fi release
 | 8 | 実機の Wi-Fi 起動/停止・電池・BLE 共存 (T54 から継続) | §11.1 |
 
 残作業 (⑤ UI 字幕 / ⑥ 回帰) の見積り: ⑤ 1〜1.5 人日、⑥ 1 人日 → **合計 2〜2.5 人日**。
+
+## 13. Phase 2 ⑤ UI 字幕 (Muse アプリ) 実装 (T56)
+
+2026-11-18。Muse の返答を時計に表示する専用アプリ「Muse」と、core ↔ firmware の
+`MusePort` 境界を追加した。**既定 off (`CONFIG_WATCH_ENABLE_MUSE_LINK=n`) では
+MusePort は nullptr で、アプリは「このファームでは Muse が無効です」を出すだけ**。
+音声はこの UI ではまだ送らない (`muse_link_send_voice_note` は API のみ。⑥ の後の段階)。
+
+### 13.1 追加・変更したファイル
+
+| 種別 | ファイル | 内容 |
+|---|---|---|
+| core 新規 | `core/include/watch/muse.hpp` | `MuseState` (Unavailable/Unconfigured/Off/Starting/Ready/Busy/Error) と `MusePort` (available/state/last_error/reply_generation/last_reply/start/stop/send_text) |
+| core 変更 | `core/include/watch/feature.hpp` | `FeatureContext::muse` (nullptr = 無効) |
+| core 新規 | `core/include/watch/features/muse.hpp` | アプリの Feature API (状態アクセサ・ページ操作・reset) |
+| app 新規 | `apps/muse/app.cmake` | id `muse` / 表示名「Muse」/ Route `App1` / icon `0xE8B8` (既存グリフ) / ORDER 85 |
+| app 新規 | `apps/muse/feature/muse.cpp` | 状態取り込み・返答の UTF-8 ページ分割・15 秒自動送り・接続/切断 |
+| app 新規 | `apps/muse/screen.cpp` | 状態カード + 返答本文 (font_body, 折り返し) + ページ表示 + 接続/切断/次へ |
+| app 新規 | `apps/muse/test_muse.cpp` | Fake MusePort による状態写像・ページング・UTF-8 境界テスト |
+| test 変更 | `core/tests/fakes.hpp` | `test::FakeMuse` |
+| sim 変更 | `sim/sim_platform.{hpp,cpp}` | `SimMuse` + `sim::muse_set()` (状態/エラー/返答を差し替え) |
+| sim 変更 | `sim/snapshot.cpp` | `54_muse_disabled` / `54_muse_idle` / `55_muse_reply` / `56_muse_error` |
+| fw 新規 | `firmware/components/watch_app/src/muse_port.{hpp,cpp}` | muse_link → MusePort アダプタ (Kconfig on のみコンパイル) |
+| fw 変更 | `firmware/components/watch_app/CMakeLists.txt` | on のとき `muse_port.cpp` を追加、`muse_link` を PRIV_REQUIRES に追加 (off では muse_link はヘッダのみ・追加 0B) |
+| fw 変更 | `firmware/components/watch_app/src/watch_app.cpp` | `fctx.muse = muse_port()` (on のみ)。`muse_link/muse_link.h` の include を正式化 |
+
+### 13.2 画面仕様
+
+- ヘッダ「Muse」(戻るピルあり)。content は縦スクロール可。
+- **状態カード**: 状態 (font_row 26px, 折り返し) + 日本語エラー (danger 色、Error のときだけ)。
+  - `Unavailable` (port==nullptr / available()==false): 「このファームでは Muse が無効です」
+  - `Unconfigured`: 「Muse の設定がありません（サーバーに接続して資格情報を投入してください）」
+  - `Off`: 「停止中（「接続」で Muse につなぎます）」/ `Starting`: 「接続中…（Wi-Fi / セッション起動待ち）」
+  - `Ready`: 「接続済み・待機中」/ `Busy`: 「送信中／返答待ち…」
+  - `Error`: 「エラー」+ firmware の `last_error` (例「Wi-Fi に接続できませんでした」)
+  - 主ボタン: Off/Error →「接続」、Starting/Ready/Busy →「切断」(PrimaryAction)。Unconfigured/無効では隠す。
+- **返答カード**: 本文は `font_body` (20px) の折り返し。`saved` された返答テキストのみを表示する。
+  - 960B までを取り込み、300B 目安で **UTF-8 境界**のページに分割 (最大 4 ページ)。
+  - **15 秒ごとに自動で次ページ**。カードのタップ /「次へ」でも次ページ (最後まで行ったら先頭へ戻る)。
+  - 「1/2 ページ（15 秒で次へ）」を本文の下に表示。ページ数 1 のときは「次へ」を隠す。
+  - 返答が無いときは状態に応じた案内 (「「接続」を押すと Muse につながります」など)。
+- 状態の再描画: feature が**画面表示中だけ 1 秒周期で app タスクを起こし**、既存の
+  `ClockTick` で画面を更新する (Dim / 画面OFF / 別画面ではポーリングしない = 電池優先)。
+- LongPress (画面長押し) でも切断。秘密 (host/vm/token) と返答本文はログに出さない。
+
+### 13.3 サイズ実測 (T56 後)
+
+同一ツリー・同一 sdkconfig で `CONFIG_WATCH_ENABLE_MUSE_LINK` の y/n だけを変えてビルド。
+既定 off のアプリ追加分 (Muse アプリ + core 境界) は **+3,104B** で、目標 (+10KB 以内) 内。
+
+| 指標 | off (T55 まで) | **off (T56)** | T56 差分 | on (T55) | **on (T56)** | T56 差分 |
+|---|---:|---:|---:|---:|---:|---:|
+| `sas_watch.bin` | 2,184,064B (0x215380) | **2,187,168B (0x215fa0)** | **+3,104B** | 2,290,928B (0x22f4f0) | **2,294,576B (0x230330)** | **+3,648B** |
+| app 空き (4MB slot) | 2,010,240B (47.9%) | **2,007,136B (48%)** | −3,104B | 1,903,376B (45.4%) | **1,899,728B (45%)** | −3,648B |
+| Flash Code (.text) | 1,459,840 | **1,462,272** | +2,432 | 1,552,532 | **1,555,460** | +2,928 |
+| Flash Data (.rodata) | 539,236 | **539,908** | +672 | 551,116 | **551,840** | +724 |
+| 静的 DIRAM (内蔵) | 321,271 (空き 20,489) | **322,423 (空き 19,337)** | **+1,152** | 326,311 (空き 15,449) | **327,471 (空き 14,289)** | **+1,160** |
+| IRAM | 16,384 (100%) | 16,384 (100%) | 0 | 16,384 (100%) | 16,384 (100%) | 0 |
+
+- 内蔵 DIRAM +1,152B の内訳: 返答 960B + ページ開始表 + 状態/エラー (Muse Feature の
+  静的スナップショット)。**スタックの大きな構造体は使っていない** (画面は 300B の
+  ページ文字列バッファのみ)。off の空き 19.3KB / on の空き 14.3KB は従来の余裕内。
+- on の +3,648B のうち 544B がアダプタ (状態写像・コールバック)。off では
+  `muse_port.cpp` をコンパイルしないので 0B。
+
+### 13.4 テスト (実機なし)
+
+- core **289/289 pass** (T55 の 273 + Muse 16)。
+  - 状態写像 (port nullptr / available=false / Unconfigured / Error 文言)
+  - PrimaryAction で接続→切断、LongPress で切断、send_text の Port 委譲
+  - 返答のページ分割 (300B、UTF-8 境界、960B 上限、途中で切れた末尾文字の除去)
+  - 15 秒の自動ページ送り / 最後→先頭 / 画面が見えていない間は進めない
+  - 返答更新でページ 0 に戻る (revision)、reset
+- sim: ビルド OK、`./sim/build/snapshot --out sim/screenshots` → **監査 0 件**。
+  新しいショット: `54_muse_disabled` (無効) / `54_muse_idle` (停止中) /
+  `55_muse_reply` (1/2 ページ) / `56_muse_error` (Wi-Fi エラー)。
+  既存ショットは applist の可視範囲に変化なし (Muse 行は ORDER 85 で一覧の下側)。
+- firmware: off/on ともビルド成功 (上表)。`tools/fix_deps_lock.sh` → build →
+  `git checkout -- firmware/dependencies.lock` の手順。
+
+### 13.5 実機未確認 (TODO(hw))
+
+| # | 内容 | 確認方法 |
+|---|---|---|
+| 1 | on ビルドの実セッションで字幕が出るか (TLS/Noise/RAM は §12.6 と同じ GO/NO-GO) | §12.6 の手順 + 時計の Muse アプリで「接続」→返答 |
+| 2 | 画面表示中の 1 秒ポーリング + Wi-Fi 常時接続時の電池影響 | `b` ベンチと電池ログ。アイドル 60 秒で Wi-Fi release されるか (§11) |
+| 3 | Wi-Fi 接続待ち 20 秒 (`kWifiTimeoutMs`) の妥当性 | 起動〜`ready` の実測 (`session: starting → ready`) |
+| 4 | ページ送りの体感 (15 秒) と 1 ページ 300B の見やすさ | 実機で長い返答を表示 |
+| 5 | PrimaryAction の状態反映遅れ (muse_link の開始は即返る仕様) | 「接続」→ 状態が Starting→Ready に変わるまで |
+| 6 | 返答本文の `last_error`/文字化け (SDK の @chat フック) | §12.6-6 と同じ |
+
+### 13.6 残作業 (⑥ 回帰・音声 UI)
+
+- ⑥ 回帰: 既存アプリ/protocol/BLE/電池の回帰 (AGENTS.md の検証コマンド一式)。
+  T56 で触った既存面は `FeatureContext` 追加・`watch_app` の依存追加・applist 行追加のみ。
+  off のサイズ差 +3,104B / 静的 DIRAM +1,152B を回帰時の基準にする。
+- 音声 UI (次の段階): `muse_link_send_voice_note` は T54 で実装済みだが UI 未接続。
+  BOOT 長押し等で「話す→送る」導線を足すとき、T38 の dictation (16kHz ADPCM を
+  BLE でスマホへ) とは別経路 (時計→Wi-Fi→Muse) になる点に注意。PCM 15 秒/480KB を
+  PSRAM に確保するため、メモリ予算 (§12.3) とテーマの PSRAM 使用量をセットで確認する。
+- テキスト入力 (send_text) は API のみ。画面から送る導線は未実装。
+- 実機のスクショは `docs/screenshots/` へ `./sim/build/snapshot --out docs/screenshots` で
+  生成できるが、既存 applist ショットは Muse 行の追加で差し替えになる (Lead がまとめる)。

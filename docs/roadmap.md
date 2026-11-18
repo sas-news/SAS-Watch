@@ -1188,6 +1188,24 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 
 状態: 完了 (2026-11-18、実機未確認 TODO(hw))
 
+## T56. Phase 2 ⑤ Muse アプリ (UI 字幕) — 難度 M (完了)
+
+- core に `MuseState` (7状態) と `MusePort`、`FeatureContext::muse` を追加
+  (nullptr = 無効)。UI は core から firmware を直接呼ばない。
+- `apps/muse/`: 状態カード + 返答本文 (font_body 折返し、300B 目安 × UTF-8 境界
+  ページ、960B 上限、**15 秒自動送り / タップ送り**、最大 4 ページ)。
+  未設定/無効/エラーの日本語文言、接続/切断。Route App1 を明示 (walk App0 維持)。
+- sim: `SimMuse` + `54_muse_disabled` / `54_muse_idle` / `55_muse_reply` /
+  `56_muse_error` を追加。監査 0 件。
+- firmware: `watch_app/src/muse_port.*` で muse_link → MusePort アダプタ。
+  `CONFIG_WATCH_ENABLE_MUSE_LINK=y` のときだけコンパイル、off は nullptr。
+- サイズ: off 0x215fa0 (+3,104B、目標 +10KB 以内) / on 0x230330 (+3,648B)。
+  静的 DIRAM +1,152B (off 空き 19,337B / on 空き 14,289B)。
+- core テスト 289/289 (Muse 16 追加)、sim 監査 0、off/on ビルド成功。
+- 残り: ⑥ 回帰 (実機含む) と音声 UI (BOOT 長押しで 15 秒 PCM→Muse 送信)。
+
+状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+
 ## T55. Phase 2 ③ Muse セッション実装 — 難度 H (実装完了・実機未検証)
 
 - `muse_link_start/stop/send_text/send_voice_note/last_reply/set_reply_callback/

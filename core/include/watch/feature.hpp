@@ -6,6 +6,7 @@
 
 #include "watch/action.hpp"
 #include "watch/event_bus.hpp"
+#include "watch/muse.hpp"
 #include "watch/navigation.hpp"
 #include "watch/platform.hpp"
 
@@ -23,6 +24,9 @@ struct FeatureContext {
   PowerPolicy* power = nullptr;    // 同上
   AudioPort* audio = nullptr;      // 無ければ音声機能は無効
   const Settings* settings = nullptr;  // 読み取り専用 (音量など)
+  // Muse (Phase 2 ⑤)。nullptr = このファームでは無効
+  // (CONFIG_WATCH_ENABLE_MUSE_LINK=n の既定ビルド)。
+  MusePort* muse = nullptr;
 };
 
 enum FeatureCapability : uint32_t {

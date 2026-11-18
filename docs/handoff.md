@@ -69,6 +69,14 @@
   off 0x215380 不変、on 0x22f4f0 (+106,864B from off、空き DIRAM 15,449B)。
   ホストテスト 3 本 all pass、core 273、sim 監査 0。実機未検証: TLS 内部 RAM /
   ready 時間 / send→reply 往復 / stop 回復 / @chat フック。残り ⑤ UI字幕 / ⑥ 回帰。
+- **T56 (Phase 2 ⑤ UI 字幕)**: core に MusePort/MuseState + FeatureContext::muse、
+  `apps/muse/` を追加。返答は 300B 目安 × UTF-8 境界のページ (960B 上限・最大4) を
+  15 秒自動送り/タップ送り。無効/未設定/エラーの日本語表示、接続/切断。
+  sim に SimMuse と 4 ショット (54/54/55/56_muse_*)、監査 0。
+  firmware は on のときだけ muse_port アダプタをコンパイル。off 0x215fa0
+  (+3,104B)、on 0x230330 (+3,648B)、静的 DIRAM off +1,152 (空き19,337)。
+  core 289/289、off/on build 成功。残りは実機回帰と音声 UI (BOOT 15 秒)。
+
 
 
 

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <string>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include "watch/event_bus.hpp"
+#include "watch/muse.hpp"
 #include "watch/platform.hpp"
 
 namespace watch {
@@ -285,6 +287,59 @@ class FakeAudio : public AudioPort {
   uint32_t stream_avail_ = 0;  // 未読バイト数
   // id → {秒数, バイト列}
   std::map<uint32_t, std::pair<uint32_t, std::vector<uint8_t>>> files_;
+};
+
+// Muse セッションのフェイク。状態・返答・エラーをテスト側から差し替える。
+class FakeMuse : public MusePort {
+ public:
+  bool available_ = true;
+  int start_calls = 0;
+  int stop_calls = 0;
+  int send_calls = 0;
+  std::string last_sent;
+
+  bool available() const override { return available_; }
+  MuseState state() override { return state_; }
+  const char* last_error() override { return error_; }
+  uint32_t reply_generation() override { return generation_; }
+  size_t last_reply(char* out, size_t cap) override {
+    if (!out || cap == 0) return 0;
+    size_t n = reply_.size();
+    if (n > cap - 1) n = cap - 1;
+    std::memcpy(out, reply_.data(), n);
+    out[n] = '\0';
+    return n;
+  }
+  bool start() override {
+    ++start_calls;
+    state_ = MuseState::Starting;
+    return true;
+  }
+  void stop() override {
+    ++stop_calls;
+    state_ = MuseState::Off;
+  }
+  bool send_text(const char* text) override {
+    ++send_calls;
+    last_sent = text ? text : "";
+    return true;
+  }
+
+  // ---- テスト用の操作 ----
+  void set_state(MuseState st) { state_ = st; }
+  void set_error(const char* msg) {
+    std::snprintf(error_, sizeof(error_), "%s", msg ? msg : "");
+  }
+  void set_reply(const char* text) {
+    reply_ = text ? text : "";
+    ++generation_;
+  }
+
+ private:
+  MuseState state_ = MuseState::Off;
+  char error_[128] = {};
+  std::string reply_;
+  uint32_t generation_ = 0;
 };
 
 }  // namespace test

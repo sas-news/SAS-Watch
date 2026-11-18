@@ -158,9 +158,56 @@ class SimAudio : public watch::AudioPort {
 
 static SimAudio s_audio;
 
+// ---- Muse (Phase 2 ⑤ 字幕): 状態と返答だけを持つメモリ実装 ----------------
+class SimMuse : public watch::MusePort {
+ public:
+  bool available() const override { return available_; }
+  watch::MuseState state() override { return state_; }
+  const char* last_error() override { return error_; }
+  uint32_t reply_generation() override { return generation_; }
+  size_t last_reply(char* out, size_t cap) override {
+    if (!out || cap == 0) return 0;
+    size_t n = reply_.size();
+    if (n > cap - 1) n = cap - 1;
+    std::memcpy(out, reply_.data(), n);
+    out[n] = '\0';
+    return n;
+  }
+  bool start() override {
+    state_ = watch::MuseState::Starting;
+    return true;
+  }
+  void stop() override { state_ = watch::MuseState::Off; }
+  bool send_text(const char*) override { return true; }
+
+  void set(bool available, watch::MuseState state, const char* error,
+           const char* reply) {
+    available_ = available;
+    state_ = state;
+    std::snprintf(error_, sizeof(error_), "%s", error ? error : "");
+    reply_ = reply ? reply : "";
+    ++generation_;
+  }
+
+ private:
+  bool available_ = true;
+  watch::MuseState state_ = watch::MuseState::Off;
+  char error_[128] = {};
+  std::string reply_;
+  uint32_t generation_ = 0;
+};
+
+static SimMuse s_muse;
+
 SimClock& clock() { return s_clock; }
 watch::KeyValueStore& kv() { return s_kv; }
 watch::Log& log() { return s_log; }
 watch::AudioPort& audio() { return s_audio; }
+watch::MusePort& muse() { return s_muse; }
+
+void muse_set(bool available, watch::MuseState state, const char* error,
+              const char* reply) {
+  s_muse.set(available, state, error, reply);
+}
 
 }  // namespace sim

@@ -29,12 +29,10 @@
 #include "watch/platform.hpp"
 
 #if CONFIG_WATCH_ENABLE_MUSE_LINK
-// muse_link の公開 API は 1 つだけ使う (T52)。watch_app の CMakeLists は
-// 本タスクの書き込みスコープ外なので include ではなく宣言で受ける。
-// リンクは main が muse_link を PRIV_REQUIRES しているため解決する。
-// TODO(muse): 別タスクで watch_app の PRIV_REQUIRES に muse_link を足し、
-//             "muse_link/muse_link.h" の include に戻す。
-extern "C" bool muse_link_console_line(const char* line);
+// シリアルコンソール (`muse start` など) と UI 字幕 (T56) 用。
+// muse_link は watch_app の PRIV_REQUIRES に追加済み (T56)。
+#include "muse_link/muse_link.h"
+#include "muse_port.hpp"
 #endif
 
 namespace watch_app {
@@ -638,6 +636,11 @@ bool start(const Deps& deps) {
   static watch::FeatureContext fctx{s_bus, *s_kv, *s_clock, &s_nav, &s_power};
   s_fctx = &fctx;
   fctx.settings = &s_settings;
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+  // Muse (Phase 2 ⑤ 字幕) の実装を差す。既定 off では nullptr のまま
+  // (Muse アプリは「このファームでは Muse が無効です」を表示する)。
+  fctx.muse = muse_port();
+#endif
   // Phase 9: 音声サービス (littlefs の storage パーティション + コーデック)。
   // 失敗しても audio 無しで動く (録音ボタンは出ない)。
   audio::Deps audio_deps;
