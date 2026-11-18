@@ -1097,6 +1097,56 @@ cookie 投入後のメモリ再計測。docs: `docs/muse2api-server.md`
 
 状態: 完了 (2026-11-17)。core 273/273、firmware build sas_watch.bin 0x215380 (app 空き 48%)、sim 監査 0 件 + docs/screenshots 再生成、Android 191 テスト + assembleDebug + lint (Error 0)。実機 (時計書き込み・スマホ Tailscale・Vosk 認識・Muse cookie/実応答) が未確認
 
+## 第4弾 (2026-11-18 Muse Gadget SDK 調査・ビルド)
+
+ユーザー: 「M5Stack StopWatch に Muse を載せるのが流行っている。コード流用したい」。
+調査の結果、Meta 公式の **Muse Gadget SDK** (`facebookincubator/muse-gadget-sdk`,
+Apache-2.0, pinned `ec976f0`) が **SAS-Watch と同一基板 (Waveshare
+ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**していると判明。
+
+## T46. Muse Gadget SDK を s3-206 向けにビルド — 難度 M (完了)
+
+- ESP-IDF **v6.0.3** を `.toolchain/esp-idf-v6.0.3` に別途導入 (既存 5.5.1 は不変更)。
+- `tools/muse-gadget/{build.sh,flash.sh,README.md}` を追加。CJK フォント on
+  (`CONFIG_MUSE_CJK_FONT=y`, Unifont)、realtime voice off。
+- 成果物: `muse-gadget.bin` **3,411,968B** (app スロット空き 19%)、他 bootloader/
+  partition/otadata。`out/SHA256SUMS` と `out/build-info.txt` に記録。
+- 実機書き込みは未 (USB 未接続)。`flash.sh` は 32MB 全量バックアップ →
+  書き込み → 復元案内まで実装。
+- docs: `docs/muse-gadget.md` (仕組み・手順・制約・ライセンス)。
+
+状態: 完了 (2026-11-18、ビルド検証まで。実機未書き込み)
+
+## T47. Muse チャット層を SAS-Watch ファームへ移植できるか — 難度 M (調査完了)
+
+- 成果物: `docs/muse-port.md` (582行, 根拠 file:line 付き)。
+- 重要な訂正: SDK の既定は **16kHz PCM16 mono の音声ノート** (24kHz は
+  未使用の /api/voice/dictation のみ)。TTS も既定は字幕のみ。SAS-Watch の
+  16kHz 録音・スピーカー無効はそのまま要件を満たす。
+- chat/Noise 層は **IDF 5.5.1 のままビルドできる見込み** (IDF6 専用は
+  ペアリング層の 3 本のみ)。Muse 層の実体 1.43MB のうち 1.23MB は CJK フォント
+  で、SAS-Watch は assets binfont を使うため不要 → flash 追加は 90〜110KB。
+- 本当の壁: (1) VM デバイストークンは Muse アプリとの BLE ペアリングでしか
+  得られない (mgst_ 単体では不可)、(2) 2 本目の TLS+Noise が PSRAM
+  1.2MB + 内部 RAM 30〜50KB を要求、(3) Wi-Fi 常時接続の電池未計測。
+- 推奨: 現行 C (スマホ+muse2api) を維持。まず **A (公式ファーム) を実機で試す**
+  = M0。B (移植) は資格情報スパイク M1 通過時のみ B-min 4〜7 人日。
+  B-full (BLE ペアリング移植) は 9〜15 人日で当面やらない。
+
+状態: 完了 (2026-11-18、調査・設計)
+
+## T48. Muse Gadget M0/M1 実機検証 — 難度 M
+
+- M0: 32MB 全量バックアップ → 公式ファーム書き込み → SDK token 投入
+  (serial `>sdk_token=`) → Muse アプリ Developer mode でペアリング →
+  日本語で話して字幕確認 → 電池/RAM 記録 → バックアップ復元。
+- M1 (M0 の結果次第): device token / VM token を外部から用意できるか
+  (`mgst_` 単体で fetch_vms が通るか、Muse ユーザートークンで
+  /device_token/mint が通るか、VM 生トークンで wss /v1/noise に入れるか)。
+- GO なら B-min (chat 層 + UI 移植) に着手。
+
+状態: 未着手 (ユーザーの実機 USB 接続 + SDK token 発行待ち)
+
 ## 第2弾の実施順
 
 T16 → T17 → T18 (実機・ユーザー操作) → T19 → T20 → T21 → T22 は完了または進行中。

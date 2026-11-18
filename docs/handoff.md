@@ -5,6 +5,27 @@
 
 ## 要点
 
+### 2026-11-18: Muse Gadget SDK の調査と s3-206 ビルド (T46/T47)
+
+- Meta 公式の **Muse Gadget SDK** (`facebookincubator/muse-gadget-sdk`, Apache-2.0,
+  pinned `ec976f0`) が **SAS-Watch と同じ Waveshare ESP32-S3-Touch-AMOLED-2.06 を
+  `s3-206` として公式サポート**していると判明。M5Stack StopWatch と同じ仕組み。
+- **T46**: ESP-IDF v6.0.3 を別途入れ、公式ファームを s3-206 向けにビルド成功。
+  `muse-gadget.bin` 3,411,968B (app スロット空き 19%)、CJK フォント on
+  (日本語字幕)、realtime voice off。`tools/muse-gadget/` に build/flash スクリプト、
+  `docs/muse-gadget.md` に手順。実機書き込みは未 (USB 未接続)。
+  flash.sh は 32MB 全量バックアップ → 書き込み → 復元案内まで実装。
+- **T47**: 公式の Muse チャット層を SAS-Watch ファームへ移植する実現性を調査
+  (`docs/muse-port.md`)。音声は **16kHz PCM16 mono の音声ノート**でよく、
+  IDF 5.5.1 のまま chat/Noise 層を載せられる見込み。flash 追加は 90〜110KB
+  (CJK フォント 1.23MB は SAS-Watch の binfont があるので不要)。ただし
+  **VM デバイストークンは Muse アプリの BLE ペアリングでしか得られず**、
+  2 本目の TLS+Noise が PSRAM 1.2MB + 内部 RAM 30〜50KB、Wi-Fi 常時接続の
+  電池未計測が壁。推奨は C (現行スマホ+muse2api) 維持 + A (公式ファーム) を
+  M0 で試す。B-min は M1 (資格情報スパイク) 通過時のみ 4〜7 人日。
+- ユーザー作業待ち: 実機 USB 接続、SDK token 発行 (gadgets.muse.ai)、
+  Muse アプリ Developer mode でのペアリング。
+
 ### 2026-11-17 フェーズ: Muse 連携 + リアルタイム文字起こし + 軽量化 (実装済み・実機確認待ち)
 
 ユーザー方針: 実用化を進める。**軽量化 = 時計ファームの軽量化**、
