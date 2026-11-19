@@ -206,6 +206,16 @@ bool load_file_theme(const char* id, Theme* out) {
   t.asset_count = m.asset_count;
   std::memcpy(t.assets, m.assets, sizeof(t.assets));
   for (int i = 0; i < watch::kThemeMaxAssets; ++i) t.asset_dsc[i] = nullptr;
+  // Home 立ち絵 ("chara*") の先頭はテーマ適用直後 (PSRAM に余裕がある時点) に
+  // 先読みし、アプリ一覧 (bake_scroll) 直後の Home 構築での tmp alloc 失敗を防ぐ。
+  if (m.face_layout_set & (1u << watch::kThemeFaceElemChara)) {
+    for (int i = 0; i < m.asset_count; ++i) {
+      if (std::strncmp(m.assets[i].id, "chara", 5) == 0) {
+        t.asset_dsc[i] = theme_res::img_load(id, m.assets[i].file, 410, 502);
+        break;
+      }
+    }
+  }
 
   // ---- v3: skin (9-slice 画像スキン) ----
   t.skin_set = m.skin_set;
@@ -327,13 +337,15 @@ const watch::ThemeScreenSkin* theme_screen_skin(int screen_index) {
 
 const lv_image_dsc_t* theme_image(const char* asset_id) {
   if (!asset_id) return nullptr;
-  Theme& t = const_cast<Theme&>(theme());
+  const Theme& t = theme();
   for (int i = 0; i < t.asset_count; ++i) {
     if (std::strcmp(t.assets[i].id, asset_id) == 0) {
       if (!t.asset_dsc[i]) {
         // 上限は LVGL の描画サイズに合わせて広め (装飾用途)。
-        t.asset_dsc[i] =
+        const lv_image_dsc_t* d =
             theme_res::img_load(theme_id(), t.assets[i].file, 410, 502);
+        if (d) theme_cache_asset(i, d);
+        return d;
       }
       return t.asset_dsc[i];
     }

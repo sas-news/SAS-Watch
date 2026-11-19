@@ -1186,7 +1186,34 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 - 残 Phase 2: ②Wi-Fi on-demand / ③セッション+RAMトリム+実機TLS実測 /
   ④音声 / ⑤UI字幕 / ⑥回帰 = 3.5〜5.5 人日。
 
-状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+状態: 完了 (2026-11-18、M1 実機投入・再起動永続化、`muse set ssid|pass` 追加まで確認済み)
+
+## T58. UI 描画・スクロール高速化（Muse 方式の非同期バンド転送 + キャッシュ最適化） — 難度 H (完了)
+
+- **背景（公式 `s3-206` ファームとの実測比較で判明した主因）**:
+  1. 現行 `esp_display.cpp` は PSRAM 全面バッファ 1 枚（`410×502×2B = 411,640B` = 402KB）＋完了待ち同期フラッシュ方式のため、CPU の次領域描画と QSPI DMA 転送が直列化し、さらに 32KB / 32B ラインの D-Cache を毎フレーム踏み抜く。
+  2. `CONFIG_LV_DEF_REFR_PERIOD=33`（上限 30fps）かつ `CONFIG_LV_OBJ_STYLE_CACHE` 未有効のため、スクロール時のスタイル解決と再描画周期が遅い。
+  3. アプリ一覧・設定リストの行あたり LVGL オブジェクト数や `cute`/`cyber` テーマ装飾がバンド再描画コストを押し上げている。
+- **Stage A（実装・実機検証済み）**:
+  - `firmware/components/ui/src/esp_display.cpp` を PSRAM **126 行 × 2 枚** (`double_buffer=true`, ~202KB、`LV_COLOR_FORMAT_RGB565` 維持で PSRAM 約 205KB 節約) + core1 固定 `lcd_send` タスク (prio 5) へ刷新。
+  - `band_flush_cb` が即 return し、`lcd_send` が 1 バンドあたり `CASET`/`RASET` 1 回 + `copy_swap_rgb565` (32bit 1 パス) + `wire_idle(1)` + `0x2C/0x3C` DMA 送出、`on_chunk_sent` ISR で `portYIELD_FROM_ISR()`、`band_wait_cb` はセマフォ待機、`display_power`/`brightness_apply` は `lcd_send_run` で直列化。
+  - `sdkconfig.defaults` に `CONFIG_LV_DEF_REFR_PERIOD=15` (66Hz)、`CONFIG_LV_OBJ_STYLE_CACHE=y`、`CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y` を導入。
+- **Stage B（実装・実機検証済み）**:
+  - `CONFIG_ESP32S3_DATA_CACHE_64KB=y` + `CONFIG_SPI_FLASH_SUPPORT_MXIC_OPI_CHIP=n` を導入。`32KB I-Cache` と `WIFI_IRAM_OPT=y` の組み合わせでは内部 SRAM 不足により Wi-Fi RX/管理フレーム (`m f`) が失敗することを確認し、**`16KB I-Cache` + `WIFI_IRAM_OPT=n` + `WIFI_RX_IRAM_OPT=n` + `STATIC_RX_BUFFER_NUM=8`** へ調整して両立させた。
+  - `CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2` は `cute`/`cyber` を 12〜18% 速くしたものの、LVGL 9.5 の圧縮フォント RLE 状態 (`font_fmt_rle`) が非スレッドセーフで `applist` の `font_icon_36` アイコンが崩れるため **`CNT=1` に戻し**（内部 `boot_heap` も +8.6KB 回復）、代わりに `taskLVGL` スタックと描画安定性を優先。
+- **Stage C（最小安全修正・実機不具合修正）**:
+  - `applist.cpp` の `BakeZone zones[12]` を `zones[16]` (`rows[16]` と整合) に修正、`watch_app.cpp` の `'b'` ベンチ前キュー吐き出し待ち (`wait_queue_drain`) と `'y'` (`mol`/`sopia` 切替) を追加。
+  - **「星夜もる」(`mol`) Home 背景化修正**: `More` (`bake_scroll`) 後の `chara1.png` (353KB) 一時確保失敗・`s_active = s_base` による `asset_dsc` 揮発とアリーナリーク・`ct=2` RGB PNG 3B/px 過大確保を、`ct=2` 2B/px 見積り/確保 + `theme_asset_mark/rewind` + `theme_cache_asset()` (`s_base` 同期) + 先頭 `chara*` 先読みで解消。
+  - **`sopia` / `mol` `taskLVGL` スタック溢れ修正**: `face_theme.cpp` の影/上光/縁取り 7 段親子連鎖を depth 2 にフラット化 (`USER_2` で sim 重なり監査のみ除外) し、`esp_display.cpp` の `taskLVGL` スタックを `7168B → 9216B` へ拡張（`sopia` 冷起動通過を確認）。
+  - PSRAM 約 205KB 解放により `cosmos`/`cute`/`cyber`/`mol`/`sopia` の `bake_scroll` が成功し、`mame` も非ベイクで 42/56ms まで高速化したため、分割スナップショットや設定行ツリー大改修は見送った。
+- **実測結果 (Before → 最終 `CNT=1`、`/dev/ttyACM0`, `docs/perf.md`)**:
+  - `standard`: Home 31→20ms / 一覧 68(71)→53(54)ms / 設定 51(74)→40(60)ms
+  - `cute`: Home 70→53ms / 設定 164(198)→119(147)ms / 一覧 93(95)ms
+  - `cyber`: Home 75→57ms / 設定 184(222)→138(166)ms / 一覧 98(100)ms
+  - `mol` / `sopia`: Home 98ms・170ms / 一覧 90(92)ms・83(85)ms (`bake_scroll` 成功)
+  - `core` 296/296、`muse_link` 4/4、`muse-gadget` 54/54、`sim/snapshot` (通常 / `mol` / `sopia`) 監査 0 件、`off` (`0x21c550`) / `on` (`0x238410`) ビルド成功、`png_selftest` 10/10 OK。
+
+状態: 完了 (2026-11-19、Stage A + Stage B (`64KB D-Cache`) + Stage C 安全修正およびアイコン崩れ/`mol` 背景/`sopia` スタック溢れ修正・全テーマ実機検証済み)
 
 ## T57. Muse 音声 UI (15秒音声ノート, ファイル非保存) — 難度 H (完了)
 
@@ -1204,8 +1231,9 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 - 実機未確認: 実録音→送信、PSRAM 480KB×テーマ、20ms ポンプの音質、
   BLE dictation との同時 (マイク1系統)、電池、UI 反映。
 - ⑥ 回帰: T57 時点で core 296、sim 監査0、off/on build 成功、docs スクショ更新。
+  2026-11-18 実機検証: `audio/src/audio.cpp` を `ES7210 MIC2` (`channel_mask=BIT(1)`, +30dB) へ修正し、`'v'` 5.5 秒録音テストで `samples=88064 size=44048 peak=3780` を確認済み（UI ボタンからの実音声送信・PSRAM×各テーマは実機確認待ち）。
 
-状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+状態: 実装完了（2026-11-18、`MIC2` 実録音経路確認済み・UI 音声送信の体感確認は TODO(hw)）
 
 ## T56. Phase 2 ⑤ Muse アプリ (UI 字幕) — 難度 M (完了)
 
@@ -1221,9 +1249,9 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 - サイズ: off 0x215fa0 (+3,104B、目標 +10KB 以内) / on 0x230330 (+3,648B)。
   静的 DIRAM +1,152B (off 空き 19,337B / on 空き 14,289B)。
 - core テスト 289/289 (Muse 16 追加)、sim 監査 0、off/on ビルド成功。
-- 残り: ⑥ 回帰 (実機含む) と音声 UI (BOOT 長押しで 15 秒 PCM→Muse 送信)。
+- 残り: ⑤ 以外の残作業としては実機 Muse アプリ UI のタップ表示・15 秒自動送り体感確認。
 
-状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+状態: 実装完了（2026-11-18、core/sim + M1 テキスト往復確認済み・UI 字幕表示の体感確認は TODO(hw)）
 
 ## T55. Phase 2 ③ Muse セッション実装 — 難度 H (実装完了・実機未検証)
 
@@ -1243,7 +1271,7 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
   `muse send` → `muse reply` の往復、stop の回復、`@chat` フック挙動。
 - 残り: ⑤ UI 字幕 (1〜1.5 人日) / ⑥ 回帰 (1 人日) = 2.0〜2.5 人日。
 
-状態: 実装完了 (2026-11-18、実機未検証 TODO(hw))
+状態: 完了 (2026-11-18 M1 GO — `muse start`/`send`/`reply`/`stop` 実機往復・RAM 実測済み。STOP 後 SDK PSRAM 解放と `@chat` UI 連携の長期運用のみ課題残)
 
 ## T53. M1 自動化ツール (NVS 抽出 + M0/M1 ランブック) — 難度 M (完了)
 
@@ -1258,9 +1286,10 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
   CLI + 擬似シリアル)。値が stdout/stderr/例外に出ないことを assert。
 - 発見: flash.sh の 32MB バックアップは M0 前の SAS-Watch 状態なので資格情報を
   含まない → ペアリング後に NVS を再ダンプする。SAS-Watch の `M` 行モードは
-  1 行ごとに M が必要 (docs/muse-bmin.md の例を修正)。
+  1 行ごとに M が必要 (docs/muse-bmin.md の例を修正)。実機 NVS (`homehub` スキーマ)
+  および `--include-wifi` 対応を追加し、54 テスト all pass。
 
-状態: 完了 (2026-11-18、実機未検証)
+状態: 完了 (2026-11-18、M1 実機検証 GO)
 
 ## T54. Phase 2 ② Wi-Fi on-demand + ④ 音声アダプタ — 難度 M (完了)
 
@@ -1275,7 +1304,7 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
 - 残 Phase 2: ③ セッション+RAM トリム+実機 TLS 実測 (1.5〜2 人日) /
   ⑤ UI 字幕 (1〜1.5) / ⑥ 回帰 (1)。
 
-状態: 完了 (2026-11-18、実機未確認 TODO(hw))
+状態: 完了 (2026-11-18 実機確認 — BLE `wifi_quiet`・PMF 無効化 + 完全 `deinit/init` 指数バックオフ・`idle=120s` 検証済み)
 
 ## T51. firmware/dependencies.lock のパス可搬性 — 難度 S
 
@@ -1297,7 +1326,7 @@ ESP32-S3-Touch-AMOLED-2.06) を `s3-206` として公式サポート**してい�
   /device_token/mint が通るか、VM 生トークンで wss /v1/noise に入れるか)。
 - GO なら B-min (chat 層 + UI 移植) に着手。
 
-状態: 未着手 (ユーザーの実機 USB 接続 + SDK token 発行待ち)
+状態: 完了 (2026-11-18 — M0 公式 `s3-206` ペアリング + M1 資格情報抽出 → SAS-Watch 実機往復ともに GO。`docs/muse-m1.md` §7 / `docs/muse-bmin.md` §15)
 
 ## 第2弾の実施順
 

@@ -130,6 +130,8 @@ bool theme_apply(const char* id);
 
 // [内部] 現行テーマを差し替える。theme_manager.cpp 専用。
 void theme_replace_active(const Theme& t);
+// [内部] 遅延ロードした assets[idx].dsc を s_base/s_active 両方に保持する。
+void theme_cache_asset(int idx, const lv_image_dsc_t* dsc);
 
 // Theme の色フィールドを manifest color[] の添字順に指す表。
 // (theme_manager のトークン適用と v4 画面別上書きで共通)。

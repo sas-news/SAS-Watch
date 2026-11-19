@@ -104,6 +104,7 @@ sha256 (SDK ミラーと一致することを確認済み。詳細は `docs/muse
 
 noise_core はディレクトリ内の全ファイルの中身を連結した sha256 が
 `cf99bff2ee479ae052549eeebaab1936d28af753e3411d3f28e08629ee25b7ff` (ミラーと一致)。
+- `sdk/include/muse_review.h`: sha256 `86040200091f0da6284699947886d7ed696c4e60b643dd12f5d9efdf46ab3489` (SDK `components/muse/muse_review.h` 無改変)
 
 ## Wi-Fi on-demand (T54 Phase 2 ②)
 

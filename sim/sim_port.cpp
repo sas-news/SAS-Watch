@@ -268,6 +268,12 @@ uint8_t* theme_asset_alloc(uint32_t n) {
   return p;
 }
 
+uint32_t theme_asset_mark() { return s_arena_used; }
+
+void theme_asset_rewind(uint32_t mark) {
+  if (mark >= kGlobalOff && mark <= s_arena_used) s_arena_used = mark;
+}
+
 uint8_t* theme_screen_block() {
   if (!s_arena) return nullptr;
   for (uint32_t i = 0; i < kScreenBlocks; ++i) {

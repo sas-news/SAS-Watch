@@ -5,17 +5,20 @@
 
 目的は「Muse アプリとの BLE ペアリングでしか得られない device token を、
 公式 Muse Gadget ファームから取り出し、SAS-Watch の B-min 実装に渡せるか」を
-確かめること。**まだ実機では実施していない**（M0 の書き込み・ペアリング待ち。
-USB 未接続）。ツールは合成 NVS イメージで検証済み (§6)。
+確かめること。**2026-11-18 に実機 (`/dev/ttyACM0`) で M0→M1 の全工程を実施し、GO 判定を得た (§7.1)**。
+ツールは合成 NVS イメージ + 実機 NVS ダンプで検証済み (§6)。
 
 前提:
 - `docs/muse-gadget.md` の M0 が完了していること（公式ファーム書き込み +
   Muse アプリでペアリング + Wi-Fi 設定）。
-- 公式ファームの SDK は NVS namespace **`muse`** に `host` / `vm` / `token` を
-  保存する（SDK `esp32/components/muse/muse_settings.c`: NS="muse",
-  keys host/vm/token, token 最大 1023B。BLE 設定経由で書き込まれる）。
-- SAS-Watch 側の受け皿は T52 で実装済み（NVS namespace `muse`、
-  シリアル大文字 `M` の行モードで `muse set host|vm|token`）。
+- 公式ファーム (`s3-206`, ESP-IDF v6.0.3) の実機ペアリングでは、資格情報と Wi-Fi が
+  NVS namespace **`homehub`** に保存される（`access_token`, `refresh_token`,
+  `noise_host`, `vm_url` 任意, `ssid`, `password`）。旧/互換レイアウトでは namespace
+  **`muse`** (`host` / `vm` / `token`, SDK `esp32/components/muse/muse_settings.c`) も使う。
+  `export_credentials.py` は両スキーマ (`muse` / `homehub`) を自動判別し、`--include-wifi`
+  時は Wi-Fi 投入行も含める。
+- SAS-Watch 側の受け皿は T52 + M1 実機対応で実装済み（NVS namespace `muse` と `wifi.ssid`/`wifi.pass`、
+  シリアル大文字 `M` の行モードで `muse set host|vm|token|ssid|pass`）。
   `CONFIG_WATCH_ENABLE_MUSE_LINK=y` でビルドしたファームでのみ有効。
 
 ## 0. まとめ（手順の流れ）
@@ -85,14 +88,17 @@ python3 tools/muse-gadget/export_credentials.py --nvs muse-nvs.bin \
   --shell tools/muse-gadget/out/credentials/muse-set.txt
 ```
 
-- 出力されるシェルファイルの中身は次の 4 行（値は実物）:
+- 出力されるコマンド列 (`--shell`、`--include-wifi` 指定時) は次の形（値は実物、vm は空文字のこともある）:
 
   ```
+  muse set ssid <ssid>
+  muse set pass <password>
   muse set host <host>
   muse set vm <vm>
   muse set token <token>
   muse status
   ```
+  (`--include-wifi` 無しの既定では `host` / `vm` / `token` / `muse status` の 4 行)
 
 - `--out` / `--shell` は既存ファイルがあると失敗する。上書きは `--force`。
 - 値の検証: 空・空白/制御文字/非 ASCII・長さ超過 (host/vm 63B、token 1023B) は
@@ -256,22 +262,29 @@ python3 -m unittest discover -s tools/muse-gadget/test -v
   応答しないときは資格情報を 1 バイトも送らずに中止する」「token_len 不一致を
   検出する」を実機なしで検証する。
 
-現在: **50 テスト / failure 0** (このワークスペース、2026-11-18)。
+現在: **54 テスト / failure 0**（`homehub` スキーマ + `--include-wifi` 4 件追加。2026-11-18）。
 
-## 7. 未検証・TODO（実機で確認すること）
+## 7. M1 実機検証結果 (GO, 2026-11-18)
 
-- 実機での M0 ペアリング → NVS ダンプ → 3 キー抽出（**未実施。USB 未接続**）。
-- 実 NVS での `host`/`vm`/`token` の値の形式・長さ（合成値では token 最大 1023B を確認）。
-  SDK の BLE 設定経由で保存される値がこの形式に合うか。
-- `M` 行モードの実機タイミング（起動直後 6 秒は `serial_dbg_task` が入力を見ない。
-  ツールは `M` を再試行するが、実機で確認する）。
-- シリアル投入後の `muse status` の `ready` と、再起動後の NVS 永続化。
-- USB ケーブル/ポートの安定性（esptool の read/write でリセットが入る）。
-- B-min セッション接続時の TLS 内部 RAM / PSRAM 実測（Phase 2 ③、§5.1）。
-  `muse start` 前後の `h` (int_free) 差分、`muse status` の `session`、
-  `muse send` → `muse reply` の長さを記録する (本文は残さない)。
-- `muse start` が即 return する非同期起動のため、`muse status` のポーリングで
-  `ready` を待つ運用を実機で確認する。
+`/dev/ttyACM0` の実機で公式 `s3-206` ファームをペアリング後に NVS (`0x11000`, `49,152B`) を抽出し、
+SAS-Watch を 32MB バックアップ復元 → `CONFIG_WATCH_ENABLE_MUSE_LINK=y` (`0x20000`) 書込み →
+シリアル `M` 行モードで資格情報・Wi-Fi 投入 → 再起動永続化 → 実接続往復・マイク録音まで通して **M1 GO** を確認した（一時平文クレデンシャルファイルは `shred -u` で削除済み）。
+
+| 確認項目 | 実測結果 |
+|---|---|
+| 公式 NVS (`homehub` スキーマ) | `access_token` 597B / `refresh_token` 147B / `noise_host` `hatch.metaaivm.com` (18B) / `ssid` 17B / `password` 17B / `vm_url` 無し (既定 VM) |
+| シリアル投入 + 再起動永続化 | `16B / 0.18s` ペーシングで `token_len=597` を NVS 書込み。`esptool` `hard_reset` 後・`0x20000` 再書込み後も `configured=true`, `token_len=597` を維持 |
+| `muse start` 前ヒープ (`'h'` / 開始直前) | `heap=90,747B` (起動後)、`start: int_largest=31,744B`, `psram_free=1,545,180B`, `psram_largest=1,212,416B` (ガード下限 `int=12,288 / psram=1,177,600`) |
+| Wi-Fi 安定化〜VM セッション `ready` | 初回 AP 切断 (`0x2a0 reason=2`) を 4 秒 settle 内で捕捉し、RF 完全停止バックオフ (`deinit`/`init` + `disable_pmf=1`) の retry 4 で接続・IP 取得 → TLS 証明書検証 (`api.muse.ai` → VM) → `ready` (起動要求から約 `89.6s` / Wi-Fi 確立後 `3.34s` で VM 接続) |
+| `ready` 時ヒープ / RAM | `ready heap: int_free=32,531B int_largest=13,824B psram_free=368,528B psram_largest=360,448B` (ready 中 `'h'` `heap=24,799B`) |
+| `muse send` (43B) → `muse reply` | `turn done` `9.5s`、`muse_link: reply done (36 bytes, kept 36)`、`console: last reply 36 bytes (kept 36)` (本文非表示) |
+| `muse stop` 回復 | `wifi: session end (wifi off)` / `wifi quiet off` (BLE 広告復帰) / `session=off`、`wifi=false`、`'h'` `heap=62,495B` |
+| マイク録音経路 (`'v'` テスト) | `slot_mask=0x2` (`MIC2`) 16kHz mono、+30dB: `samples=88064`, `size=44048`, `peak=3780` (`stream=0`) |
+
+### 7.1 今後の実機残確認 (UI・音声送信・電池)
+- **Muse アプリ画面経由 (`boot` / ボタン押下 → Wi-Fi → UI 字幕ページ送り → 15 秒音声ノート送信)** の一連の体感確認（シリアル経由のテキスト往復と `'v'` `MIC2` 録音は確認済み、`voice` 実送信は未実施）。
+- **連続稼働・電池消費**（Wi-Fi on-demand + アイドル 120 秒開放 / light sleep 無効区間を含む）。
+- **既知課題の追跡**: `muse stop` 後も SDK 側 PSRAM (`muse_chat` タスク等) が残るため、`muse_chat` 停止 API の追加検討 (`docs/muse-bmin.md`)。
 
 ## 8. 関連ドキュメント
 

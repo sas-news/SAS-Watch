@@ -68,6 +68,8 @@ uint32_t now_ms(void) {
 // muse_link_console_line の値コピー先 (token 1023B をスタックに置かない)。
 // シリアルタスクからのみ呼ばれる前提 (docs/muse-bmin.md)。こちらも PSRAM。
 EXT_RAM_BSS_ATTR char s_console_value[MUSE_TOKEN_MAX + 1];
+EXT_RAM_BSS_ATTR char s_wifi_ssid[33];
+EXT_RAM_BSS_ATTR char s_wifi_pass[65];
 
 // nvs_get_str は「バッファ不足」をエラーで返すので、長さを問い合わせてから読む。
 void read_str(nvs_handle_t h, const char* key, char* out, size_t cap) {
@@ -96,6 +98,28 @@ bool valid_value(const char* what, const char* v, size_t max_len) {
         if (c <= 0x20 || c >= 0x7f) {
             ESP_LOGW(kTag, "%s contains a space/control/non-ASCII byte (pos %u)",
                      what, (unsigned)i);
+            return false;
+        }
+    }
+    return true;
+}
+
+// Wi-Fi SSID/パスワードの検証 (空白 0x20 や UTF-8 は許容、制御文字/DEL のみ拒否)。
+bool valid_wifi_value(const char* what, const char* v, size_t max_len, bool allow_empty) {
+    const size_t n = strlen(v);
+    if (!allow_empty && n == 0) {
+        ESP_LOGW(kTag, "%s is empty", what);
+        return false;
+    }
+    if (n > max_len) {
+        ESP_LOGW(kTag, "%s too long (%u > %u bytes)", what, (unsigned)n,
+                 (unsigned)max_len);
+        return false;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned char c = static_cast<unsigned char>(v[i]);
+        if (c < 0x20 || c == 0x7f) {
+            ESP_LOGW(kTag, "%s contains control byte (pos %u)", what, (unsigned)i);
             return false;
         }
     }
@@ -359,6 +383,7 @@ extern "C" void muse_link_wifi_touch(void) {
 }
 
 extern "C" void muse_link_wifi_poll_at(uint32_t now_ms_arg) {
+    wifi::poll();
     if (!s_wifi_owned) {
         return;
     }
@@ -369,6 +394,9 @@ extern "C" void muse_link_wifi_poll_at(uint32_t now_ms_arg) {
         ESP_LOGI(kTag, "wifi idle %u s; releasing",
                  (unsigned)(kIdleMs / 1000u));
     } else {
+        if (wifi::reconnecting()) {
+            return;
+        }
         ESP_LOGW(kTag, "wifi gone while owned; cleaning up");
     }
     muse_link_wifi_release();
@@ -382,7 +410,7 @@ extern "C" muse_link_wifi_state_t muse_link_wifi_state(void) {
     if (wifi::connected()) {
         return MUSE_LINK_WIFI_CONNECTED;
     }
-    return s_wifi_owned ? MUSE_LINK_WIFI_STARTING : MUSE_LINK_WIFI_OFF;
+    return (s_wifi_owned || wifi::reconnecting()) ? MUSE_LINK_WIFI_STARTING : MUSE_LINK_WIFI_OFF;
 }
 
 extern "C" bool muse_link_wifi_owned(void) {
@@ -407,8 +435,8 @@ extern "C" bool muse_link_console_line(const char* line) {
         case MUSE_CONSOLE_HELP:
             ESP_LOGI(kTag,
                      "usage (line mode: send 'M', then the line + Enter): "
-                     "muse status | muse set host <host> | muse set vm <vm> | "
-                     "muse set token <token> | muse clear");
+                     "muse status | muse start | muse stop | muse send <text> | "
+                     "muse reply | muse set host|vm|token|ssid|pass <v> | muse clear");
             return true;
 
         case MUSE_CONSOLE_STATUS: {
@@ -427,7 +455,7 @@ extern "C" bool muse_link_console_line(const char* line) {
             return true;
 
         case MUSE_CONSOLE_START: {
-            const bool ok = muse_link_start(20000);
+            const bool ok = muse_link_start(130000);
             ESP_LOGI(kTag, "console: muse start -> %s (session=%s)", ok ? "ok" : "failed",
                      muse_link_session_state_name(muse_link_session_state()));
             if (!ok) {
@@ -473,7 +501,9 @@ extern "C" bool muse_link_console_line(const char* line) {
 
         case MUSE_CONSOLE_SET_HOST:
         case MUSE_CONSOLE_SET_VM:
-        case MUSE_CONSOLE_SET_TOKEN: {
+        case MUSE_CONSOLE_SET_TOKEN:
+        case MUSE_CONSOLE_SET_SSID:
+        case MUSE_CONSOLE_SET_PASS: {
             // 1023B の token をスタックに置かない (sdbg タスクは 4KB スタック)。
             const size_t n = p.value_len < sizeof(s_console_value) - 1
                                  ? p.value_len
@@ -482,6 +512,7 @@ extern "C" bool muse_link_console_line(const char* line) {
             s_console_value[n] = '\0';
             if (p.value_len >= sizeof(s_console_value)) {
                 ESP_LOGW(kTag, "value too long (max %u)", (unsigned)(sizeof(s_console_value) - 1));
+                memset(s_console_value, 0, sizeof(s_console_value));
                 return false;
             }
             bool ok = false;
@@ -489,10 +520,26 @@ extern "C" bool muse_link_console_line(const char* line) {
                 ok = muse_link_provision(s_console_value, nullptr, nullptr);
             } else if (p.cmd == MUSE_CONSOLE_SET_VM) {
                 ok = muse_link_provision(nullptr, s_console_value, nullptr);
-            } else {
+            } else if (p.cmd == MUSE_CONSOLE_SET_TOKEN) {
                 // token の値はここでも出さない (長さだけ provision がログする)。
                 ESP_LOGI(kTag, "set token: %u bytes", (unsigned)n);
                 ok = muse_link_provision(nullptr, nullptr, s_console_value);
+            } else if (p.cmd == MUSE_CONSOLE_SET_SSID) {
+                if (valid_wifi_value("ssid", s_console_value, 32, false)) {
+                    memcpy(s_wifi_ssid, s_console_value, n + 1);
+                    ESP_LOGI(kTag, "set wifi ssid (%u bytes)", (unsigned)n);
+                    ok = wifi::set_credentials(s_wifi_ssid, s_wifi_pass);
+                }
+            } else {
+                if (valid_wifi_value("pass", s_console_value, 63, true)) {
+                    memcpy(s_wifi_pass, s_console_value, n + 1);
+                    ESP_LOGI(kTag, "set wifi pass (%u bytes)", (unsigned)n);
+                    if (s_wifi_ssid[0] != '\0' || wifi::ssid(s_wifi_ssid, sizeof(s_wifi_ssid))) {
+                        ok = wifi::set_credentials(s_wifi_ssid, s_wifi_pass);
+                    } else {
+                        ok = true;  // 先に pass だけ保持 (次の set ssid で NVS 書込み)
+                    }
+                }
             }
             memset(s_console_value, 0, sizeof(s_console_value));
             return ok;

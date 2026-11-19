@@ -151,29 +151,32 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
     s.lbl[idx] = l;
     return l;
   }
-  // 影と縁取りは本体の親チェーンとして背面に積む (親子なので重なり監査の
-  // 対象外、描画順も 影→縁取り→本体 に固定される)。
+  // 影と縁取りは最初の装飾層 (s.root[idx]) の直接の子としてフラットに積む
+  // (深く連鎖すると lv_obj_refr 再帰が 688B/段 で taskLVGL スタックを溢れさせる)。
+  // 描画順は 影 → 上光 → 縁取り → 本体 のまま維持し、装飾層には USER_2 を付けて
+  // sim のラベル重なり監査だけから除外する (文字同士が同じ座標に重なるため)。
   const int dx = has_shadow ? elem_dx(e) : 0;
   const int dy = has_shadow ? elem_dy(e) : 0;
   const int w = (e.set & (1u << 17)) ? e.outline_w : 2;
-  lv_obj_t* parent = nullptr;
-  int px = 0, py = 0;
+  lv_obj_t* root = nullptr;
+  int rx = 0, ry = 0;
   auto layer = [&](int ox, int oy, lv_color_t col) {
     lv_obj_t* l;
-    if (!parent) {
+    if (!root) {
       l = boxed(face_label(scr, f, col));
       lv_obj_add_flag(l, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+      lv_obj_add_flag(l, LV_OBJ_FLAG_USER_2);
       place(l, e);
       lv_obj_set_pos(l, lv_obj_get_x(l) + ox, lv_obj_get_y(l) + oy);
       s.root[idx] = l;
+      root = l;
+      rx = ox;
+      ry = oy;
     } else {
-      l = boxed(face_label(parent, f, col));
-      lv_obj_add_flag(parent, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-      lv_obj_set_pos(l, ox - px, oy - py);
+      l = boxed(face_label(root, f, col));
+      lv_obj_add_flag(l, LV_OBJ_FLAG_USER_2);
+      lv_obj_set_pos(l, ox - rx, oy - ry);
     }
-    parent = l;
-    px = ox;
-    py = oy;
     return l;
   };
   if (has_shadow) s.shd[idx] = layer(dx, dy, lv_color_hex(e.shadow));
@@ -190,8 +193,8 @@ lv_obj_t* elem_text(lv_obj_t* scr, const ui::Theme& t, int idx) {
     s.ring[idx][2] = layer(w, 0, rc);
     s.ring[idx][3] = layer(-w, 0, rc);
   }
-  lv_obj_t* l = boxed(face_label(parent, f, pick_color(t, e)));
-  lv_obj_set_pos(l, -px, -py);
+  lv_obj_t* l = boxed(face_label(root, f, pick_color(t, e)));
+  lv_obj_set_pos(l, -rx, -ry);
   s.lbl[idx] = l;
   return l;
 }

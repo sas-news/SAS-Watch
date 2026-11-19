@@ -32,12 +32,37 @@ CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_RODATA=y
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 CONFIG_SPIRAM_USE_MALLOC=y
+# 64B キャッシュラインで PSRAM バースト転送を効率化 (SRAM 消費増加なし)。
+# T58 Stage B: D-Cache 64KB を有効化し、不要な MXIC Octal Flash ドライバ
+# (実機は GD25Q256 QIO) を外す。I-Cache は 16KB (+16KB 内部 SRAM を残して
+# Wi-Fi IRAM OPT + 10 RX DMA バッファと同居させる)。
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_SPI_FLASH_SUPPORT_MXIC_OPI_CHIP=n
 # 内部SRAMの席取り抑制: 既定16384B以下のMALLOC_CAP_DEFAULT allocは
 # 全部内部に行くので、30KB連続ブロックが必要なBLEコントローラの
 # initと衝突してブート毎に成否が変わっていた (実機計測で内部空き
 # ~4.8KB/min_free枯渇を確認)。1KB超はPSRAMに流して内部連続を残す。
 # DMA必須のallocはMALLOC_CAP_DMA明示なので影響しない。
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+# Wi-Fi/lwIP の動的バッファ (RX/TX/pbuf等) を PSRAM 優先にし、
+# 内蔵 SRAM を消費し尽くさないようにする (BLE + Muse TLS 共存に必須)。
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# wifi.cpp は WIFI_STORAGE_RAM を使うため esp_wifi の NVS は不要。
+# 静的 DMA RX/TX バッファ数を絞って TLS/HW AES/管理フレーム TX 用の内蔵 DMA SRAM を残す
+# (RX_BA_WIN=16 <= 2*STATIC_RX=8*2 制約を満たす)。Wi-Fi IRAM OPT はオフにして
+# +17.7KB の内蔵 SRAM を確保し、64KB D-Cache + Muse Wi-Fi/TLS と両立させる。
+CONFIG_ESP_WIFI_NVS_ENABLED=n
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_TX_BA_WIN=16
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+# DHCP 取得時の二重 ARP プローブによる ~1.4s 遅延を省き、TCP 窓を 16KB に広げる。
+CONFIG_LWIP_DHCP_DOES_NOT_CHECK_OFFERED_IP=y
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_LWIP_TCP_WND_DEFAULT=16384
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
 
 # CPU 240MHz
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
@@ -71,6 +96,11 @@ CONFIG_BT_CTRL_BLE_MAX_ACT=2
 # 側のプリコンパイル lib が内部RAMを占有するのを防ぐ)
 CONFIG_BT_CTRL_BLE_ADV_REPORT_FLOW_CTRL_SUPP=n
 CONFIG_BT_CTRL_BLE_SCAN_DUPL=n
+# BT コントローラをイベント間で休ませ、Wi-Fi 共存時の 2.4GHz RF 占有を抑える。
+CONFIG_BT_CTRL_MODEM_SLEEP=y
+CONFIG_BT_CTRL_MODEM_SLEEP_MODE_1=y
+CONFIG_BT_CTRL_LPCLK_SEL_MAIN_XTAL=y
+CONFIG_BT_CTRL_MAIN_XTAL_PU_DURING_LIGHT_SLEEP=y
 
 # ble_link (docs/protocol-v1.md): ボンド情報を NVS に保存して再接続を速くする
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
@@ -98,9 +128,9 @@ CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 # 内部RAMに余裕ができたら y に戻すと light sleep 時 ~650uA 節約できる。
 CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n
 
-# LVGL 描画バッファは esp_display.cpp が全面サイズを PSRAM に確保する
-# (BSP_DISPLAY_LVGL_BUF_HEIGHT は使わない。転送は内蔵 SRAM の
-# バウンスバッファ 8.2KB x2 経由)。
+# LVGL 描画バッファは esp_display.cpp が 126 行 × 2 枚 (~202KB) を
+# PSRAM に確保し、core1 の lcd_send タスク経由で内蔵 SRAM の
+# バウンスバッファ (8.2KB × 2) へ流して描画と転送を重ねる。
 
 # LVGL: 公式サンプル 02_lvgl_demo_v9 / BSP v2 推奨設定ベース
 # 日本語フォントはまだ無し (plan.md I 章)
@@ -111,7 +141,8 @@ CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=n
 CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
-CONFIG_LV_DEF_REFR_PERIOD=33
+CONFIG_LV_DEF_REFR_PERIOD=15
+CONFIG_LV_OBJ_STYLE_CACHE=y
 CONFIG_LV_OS_FREERTOS=y
 # LVGL の fast_mem を IRAM に置くと ~104KB 食って IRAM が溢れる (vector の j が届かない)。
 # フラッシュキャッシュ経由で遅くなるかは要実機確認。
@@ -133,10 +164,14 @@ CONFIG_LV_FS_MEMFS_LETTER=77
 # (起動後に ota::mark_valid_if_pending で確定)。
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# HTTPS OTA (esp_https_ota) のサーバ証明は CA バンドルで検証する
-# (github.com 等)。通信先は dns 解決できる公開HTTPSのみ想定。
+# HTTPS OTA (esp_https_ota) / Muse (TLS+Noise) のサーバ証明とセッション:
+# CA バンドルで検証し、TLS 動的メモリは PSRAM に逃がして内蔵 SRAM (~18KB) を守る。
+# HW AES は PSRAM バッファの DMA バウンスに内蔵 RAM を要求して Wi-Fi TX と競合するため SW にする。
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_MBEDTLS_HARDWARE_AES=n
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=16384
 
 # 描画ベンチ (LVGL sysmon/perf_monitor): 300ms 固定周期の計測タイマーが
 # 待機中も走り続けるため、試験用として完全に切る (T27 後の棚卸しで
@@ -152,9 +187,12 @@ CONFIG_LV_LOG_PRINTF=y
 # 全行再描画から画像ブリットに変えて軽量化する用途。
 CONFIG_LV_USE_SNAPSHOT=y
 
-# LVGL 描画スレッド優先度 (Kconfig 既定 3)。実機でスクロール中の
-# バンド描画待ちを減らすため LVGL タスクと同じ 4 に上げる。
+# LVGL 描画スレッド優先度 (Kconfig 既定 3)。
+# UNIT_CNT=2 は LVGL 9.5 の圧縮フォント展開状態 (LV_GLOBAL_DEFAULT()->font_fmt_rle) が
+# 非スレッドセーフで applist の font_icon_36 等のアイコン文字が崩れるため 1 に固定する
+# (内蔵 SRAM も +8.6KB 節約)。
 CONFIG_LV_DRAW_THREAD_PRIO=4
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
 
 # 角曲率計測オーバーレイ (ui/Kconfig): 四隅に半径8px刻みの同心弧。
 # 実機写真から角R≈100px・safe-area 32–36px を確定済みのため既定off。

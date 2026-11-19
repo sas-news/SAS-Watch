@@ -355,7 +355,9 @@ uint32_t entry_bound(const char* id, const char* file) {
   const uint32_t h = (static_cast<uint32_t>(hdr[20]) << 24) |
                      (static_cast<uint32_t>(hdr[21]) << 16) |
                      (static_cast<uint32_t>(hdr[22]) << 8) | hdr[23];
-  return 16 + w * h * 3;
+  // 8bit RGB (ct=2) は透過面が無いため RGB565 (2B/px) として見積もる。
+  const uint32_t bpp_out = (hdr[24] == 8 && hdr[25] == 2) ? 2u : 3u;
+  return 16u + w * h * bpp_out;
 }
 
 }  // namespace
@@ -474,17 +476,24 @@ const lv_image_dsc_t* img_load(const char* id, const char* file,
              (unsigned long)iw, (unsigned long)ih, max_w, max_h);
     return nullptr;
   }
-  const uint32_t cap = 16u + iw * ih * 3u;
+  const uint32_t bpp_out = (hdr[24] == 8 && hdr[25] == 2) ? 2u : 3u;
+  const uint32_t cap = 16u + iw * ih * bpp_out;
+  const uint32_t mark = ui::port::theme_asset_mark();
   uint8_t* dst = ui::port::theme_asset_alloc(cap);
   if (!dst) {
     ESP_LOGW(kTag, "img_load %s/%s: arena %lu failed", id, file,
              (unsigned long)cap);
     return nullptr;
   }
-  if (!decode_png(id, file, dst, cap, max_w, max_h, dsc)) {
+  const uint32_t wrote = decode_png(id, file, dst, cap, max_w, max_h, dsc);
+  if (!wrote) {
+    // デコード失敗時は確保したアリーナ領域を巻き戻し、空きを失わないようにする。
+    ui::port::theme_asset_rewind(mark);
     ESP_LOGW(kTag, "img_load %s/%s: png decode failed", id, file);
     return nullptr;
   }
+  // 不透明 PNG が RGB565 へ縮小された場合などに余剰末尾を返却する。
+  ui::port::theme_asset_rewind(mark + ((wrote + 7u) & ~7u));
   slot->used = true;
   ESP_LOGI(kTag, "img_load %s/%s -> ok %ux%lu", id, file,
            (unsigned long)dsc->header.w, (unsigned long)dsc->header.h);

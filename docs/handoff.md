@@ -1,9 +1,56 @@
-# handoff.md — 現状 (2026-11-17)
+# handoff.md — 現状 (2026-11-19)
 
 次に作業する人が最初に読む「今どうなっているか」。残タスクと方針は `docs/roadmap.md`。
 過去の経緯 (2026-10-15 までの引き継ぎ文書、T14 監査など) は `docs/archive/handoff-2026-10-15.md`。
 
 ## 要点
+
+### 2026-11-19: T58 UI 描画・スクロール高速化 + アイコン/mol/sopia 不具合修正完了
+
+- **描画パイプライン刷新 (`esp_display.cpp` / `sdkconfig.defaults`)**:
+  - PSRAM 全面 1 枚 (402KB) 同期フラッシュを廃止し、**126 行 × 2 枚の PSRAM バンド (`~202KB`, `LV_COLOR_FORMAT_RGB565`) + core1 固定 `lcd_send` タスク (prio 5)** による非同期パイプラインを実装 (`portYIELD_FROM_ISR()`, バンド単位 `CASET`/`RASET` + `0x2C`/`0x3C`, 32bit 1 パス・スワップコピー, `wire_idle`, `band_wait_cb`, `lcd_send_run` 直列化)。
+  - `LV_DEF_REFR_PERIOD=15` (66Hz)、`LV_OBJ_STYLE_CACHE=y`、`ESP32S3_DATA_CACHE_LINE_64B=y`、`ESP32S3_DATA_CACHE_64KB=y` を有効化。内部 DMA/Wi-Fi/TLS 予算を守るため `16KB I-Cache` を維持し `ESP_WIFI_IRAM_OPT=n` / `ESP_WIFI_RX_IRAM_OPT=n` / `ESP_WIFI_STATIC_RX_BUFFER_NUM=8` / `SPI_FLASH_SUPPORT_MXIC_OPI_CHIP=n` を設定 (`applist.cpp` の `zones[12]→[16]` 修正、`watch_app.cpp` の `'b'` キュー待ちと `'y'` 追加)。
+  - 試験導入した `LV_DRAW_SW_DRAW_UNIT_CNT=2` は LVGL 9.5 の圧縮フォント (`font_fmt_rle`) 非スレッドセーフにより `applist` のアイコンが崩れるため **`CNT=1` に戻した** (`docs/perf.md`)。
+- **実機不具合の追加修正 (`mol` 背景・「そぴあ」クラッシュ)**:
+  - **「星夜もる」(`mol`) トップがメニュー背景になる問題**: `More` の `bake_scroll` 成功後に `Home` を組む際の `chara1.png` (353KB) PSRAM 一時確保失敗、`s_active = s_base` での `asset_dsc` 揮発とアリーナリーク、`ct=2` RGB PNG の 3B/px 過大確保を、`ct=2` の 2B/px 見積り/確保 + `theme_asset_mark/rewind` + `theme_cache_asset()` (`s_base` 同期) + 先頭 `chara*` 先読みで修正 (`theme_res.cpp`, `png_stream.cpp`, `theme.cpp`, `theme_manager.cpp`, `esp_port.cpp`, `sim_port.cpp`)。
+  - **`sopia` / `mol` での `taskLVGL` スタックオーバーフロー**: `face_theme.cpp` の文字盤装飾 7 段親子連鎖を depth 2 にフラット化 (`USER_2` で sim 重なり監査のみ除外) し、`esp_display.cpp` の `taskLVGL` スタックを `7168B → 9216B` に拡張して解消 (`sopia` 冷起動通過を確認)。
+- **実機 `b` ベンチ成果 (`/dev/ttyACM0`, `CNT=1` 最終版, `docs/perf.md`)**:
+  - `standard`: Home `31→20ms` / 一覧 `68(71)→53(54)ms` / 設定 `51(74)→40(60)ms` / 通知 `41→30ms`
+  - `mame`: Home `31→21ms` / 一覧 `54(69)→42(56)ms` / 設定 `51(74)→40(59)ms`
+  - `cosmos`: Home `91→76ms` / 一覧 `66(68)ms` (`bake_scroll` 成功) / 設定 `77(99)→64(84)ms`
+  - `cute`: Home `70→53ms` / 一覧 `93(95)ms` (`bake_scroll` 成功) / 設定 `164(198)→119(147)ms`
+  - `cyber`: Home `75→57ms` / 一覧 `98(100)ms` (`bake_scroll` 成功) / 設定 `184(222)→138(166)ms`
+  - `mol` / `sopia`: Home `98ms`・`170ms` / 一覧 `90(92)ms`・`83(85)ms` (`bake_scroll` 成功)
+- **メモリ・無線共存実測 (`/dev/ttyACM0`)**:
+  - 最終バイナリ: `off` `0x21c550` (`2,213,200B`, 静的 DIRAM 空き `135,525B`)、`on` `0x238410` (`2,327,568B`, 空き `129,933B`)。
+  - 実機ヒープ: 起動後 `'h'` `76,139B`、`b` 中 `int_free=83,791B` / `int_largest=34,816B` (`ble_synced=1`)、Home `psram_free` は ~+143KB 増 (`standard` `4,304,600B`)。
+  - `muse start` で `m f` エラー 0 件・Wi-Fi 接続・`hatch.metaaivm.com` TLS 往復を確認 (ピーク中 `'h'` `17,099B`、`muse stop` 後 `62,079B` 回復。M1 トークン期限切れによりサーバ応答は `Token rejected`、再投入で即復帰可能)。
+- **回帰・実機状態**: `core` 296/296、`muse_link` 4/4、`tools/muse-gadget` 54/54、`sim/snapshot` (通常 / `mol` / `sopia`) 監査 0 件、`png_selftest` 10/10 OK、`off`/`on` ビルド通過。時計 (`/dev/ttyACM0`) には最終 `on` バイナリ (`0x20000`) を書込み、`mol` テーマ Home 表示に戻して確認済み（`android/` は無変更）。
+
+### 2026-11-18 (夜): M0→M1 実機検証 GO・内蔵 SRAM +96KB 回復・T58 方針確定
+
+- **M0 → M1 実機検証 GO (`/dev/ttyACM0`)**:
+  - 公式 `s3-206` ファーム (IDF v6.0.3) の実機ペアリング NVS (`homehub` スキーマ:
+    `access_token` 597B / `noise_host` / `ssid` / `password`) を `export_credentials.py`
+    (`--include-wifi`) で抽出し、32MB バックアップ復元後に SAS-Watch (`CONFIG_WATCH_ENABLE_MUSE_LINK=y`
+    を `0x20000`) へシリアル `M` 行モードで投入。再起動・再書込み後も NVS 保持を確認
+    (一時平文クレデンシャルは `shred -u` で消去済み)。
+  - `muse start` → `ready` (`ready heap: int_free=32,531B int_largest=13,824B psram_free=368,528B psram_largest=360,448B`) →
+    日本語 `muse send` (43B) → `9.5s` で `muse reply` (36B) → `muse stop` (`wifi=false`,
+    `wifi quiet off`, `'h'` `heap=62,495B`) まで実機往復を確認 (`docs/muse-m1.md` §7 / `docs/muse-bmin.md` §15)。
+- **静的内蔵 SRAM 約 +96.4KB 回復**: `theme_store.cpp` / `esp_port.cpp` / `theme.cpp` の静的バッファを
+  PSRAM (`EXT_RAM_BSS_ATTR` / `SAS_BIG_STATIC`) へ移し、`hex_color()` を `constexpr` 化して `.data` を
+  Flash `.rodata` 化。`off` は `0x21c710` (静的 DIRAM 空き `115,221B`)、`on` は `0x2385c0`
+  (空き `109,637B`、起動後 `'h'` `heap=90,747B` / `int_largest=31,744B`)。
+- **Wi-Fi / BLE 共存と再接続修正**: `ble_link_set_wifi_quiet()` で Wi-Fi 中の未接続 BLE 広告を休止、
+  `BT_CTRL_MODEM_SLEEP=y`、`MBEDTLS_HARDWARE_AES=n`、`LWIP_DHCP_DOES_NOT_CHECK_OFFERED_IP=y`、
+  `esp_wifi_disable_pmf_config()` + 4 秒 settle + RF 完全停止 (`deinit/init`) 指数バックオフを導入。
+- **マイク (`ES7210 MIC2`) 修正**: `MIC1` 無音 (`-70.2 dBFS`) / `MIC2` 有効 (`-30.7 dBFS`) を確認し、
+  `audio.cpp` の `mic_codec_fs()` で `channel=2` + `BIT(1)` + 30dB を設定。`'v'` テストで
+  `samples=88064 size=44048 peak=3780` を実機確認 (`docs/board.md`)。
+- **次の一手 (`T58`, UI/スクロール高速化)**: 公式 `s3-206` の軽さの理由 (PSRAM 2 本バンド + core1 非同期 `lcd_send` +
+  64KB D-Cache / 64B ライン + `REFR_PERIOD=15` + `OBJ_STYLE_CACHE`) を調査し、3 段階計画を
+  `docs/roadmap.md` (`## T58`) に確定。
 
 ### 2026-11-18: Muse Gadget SDK の調査と s3-206 ビルド (T46/T47)
 

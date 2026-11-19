@@ -228,6 +228,22 @@ void alarm_rtc_sync() {
 
 volatile uint32_t s_app_loops = 0;  // app_task 心拍 (serial 'h' で観測)
 
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+void muse_lease_sync() {
+  static watch::PowerPolicy::Lease s_muse_lease;
+  const muse_link_session_state_t st = muse_link_session_state();
+  const bool active = (st == MUSE_LINK_SESSION_STARTING ||
+                       st == MUSE_LINK_SESSION_READY ||
+                       st == MUSE_LINK_SESSION_BUSY ||
+                       muse_link_wifi_owned());
+  if (active && !s_muse_lease.valid()) {
+    s_muse_lease = s_power.acquire(watch::Res::Wifi, "muse");
+  } else if (!active && s_muse_lease.valid()) {
+    s_muse_lease.release();
+  }
+}
+#endif
+
 void app_task(void*) {
   for (;;) {
     s_app_loops++;
@@ -248,6 +264,9 @@ void app_task(void*) {
       ui::port::unlock();
     }
     core_lock();
+#if CONFIG_WATCH_ENABLE_MUSE_LINK
+    muse_lease_sync();
+#endif
     if (touched > s_power.last_activity_ms()) {
       s_power.kick_activity(touched);
     }
@@ -465,6 +484,14 @@ void serial_dbg_task(void*) {
             watch::Route::Timer,    watch::Route::Notifications,
         };
         ESP_LOGI(TAG, "serial: bench start ('b')");
+        const auto wait_queue_drain = []() {
+          // bench/遷移直後に溜まった ImuSample を app_task が吐き切るまで待つ
+          // (ActionQueue 満杯による Navigate/Home ドロップ防止)。
+          for (int w = 0; w < 25 && !s_rt.queue().empty(); ++w) {
+            wake_task();
+            vTaskDelay(pdMS_TO_TICKS(20));
+          }
+        };
         for (watch::Route r : kRoutes) {
           watch::Action a;
           a.type = r == watch::Route::Home ? watch::ActionType::Home
@@ -473,6 +500,7 @@ void serial_dbg_task(void*) {
           // 消えて後半が計測できない。タッチ操作として扱う。
           a.source = watch::ActionSource::Touch;
           a.arg0 = static_cast<uint32_t>(r);
+          wait_queue_drain();
           push_action(a);
           wake_task();
           vTaskDelay(pdMS_TO_TICKS(1200));
@@ -481,6 +509,7 @@ void serial_dbg_task(void*) {
             watch::Action h;
             h.type = watch::ActionType::Home;
             h.source = watch::ActionSource::Touch;
+            wait_queue_drain();
             push_action(h);
             wake_task();
             vTaskDelay(pdMS_TO_TICKS(800));
@@ -499,6 +528,19 @@ void serial_dbg_task(void*) {
         static int s_theme_idx = 1;  // 現在 standard なので次から
         const char* id = kThemes[s_theme_idx++ %
                                  (sizeof(kThemes) / sizeof(kThemes[0]))];
+        watch::Action a;
+        a.type = watch::ActionType::SetTheme;
+        a.source = watch::ActionSource::Touch;
+        a.set_text(id);
+        push_action(a);
+        wake_task();
+        ESP_LOGI(TAG, "serial: theme -> %s", id);
+      } else if (buf[i] == 'y' || buf[i] == 'Y') {
+        // 拡張テーマ巡回 ('y'): 同梱キャラ系テーマ mol / sopia を切り替える。
+        static const char* kExtThemes[] = {"mol", "sopia"};
+        static int s_ext_idx = 0;
+        const char* id =
+            kExtThemes[s_ext_idx++ % (sizeof(kExtThemes) / sizeof(kExtThemes[0]))];
         watch::Action a;
         a.type = watch::ActionType::SetTheme;
         a.source = watch::ActionSource::Touch;

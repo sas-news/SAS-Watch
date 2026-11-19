@@ -13,7 +13,7 @@
 | PMIC | AXP2101 (XPowersLib) | I2C 0x34 |
 | IMU | QMI8658C (waveshare/qmi8658) | I2C 0x6B |
 | RTC | PCF85063ATL | I2C 0x51 |
-| Mic ADC | ES7210 + mic x2 | I2C 0x40 (実機で応答確認) + I2S |
+| Mic ADC | ES7210 + mic x2 | I2C 0x40 (実機で応答確認) + I2S。実機確認: 左(ch0/`MIC1`)は無音 (`-70.2 dBFS`) で右(ch1/`MIC2`, `-30.7 dBFS`)のみ有効 (`audio.cpp` は `channel=2` + `channel_mask=BIT(1)` で `MIC2` 単独・+30dB を選択) |
 | Codec | ES8311 + NS4150B amp | I2C 0x18 (実機で応答確認) + I2S。この個体はスピーカー無効 (`WATCH_ENABLE_SPEAKER=n`) |
 | microSD | BSP は SDMMC 1-bit | |
 | Motor | パッドのみ (GPIO18→NPN)。本体の有無【要実機】 | |
@@ -52,7 +52,7 @@ DCDC1=3.3V(VCC3V3, ESP32/パネルVCI) / ALDO2=3.3V → DSI_PWR_EN (パネル電
 - `bsp_display_brightness_set(percent)`：CO5300 cmd 0x51
 - `bsp_display_lock(timeout)` / `bsp_display_unlock()`
 - `bsp_i2c_init()` / `bsp_i2c_get_handle()`
-- `bsp_audio_codec_speaker_init()` / `bsp_audio_codec_microphone_init()`
+- `bsp_audio_codec_speaker_init()` / `bsp_audio_codec_microphone_init()`（既定の `channel=1` だと `ES7210` `MIC1` (無音 `-70.2 dBFS`) を拾うため、`audio/src/audio.cpp` の `mic_codec_fs` が `channel=2` + `ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1)` + 30dB ゲインで有効な `MIC2` を指定する。`'v'` テストで `samples=88064, peak=3780` を実機確認）
 - `bsp_sdcard_mount()`
 - BSP_CAPS_BUTTONS=0, BSP_CAPS_IMU=0（ボタンと IMU は自前）
 - CO5300 は描画領域の x/y が偶数である必要あり（rounder）。奇数だとチラつく (実機確認済み)

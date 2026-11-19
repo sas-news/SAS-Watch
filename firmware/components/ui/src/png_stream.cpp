@@ -88,8 +88,10 @@ uint32_t png_stream_decode(const uint8_t* png, uint32_t len, uint16_t max_w,
   const uint32_t px = w * h;
   const uint32_t row_bytes = w * bpp;      // 画素部のみ
   const uint32_t row_len = 1 + row_bytes;  // + フィルタバイト
-  // 途中までは A8 配置 (不透明確定は末尾) なので px*3+12 必要。
-  if (cap < 12u + px * 3u || px * 3u > 0xFFFFFFF0u) return 0;
+  // ct==2 は不透明確定で aplane を使わない (px*2+12 で足りる)。
+  // ct==6 は途中まで A8 配置 (不透明確定は末尾) なので px*3+12 必要。
+  const uint32_t out_bpp = (ct == 2) ? 2u : 3u;
+  if (cap < 12u + px * out_bpp || px * out_bpp > 0xFFFFFFF0u) return 0;
 
   // 作業領域を 1 塊で確保: 展開器 + 32KB dict + 現行 + 前行。
   const uint32_t work_sz = sizeof(tinfl_decompressor) + TINFL_LZ_DICT_SIZE +

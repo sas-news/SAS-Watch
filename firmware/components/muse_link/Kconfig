@@ -31,16 +31,17 @@ menu "muse_link (Muse chat/Noise, Phase 1)"
         int "Muse start: minimum largest free PSRAM block (KB)"
         depends on WATCH_ENABLE_MUSE_LINK
         range 0 8192
-        default 1400
+        default 1150
         help
-            muse_link_start() の事前チェック。SDK のセッションは PSRAM を約 1.3MB
-            確保する。最大連続空きがこれ未満なら中止する。0 でチェック無効。
+            muse_link_start() の事前チェック。SDK (COMPACT_BUFFERS=1) のセッションは
+            起動時に PSRAM を合計約 950KB 確保する。総空きがこれ未満なら中止する。
+            0 でチェック無効。
 
     config WATCH_MUSE_WIFI_IDLE_S
         int "Release Muse Wi-Fi after this many idle seconds"
         depends on WATCH_ENABLE_MUSE_LINK
         range 10 600
-        default 60
+        default 120
         help
             Muse が自分で Wi-Fi を上げた (muse_link_wifi_ensure) 場合、最後の
             アクティビティからこの秒数で session_end する。他機能 (OTA 等) が

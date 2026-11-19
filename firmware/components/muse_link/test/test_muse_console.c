@@ -43,6 +43,12 @@ int main(void) {
     // パスワード的な文字列中の空白は parse では許容 (validate は provision 側)。
     expect_cmd("muse set host a b", MUSE_CONSOLE_SET_HOST, "a b");
 
+    // Wi-Fi 投入コマンド (T53/M1: 空白を含む SSID/パスワード可)。
+    expect_cmd("muse set ssid My Home AP", MUSE_CONSOLE_SET_SSID, "My Home AP");
+    expect_cmd("muse set pass secret pass 1", MUSE_CONSOLE_SET_PASS, "secret pass 1");
+    expect_cmd("muse set password pw-123", MUSE_CONSOLE_SET_PASS, "pw-123");
+    expect_cmd("muse set pass", MUSE_CONSOLE_SET_PASS, "");
+
     // T55: セッション操作
     expect_cmd("muse start", MUSE_CONSOLE_START, "");
     expect_cmd("MUSE STOP", MUSE_CONSOLE_STOP, "");

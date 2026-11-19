@@ -59,7 +59,7 @@ lv_obj_t* build(lv_obj_t* scr) {
   // 押しっぱスクロールの軽量化: 静的な行一覧を1枚の画像に焼き、
   // 各行のクリックは透明ゾーンで復元する (再描画が全行再描画から
   // 画像ブリットに変わる)。
-  ui::c::BakeZone zones[12];
+  ui::c::BakeZone zones[16];
   lv_obj_update_layout(scr);
   for (size_t i = 0; i < rn; i++) {
     zones[i] = ui::c::bake_rect(col, rows[i], nav_click,

@@ -27,6 +27,11 @@ void muse_link_cfg_get(char* host, size_t host_cap, char* vm, size_t vm_cap,
 // muse_session.cpp: セッション由来の status フィールドを埋める。
 void muse_link_session_fill_status(muse_link_status_fields_t* f);
 
+// muse_session.cpp: PSRAM 上の PCM バッファ所有権を引き取って音声ノートを送信する。
+// true を返すと muse_session 側が送信完了/中止時に heap_caps_free() する。
+// false を返すと所有権は呼び出し側に残る (呼び出し側で free すること)。
+bool muse_link_take_voice_note(int16_t* pcm_psram, size_t samples);
+
 #ifdef __cplusplus
 }
 #endif

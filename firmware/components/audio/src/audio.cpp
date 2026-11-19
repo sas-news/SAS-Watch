@@ -312,6 +312,17 @@ void codec_fs(esp_codec_dev_sample_info_t* fs) {
   // channel_mask/mclk_multiple = 0 → ドライバ既定 // TODO(hw): 実機で確認
 }
 
+// 実機個体差: ES7210 の MIC1 (左 ch0) は無音 (-70.2 dBFS)、MIC2 (右 ch1) のみ
+// 実装/接続されている (-30.7 dBFS)。esp_codec_dev は channel=1 のとき ch0 を
+// 選ぶため、channel=2 + channel_mask=BIT(1) で右ch単独の mono RX を指定する。
+void mic_codec_fs(esp_codec_dev_sample_info_t* fs) {
+  std::memset(fs, 0, sizeof(*fs));
+  fs->bits_per_sample = 16;
+  fs->channel = 2;
+  fs->channel_mask = ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1);
+  fs->sample_rate = watch::audio::kAdpcmSampleRate;
+}
+
 // PA (GPIO46) は再生系ジョブの間だけ HIGH。
 void pa_on() { gpio_set_level(BSP_POWER_AMP_IO, 1); }
 void pa_off() { gpio_set_level(BSP_POWER_AMP_IO, 0); }
@@ -361,11 +372,12 @@ void rec_task(void*) {
 
     encoder.reset();
     esp_codec_dev_sample_info_t fs;
-    codec_fs(&fs);
+    mic_codec_fs(&fs);
     esp_codec_dev_handle_t m = mic();
+    int16_t max_peak = 0;
     const int open_rc = m ? esp_codec_dev_open(m, &fs) : -999;
     if (m && open_rc == ESP_CODEC_DEV_OK) {
-      esp_codec_dev_set_in_gain(m, 24.0f);  // TODO(hw): 実機で確認
+      esp_codec_dev_set_in_gain(m, 30.0f);
       int reads = 0;
       while (!s_rec.stop) {
         if (s_rec.samples >= s_rec.max_sec * watch::audio::kAdpcmSampleRate) {
@@ -388,6 +400,7 @@ void rec_task(void*) {
           const int v = pcm[i] < 0 ? -pcm[i] : pcm[i];
           if (v > peak) peak = static_cast<int16_t>(v);
         }
+        if (peak > max_peak) max_peak = peak;
         lock();
         s_rec.level = static_cast<uint8_t>((static_cast<int>(peak) * 100) / 32767);
         const size_t wb = encoder.encode(pcm, got, enc, sizeof(enc));
@@ -442,10 +455,11 @@ void rec_task(void*) {
         remove(s_rec.path);
       }
     }
-    ESP_LOGI(TAG, "rec done id=%lu samples=%lu size=%lu stream=%d",
+    ESP_LOGI(TAG, "rec done id=%lu samples=%lu size=%lu peak=%d stream=%d",
              static_cast<unsigned long>(s_rec.memo_id),
              static_cast<unsigned long>(s_rec.samples),
-             static_cast<unsigned long>(s_rec.size), stream ? 1 : 0);
+             static_cast<unsigned long>(s_rec.size),
+             static_cast<int>(max_peak), stream ? 1 : 0);
     lock();
     s_rec.done = true;
     s_rec.active = false;

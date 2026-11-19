@@ -1,5 +1,12 @@
 #include "theme.hpp"
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#define SAS_BIG_STATIC EXT_RAM_BSS_ATTR
+#else
+#define SAS_BIG_STATIC
+#endif
+
 #include <cstring>
 
 // フォントは tools/gen_fonts.py で生成したサブセット (fonts/*.c)。
@@ -27,26 +34,33 @@ constexpr const char* kBubbleDefault[5] = {
 
 // 既定ダーク (AMOLED 向け。黒背景で画素を消す)。
 // accent 系はデザイン見本 (docs/design/faces) の色を標準値にしている。
+// コンパイル時定数初期化で .rodata に置き、DRAM (.data) ~23.6KB を消費しない。
+constexpr lv_color_t hex_color(uint32_t c) {
+  return LV_COLOR_MAKE(static_cast<uint8_t>((c >> 16) & 0xFF),
+                       static_cast<uint8_t>((c >> 8) & 0xFF),
+                       static_cast<uint8_t>(c & 0xFF));
+}
+
 const Theme kStandard = {
-    .bg = lv_color_hex(0x000000),
-    .surface = lv_color_hex(0x14161D),
-    .surface2 = lv_color_hex(0x1F222C),
-    .primary = lv_color_hex(0xFF8A3D),
-    .on_primary = lv_color_hex(0x1A0D00),
-    .text = lv_color_hex(0xF4F4F6),
-    .text_dim = lv_color_hex(0x8A8F9C),
-    .accent = lv_color_hex(0x4CC9F0),
-    .danger = lv_color_hex(0xFF5C6C),
-    .ok = lv_color_hex(0x3DDC97),
-    .accent2 = lv_color_hex(0xE8D7B0),
-    .accent3 = lv_color_hex(0x00E0C6),
-    .accent4 = lv_color_hex(0x7A5CFF),
-    .accent5 = lv_color_hex(0xFF5C8A),
-    .bubble_bg = lv_color_hex(0xFFFFFF),
-    .bubble_text = lv_color_hex(0x1A0F2E),
-    .line = lv_color_hex(0x2A2E3A),
-    .primary2 = lv_color_hex(0xFFB27A),
-    .edge = lv_color_hex(0x4A4F5C),
+    .bg = hex_color(0x000000),
+    .surface = hex_color(0x14161D),
+    .surface2 = hex_color(0x1F222C),
+    .primary = hex_color(0xFF8A3D),
+    .on_primary = hex_color(0x1A0D00),
+    .text = hex_color(0xF4F4F6),
+    .text_dim = hex_color(0x8A8F9C),
+    .accent = hex_color(0x4CC9F0),
+    .danger = hex_color(0xFF5C6C),
+    .ok = hex_color(0x3DDC97),
+    .accent2 = hex_color(0xE8D7B0),
+    .accent3 = hex_color(0x00E0C6),
+    .accent4 = hex_color(0x7A5CFF),
+    .accent5 = hex_color(0xFF5C8A),
+    .bubble_bg = hex_color(0xFFFFFF),
+    .bubble_text = hex_color(0x1A0F2E),
+    .line = hex_color(0x2A2E3A),
+    .primary2 = hex_color(0xFFB27A),
+    .edge = hex_color(0x4A4F5C),
     .font_body = &font_jp_min_20,
     .font_row = &font_jp_min_20,
     .font_title = &font_jp_min_20,
@@ -67,25 +81,25 @@ const Theme kStandard = {
 
 // 明るめ (屋外視認用)。背景は濃い目のグレーで AMOLED を活かす。
 const Theme kLight = {
-    .bg = lv_color_hex(0xE8EBF0),
-    .surface = lv_color_hex(0xFFFFFF),
-    .surface2 = lv_color_hex(0xD6DCE6),
-    .primary = lv_color_hex(0x0F6BC5),
-    .on_primary = lv_color_hex(0xFFFFFF),
-    .text = lv_color_hex(0x14181F),
-    .text_dim = lv_color_hex(0x5A6470),
-    .accent = lv_color_hex(0xC77400),
-    .danger = lv_color_hex(0xD03030),
-    .ok = lv_color_hex(0x0E8A50),
-    .accent2 = lv_color_hex(0x8A6B35),
-    .accent3 = lv_color_hex(0x007A6B),
-    .accent4 = lv_color_hex(0x5E3FD1),
-    .accent5 = lv_color_hex(0xC22A5C),
-    .bubble_bg = lv_color_hex(0xFFFFFF),
-    .bubble_text = lv_color_hex(0x1A0F2E),
-    .line = lv_color_hex(0xC3CAD4),
-    .primary2 = lv_color_hex(0x1E86E0),
-    .edge = lv_color_hex(0x98A0B0),
+    .bg = hex_color(0xE8EBF0),
+    .surface = hex_color(0xFFFFFF),
+    .surface2 = hex_color(0xD6DCE6),
+    .primary = hex_color(0x0F6BC5),
+    .on_primary = hex_color(0xFFFFFF),
+    .text = hex_color(0x14181F),
+    .text_dim = hex_color(0x5A6470),
+    .accent = hex_color(0xC77400),
+    .danger = hex_color(0xD03030),
+    .ok = hex_color(0x0E8A50),
+    .accent2 = hex_color(0x8A6B35),
+    .accent3 = hex_color(0x007A6B),
+    .accent4 = hex_color(0x5E3FD1),
+    .accent5 = hex_color(0xC22A5C),
+    .bubble_bg = hex_color(0xFFFFFF),
+    .bubble_text = hex_color(0x1A0F2E),
+    .line = hex_color(0xC3CAD4),
+    .primary2 = hex_color(0x1E86E0),
+    .edge = hex_color(0x98A0B0),
     .font_body = &font_jp_min_20,
     .font_row = &font_jp_min_20,
     .font_title = &font_jp_min_20,
@@ -105,8 +119,9 @@ const Theme kLight = {
 };
 
 // 現在有効なテーマ。theme_apply() が書き換える (LVGL コンテキスト内のみ)。
-// s_base = テーマ本体、s_active = 画面別 tokens 上書きの適用済み。
-Theme s_base = kStandard;
+// s_base = テーマ本体 (PSRAM)、s_active = 画面別 tokens 上書きの適用済み (高速参照のため DRAM)。
+SAS_BIG_STATIC Theme s_base;
+bool s_base_inited = false;
 Theme s_active = kStandard;
 char s_id[32] = "standard";
 char s_name[48] = "標準";
@@ -136,7 +151,14 @@ const Theme* builtin_theme(const char* id) {
 // theme_manager.cpp から現行テーマを差し替える (LVGL コンテキスト内のみ)。
 void theme_replace_active(const Theme& t) {
   s_base = t;
+  s_base_inited = true;
   s_active = t;
+}
+
+void theme_cache_asset(int idx, const lv_image_dsc_t* dsc) {
+  if (idx < 0 || idx >= watch::kThemeMaxAssets) return;
+  if (s_base_inited) s_base.asset_dsc[idx] = dsc;
+  s_active.asset_dsc[idx] = dsc;
 }
 
 // Theme 内の色フィールドを順序通りに指す表 (manifest color[] と同順)。
@@ -167,6 +189,10 @@ lv_color_t* theme_color_at(Theme* t, int i) {
 
 // v4: 画面別 tokens 上書き。"*" の tokens → 画面個別の tokens の順に適用。
 void theme_apply_screen_tokens(int screen_index) {
+  if (!s_base_inited) {
+    s_base = kStandard;
+    s_base_inited = true;
+  }
   s_active = s_base;  // 前画面の上書きを戻す
   auto apply = [](const watch::ThemeScreenSkin& sk, uint32_t set) {
     for (int i = 0; i < 19 && set; ++i, set >>= 1) {

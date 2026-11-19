@@ -38,6 +38,7 @@
 
 #include "muse_chat.h"
 #include "muse_chat_priv.h"  // muse_hatch_chat_connect (SDK 内部 API)
+#include "muse_review.h"
 #include "muse_link/muse_link.h"
 #include "muse_link/muse_link_voice.h"
 #include "muse_link_internal.h"
@@ -54,12 +55,17 @@ constexpr size_t kReplyCap = 4096;
 // 音声ノートの上限。Muse は 15 秒で打ち切るので 15 秒 (= 480,000B) に固定。
 constexpr uint32_t kVoiceMaxSeconds = 15;
 constexpr size_t kVoiceMaxSamples = MUSE_LINK_VOICE_SAMPLE_RATE * kVoiceMaxSeconds;
+// 初回起動時と再起動時の PSRAM 連続空き下限 (SDK 静的確保は初回のみ)。
+constexpr size_t kMinFirstLargestPsram = 320u * 1024u;
+constexpr size_t kRestartMinPsram = 480u * 1024u;
+constexpr size_t kRestartMinLargestPsram = 96u * 1024u;
 // タスクスタック (内蔵 SRAM, 起動時確保)。
 constexpr uint32_t kTaskStackBytes = 8192;
 constexpr UBaseType_t kTaskPrio = 3;
 constexpr BaseType_t kTaskCore = 0;  // BLE / SDK セッションと同じ core0
 // タイムアウト (ms)
-constexpr int64_t kConnectTimeoutMs = 30000;
+constexpr int64_t kConnectTimeoutMs = 90000;
+constexpr int64_t kVoiceSendTimeoutMs = 25000;
 constexpr int64_t kTurnTimeoutMs = 90000;       // 音声ノートの返答待ち
 constexpr int64_t kTextTurnTimeoutMs = 300000;  // テキストの返答待ち (5 分)
 
@@ -67,7 +73,7 @@ constexpr int64_t kTextTurnTimeoutMs = 300000;  // テキストの返答待ち (
 #define CONFIG_WATCH_MUSE_MIN_INTERNAL_KB 12
 #endif
 #ifndef CONFIG_WATCH_MUSE_MIN_PSRAM_KB
-#define CONFIG_WATCH_MUSE_MIN_PSRAM_KB 1400
+#define CONFIG_WATCH_MUSE_MIN_PSRAM_KB 1150
 #endif
 constexpr size_t kMinInternalBytes = (size_t)CONFIG_WATCH_MUSE_MIN_INTERNAL_KB * 1024u;
 constexpr size_t kMinPsramBytes = (size_t)CONFIG_WATCH_MUSE_MIN_PSRAM_KB * 1024u;
@@ -78,19 +84,23 @@ SemaphoreHandle_t s_reply_mtx = nullptr;
 SemaphoreHandle_t s_task_done = nullptr;
 TaskHandle_t s_task = nullptr;
 std::atomic<bool> s_task_alive{false};
+std::atomic<bool> s_hatch_started{false};
+std::atomic<uint32_t> s_review_gen{0};
 volatile bool s_run = false;
 volatile bool s_stop_requested = false;
 
 char* s_reply = nullptr;         // PSRAM, kReplyCap
 size_t s_reply_len = 0;          // 保持している長さ
 size_t s_reply_total = 0;        // 受信した総バイト数
-int16_t* s_voice_pcm = nullptr;  // PSRAM, kVoiceMaxSamples
+uint32_t s_review_stored_turn = 0;
+int16_t* s_voice_pcm = nullptr;  // PSRAM, 送信時のみ所有
 size_t s_voice_samples = 0;
-bool s_voice_pending = false;
+std::atomic<bool> s_voice_pending{false};
 bool s_voice_active = false;
 bool s_text_active = false;
 int64_t s_deadline_ms = 0;
 int64_t s_starting_since_ms = 0;
+int64_t s_last_connect_retry_ms = 0;
 bool s_configured = false;
 
 char s_error[96];
@@ -101,12 +111,25 @@ int64_t now_ms() {
     return esp_timer_get_time() / 1000;
 }
 
+void log_heap(const char* label) {
+    ESP_LOGI(kTag,
+             "%s: int_free=%u int_largest=%u psram_free=%u psram_largest=%u",
+             label,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+}
+
 void set_state(muse_link_session_state_t st) {
     const int prev = s_state.exchange((int)st);
     if (prev != (int)st) {
         ESP_LOGI(kTag, "session: %s -> %s",
                  muse_link_session_state_name((muse_link_session_state_t)prev),
                  muse_link_session_state_name(st));
+        if (st == MUSE_LINK_SESSION_READY && prev == (int)MUSE_LINK_SESSION_STARTING) {
+            log_heap("ready heap");
+        }
     }
 }
 
@@ -135,6 +158,35 @@ void advance(muse_session_event_t ev) {
     }
 }
 
+size_t utf8_clamp_len(const char* src, size_t max_bytes) {
+    size_t n = src ? strlen(src) : 0;
+    if (n <= max_bytes) {
+        return n;
+    }
+    n = max_bytes;
+    size_t head = n;
+    while (head > 0 && (static_cast<unsigned char>(src[head - 1]) & 0xC0u) == 0x80u) {
+        --head;
+    }
+    if (head > 0) {
+        const unsigned char lead = static_cast<unsigned char>(src[head - 1]);
+        size_t need = 1;
+        if (lead < 0x80u) {
+            need = 1;
+        } else if ((lead & 0xE0u) == 0xC0u) {
+            need = 2;
+        } else if ((lead & 0xF0u) == 0xE0u) {
+            need = 3;
+        } else if ((lead & 0xF8u) == 0xF0u) {
+            need = 4;
+        }
+        if (n - (head - 1) < need) {
+            n = head - 1;
+        }
+    }
+    return n;
+}
+
 // ---- 返答バッファ ----
 void reply_reset() {
     if (!s_reply_mtx) {
@@ -143,10 +195,28 @@ void reply_reset() {
     xSemaphoreTake(s_reply_mtx, portMAX_DELAY);
     s_reply_len = 0;
     s_reply_total = 0;
+    s_review_stored_turn = 0;
     if (s_reply) {
         s_reply[0] = '\0';
     }
     xSemaphoreGive(s_reply_mtx);
+}
+
+void reply_append_unlocked(const char* text) {
+    if (!text || !*text) {
+        return;
+    }
+    const size_t n = strlen(text);
+    s_reply_total += n;
+    if (s_reply && s_reply_len + 1 < kReplyCap) {
+        const size_t room = kReplyCap - 1 - s_reply_len;
+        const size_t copy_n = utf8_clamp_len(text, room);
+        if (copy_n > 0) {
+            memcpy(s_reply + s_reply_len, text, copy_n);
+            s_reply_len += copy_n;
+            s_reply[s_reply_len] = '\0';
+        }
+    }
 }
 
 // 返答の断片を追記する (SDK タスクから呼ばれる)。
@@ -154,15 +224,22 @@ void reply_append(const char* text) {
     if (!text || !*text || !s_reply_mtx) {
         return;
     }
-    const size_t n = strlen(text);
     xSemaphoreTake(s_reply_mtx, portMAX_DELAY);
-    s_reply_total += n;
-    if (s_reply && s_reply_len + n < kReplyCap) {
-        memcpy(s_reply + s_reply_len, text, n);
-        s_reply_len += n;
-        s_reply[s_reply_len] = '\0';
+    reply_append_unlocked(text);
+    xSemaphoreGive(s_reply_mtx);
+    muse_link_wifi_touch();
+}
+
+void reply_set_preview(const char* text) {
+    if (!text || !*text || !s_reply_mtx) {
+        return;
+    }
+    xSemaphoreTake(s_reply_mtx, portMAX_DELAY);
+    if (s_review_stored_turn == 0 && s_reply_len == 0) {
+        reply_append_unlocked(text);
     }
     xSemaphoreGive(s_reply_mtx);
+    muse_link_wifi_touch();
 }
 
 void reply_finish() {
@@ -173,11 +250,16 @@ void reply_finish() {
              (unsigned)s_reply_len);
 }
 
-void free_buffers() {
+void free_voice_pcm() {
     if (s_voice_pcm) {
         heap_caps_free(s_voice_pcm);
         s_voice_pcm = nullptr;
     }
+    s_voice_samples = 0;
+}
+
+void free_buffers() {
+    free_voice_pcm();
     if (s_reply) {
         heap_caps_free(s_reply);
         s_reply = nullptr;
@@ -188,31 +270,61 @@ void free_buffers() {
     }
     s_reply_len = 0;
     s_reply_total = 0;
-    s_voice_pending = false;
+    s_review_stored_turn = 0;
+    s_voice_pending.store(false);
     s_voice_active = false;
     s_text_active = false;
-    s_voice_samples = 0;
 }
 
 // ---- 音声ノートの送出 (このタスクで TLS を走らせない) ----
 bool send_voice_turn() {
+    if (!s_voice_pcm || s_voice_samples == 0) {
+        return false;
+    }
     muse_hatch_status_t st;
     muse_hatch_status(&st);
     if (st.state != MUSE_HATCH_REACHABLE) {
-        return false;  // 接続待ち
+        free_voice_pcm();
+        set_error_text("Muse に接続できません");
+        advance(MUSE_SESSION_EV_TURN_ERROR);
+        return false;
     }
     reply_reset();
     muse_hatch_turn_begin();
+    const int64_t send_start = now_ms();
     size_t off = 0;
     while (off < s_voice_samples && s_run) {
-        const size_t take = (s_voice_samples - off) < 320 ? (s_voice_samples - off) : 320;
-        muse_hatch_turn_audio(s_voice_pcm + off, take);
-        off += take;
+        muse_link_wifi_touch();
+        muse_hatch_status(&st);
+        if (st.state == MUSE_HATCH_UNREACHABLE || st.state == MUSE_HATCH_OFFLINE ||
+            st.state == MUSE_HATCH_NOT_SET) {
+            muse_hatch_turn_cancel();
+            free_voice_pcm();
+            set_error_text("Muse に接続できません");
+            advance(MUSE_SESSION_EV_TURN_ERROR);
+            return false;
+        }
+        if (now_ms() - send_start > kVoiceSendTimeoutMs) {
+            muse_hatch_turn_cancel();
+            free_voice_pcm();
+            set_error_text("音声の送信がタイムアウトしました");
+            advance(MUSE_SESSION_EV_TURN_ERROR);
+            return false;
+        }
+        const size_t take = (s_voice_samples - off) < 1600 ? (s_voice_samples - off) : 1600;
+        const size_t put = muse_hatch_turn_audio_wait(s_voice_pcm + off, take, 200);
+        off += put;
+    }
+    const size_t sent_samples = off;
+    free_voice_pcm();
+    if (!s_run) {
+        muse_hatch_turn_cancel();
+        return false;
     }
     muse_hatch_turn_end();
     s_voice_active = true;
     s_deadline_ms = now_ms() + kTurnTimeoutMs;
-    ESP_LOGI(kTag, "voice note sent (%u samples)", (unsigned)s_voice_samples);
+    ESP_LOGI(kTag, "voice note sent (%u samples)", (unsigned)sent_samples);
     return true;
 }
 
@@ -222,12 +334,21 @@ void session_loop() {
         const muse_link_session_state_t st = (muse_link_session_state_t)s_state.load();
 
         // 1) 音声ノートの送信要求
-        if (s_voice_pending && !s_voice_active && send_voice_turn()) {
-            s_voice_pending = false;
+        if (s_voice_pending.load() && !s_voice_active) {
+            muse_hatch_status_t hs;
+            muse_hatch_status(&hs);
+            if (hs.state == MUSE_HATCH_REACHABLE) {
+                s_voice_pending.store(false);
+                send_voice_turn();
+            }
         }
 
-        // 2) SDK からのイベント (音声ターンの字幕/エラー/完了)
+        // 2) SDK からのイベント (音声ターンの無音ドレイン / 字幕 / エラー / 完了)
         if (s_voice_active) {
+            int16_t drain[128];
+            while (muse_hatch_turn_read(drain, sizeof(drain) / sizeof(drain[0]), 0) > 0) {
+                // スピーカー非再生時は pace_silently() の無音出力を即座に吐き切り、check_turn() の完了待ちを止める
+            }
             char text[96];
             for (;;) {
                 const muse_hatch_ev_t ev = muse_hatch_turn_event(text, sizeof(text));
@@ -235,7 +356,7 @@ void session_loop() {
                     break;
                 }
                 if (ev == MUSE_HATCH_EV_REPLY) {
-                    reply_append(text);
+                    reply_set_preview(text);
                 } else if (ev == MUSE_HATCH_EV_DONE) {
                     s_voice_active = false;
                     if (text[0]) {
@@ -246,7 +367,11 @@ void session_loop() {
                     }
                 } else if (ev == MUSE_HATCH_EV_ERROR) {
                     s_voice_active = false;
-                    set_error_text("Muse に接続できません");
+                    if (strstr(text, "CATCH") != nullptr) {
+                        set_error_text("音声が短すぎます");
+                    } else {
+                        set_error_text("Muse に接続できません");
+                    }
                     advance(MUSE_SESSION_EV_TURN_ERROR);
                 }
             }
@@ -260,12 +385,31 @@ void session_loop() {
                 if (st == MUSE_LINK_SESSION_STARTING || st == MUSE_LINK_SESSION_ERROR) {
                     advance(MUSE_SESSION_EV_CONNECTED);
                 }
-            } else if (hs.state == MUSE_HATCH_UNREACHABLE || hs.state == MUSE_HATCH_OFFLINE ||
-                       hs.state == MUSE_HATCH_NOT_SET) {
-                if (st == MUSE_LINK_SESSION_STARTING || st == MUSE_LINK_SESSION_READY ||
-                    st == MUSE_LINK_SESSION_BUSY) {
+            } else if (hs.state == MUSE_HATCH_OFFLINE) {
+                if (!wifi::reconnecting() &&
+                    (st == MUSE_LINK_SESSION_STARTING || st == MUSE_LINK_SESSION_READY ||
+                     st == MUSE_LINK_SESSION_BUSY)) {
+                    set_error_text("Wi-Fi が切断されました");
+                    advance(MUSE_SESSION_EV_DISCONNECTED);
+                    s_run = false;
+                }
+            } else if (hs.state == MUSE_HATCH_UNREACHABLE || hs.state == MUSE_HATCH_NOT_SET) {
+                if (strstr(hs.detail, "rejected") != nullptr ||
+                    strstr(hs.detail, "refused") != nullptr) {
+                    set_error_text("Muse トークンが拒否されました");
+                    advance(MUSE_SESSION_EV_DISCONNECTED);
+                    s_run = false;
+                } else if (st == MUSE_LINK_SESSION_STARTING &&
+                           (now_ms() - s_starting_since_ms) < kConnectTimeoutMs) {
+                    if (wifi::connected() && (now_ms() - s_last_connect_retry_ms) >= 1500) {
+                        s_last_connect_retry_ms = now_ms();
+                        muse_hatch_test();
+                    }
+                } else if (st == MUSE_LINK_SESSION_STARTING || st == MUSE_LINK_SESSION_READY ||
+                           st == MUSE_LINK_SESSION_BUSY) {
                     set_error_text("Muse に接続できません");
                     advance(MUSE_SESSION_EV_DISCONNECTED);
+                    s_run = false;
                 }
             }
         }
@@ -276,6 +420,8 @@ void session_loop() {
                 s_starting_since_ms = now_ms();
             } else if (now_ms() - s_starting_since_ms > kConnectTimeoutMs) {
                 set_error_text("Muse セッションを開始できません");
+                advance(MUSE_SESSION_EV_DISCONNECTED);
+                s_run = false;
             }
         } else {
             s_starting_since_ms = 0;
@@ -293,7 +439,21 @@ void session_loop() {
         }
 
         // 6) Wi-Fi アイドル管理 (T54)
+        if (st == MUSE_LINK_SESSION_STARTING || st == MUSE_LINK_SESSION_BUSY ||
+            s_voice_active || s_text_active || s_voice_pending.load()) {
+            muse_link_wifi_touch();
+        }
+        const bool was_wifi_owned = muse_link_wifi_owned();
         muse_link_wifi_poll();
+        if (was_wifi_owned && !muse_link_wifi_owned() && !wifi::connected()) {
+            ESP_LOGI(kTag, "wifi idle timeout: stopping session cleanly");
+            if (st == MUSE_LINK_SESSION_STARTING || st == MUSE_LINK_SESSION_BUSY) {
+                set_error_text("Wi-Fi が切断されました");
+                advance(MUSE_SESSION_EV_DISCONNECTED);
+            }
+            s_run = false;
+            continue;
+        }
 
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -336,17 +496,26 @@ static void start_sequence(uint32_t wifi_timeout_ms) {
 
     const size_t int_largest =
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t psram_free =
+        heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     const size_t psram_largest =
         heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const bool first_start = !s_hatch_started.load();
+    const size_t need_psram = first_start ? kMinPsramBytes : kRestartMinPsram;
+    const size_t avail_psram =
+        first_start
+            ? ((psram_largest < kMinFirstLargestPsram) ? psram_largest : psram_free)
+            : ((psram_largest < kRestartMinLargestPsram) ? psram_largest : psram_free);
     ESP_LOGI(kTag,
-             "start: configured=%d wifi_configured=%d int_largest=%u psram_largest=%u "
-             "(min int=%u psram=%u)",
-             (int)s_configured, (int)wifi::configured(), (unsigned)int_largest,
-             (unsigned)psram_largest, (unsigned)kMinInternalBytes, (unsigned)kMinPsramBytes);
+             "start: configured=%d wifi_configured=%d first=%d int_largest=%u "
+             "psram_free=%u psram_largest=%u (min int=%u psram=%u)",
+             (int)s_configured, (int)wifi::configured(), (int)first_start,
+             (unsigned)int_largest, (unsigned)psram_free, (unsigned)psram_largest,
+             (unsigned)kMinInternalBytes, (unsigned)need_psram);
 
     const muse_link_start_error_t check = muse_link_session_check_start(
-        s_configured, wifi::configured(), int_largest, psram_largest, kMinInternalBytes,
-        kMinPsramBytes);
+        s_configured, wifi::configured(), int_largest, avail_psram, kMinInternalBytes,
+        need_psram);
     if (check != MUSE_LINK_START_OK) {
         fail_start(check);
         return;
@@ -356,30 +525,31 @@ static void start_sequence(uint32_t wifi_timeout_ms) {
         fail_start(MUSE_LINK_START_ERR_WIFI_FAILED);
         return;
     }
+    muse_link_wifi_touch();
     if (s_stop_requested) {
         muse_link_wifi_release();
         return;
     }
 
     s_reply = static_cast<char*>(heap_caps_malloc(kReplyCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    s_voice_pcm = static_cast<int16_t*>(
-        heap_caps_malloc(kVoiceMaxSamples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     s_reply_mtx = xSemaphoreCreateMutex();
-    if (!s_reply || !s_voice_pcm || !s_reply_mtx) {
+    if (!s_reply || !s_reply_mtx) {
         fail_start(MUSE_LINK_START_ERR_NO_PSRAM);
         return;
     }
     s_reply[0] = '\0';
 
     s_starting_since_ms = now_ms();
+    s_last_connect_retry_ms = 0;
     set_state(MUSE_LINK_SESSION_STARTING);
     if (s_stop_requested) {
         return;
     }
     // SDK のセッションタスクを起動し、VM 接続を促す (接続は SDK タスク側で走る)。
     muse_hatch_start();
+    s_hatch_started.store(true);
     muse_hatch_set_resting(false);
-    muse_hatch_chat_connect();
+    muse_hatch_test();
     ESP_LOGI(kTag, "session starting (wifi owned=%d)", (int)muse_link_wifi_owned());
 }
 
@@ -393,7 +563,7 @@ static void start_task(void* arg) {
         return;
     }
     session_loop();
-    task_exit(false);
+    task_exit(s_state.load() == (int)MUSE_LINK_SESSION_ERROR);
 }
 
 // ---- 公開 API ----
@@ -471,7 +641,7 @@ extern "C" void muse_link_stop(void) {
         muse_hatch_text_cancel();
         s_text_active = false;
     }
-    s_voice_pending = false;
+    s_voice_pending.store(false);
     // タスクは終了時に Wi-Fi release / PSRAM 解放 / 状態更新を行う。
     bool stopped = false;
     if (s_task_done) {
@@ -505,18 +675,20 @@ extern "C" bool muse_link_send_text(const char* text) {
     reply_reset();
     s_text_active = true;
     s_deadline_ms = now_ms() + kTextTurnTimeoutMs;
+    muse_link_wifi_touch();
     advance(MUSE_SESSION_EV_TURN_BEGIN);
     ESP_LOGI(kTag, "send_text: %u bytes", (unsigned)strlen(text));
     muse_hatch_text_turn(copy);  // 所有権は SDK 側へ移る (free される)
     return true;
 }
 
-extern "C" bool muse_link_send_voice_note(const int16_t* pcm, size_t samples) {
-    if (!pcm || samples == 0) {
+extern "C" bool muse_link_take_voice_note(int16_t* pcm_psram, size_t samples) {
+    if (!pcm_psram || samples == 0) {
         return false;
     }
-    if (s_state.load() != (int)MUSE_LINK_SESSION_READY) {
-        ESP_LOGW(kTag, "send_voice_note: session not ready (%s)",
+    if (s_state.load() != (int)MUSE_LINK_SESSION_READY ||
+        s_voice_pending.load() || s_voice_active || s_text_active) {
+        ESP_LOGW(kTag, "take_voice_note: session not ready (%s)",
                  muse_link_session_state_name((muse_link_session_state_t)s_state.load()));
         return false;
     }
@@ -526,19 +698,55 @@ extern "C" bool muse_link_send_voice_note(const int16_t* pcm, size_t samples) {
     }
     // T54 の変換層で形式を事前検証 (16kHz mono PCM16)。
     const muse_link_voice_status_t vs =
+        muse_link_voice_validate(pcm_psram, samples * sizeof(int16_t));
+    if (vs != MUSE_LINK_VOICE_OK) {
+        set_error_text("音声データが不正です");
+        return false;
+    }
+    if (s_voice_pcm) {
+        heap_caps_free(s_voice_pcm);
+        s_voice_pcm = nullptr;
+    }
+    s_voice_pcm = pcm_psram;
+    s_voice_samples = samples;
+    s_voice_pending.store(true);
+    muse_link_wifi_touch();
+    advance(MUSE_SESSION_EV_TURN_BEGIN);
+    ESP_LOGI(kTag, "voice_note: %u samples queued (zero-copy)", (unsigned)samples);
+    return true;
+}
+
+extern "C" bool muse_link_send_voice_note(const int16_t* pcm, size_t samples) {
+    if (!pcm || samples == 0) {
+        return false;
+    }
+    if (s_state.load() != (int)MUSE_LINK_SESSION_READY ||
+        s_voice_pending.load() || s_voice_active || s_text_active) {
+        ESP_LOGW(kTag, "send_voice_note: session not ready (%s)",
+                 muse_link_session_state_name((muse_link_session_state_t)s_state.load()));
+        return false;
+    }
+    if (samples > kVoiceMaxSamples) {
+        set_error_text("音声が長すぎます (15 秒まで)");
+        return false;
+    }
+    const muse_link_voice_status_t vs =
         muse_link_voice_validate(pcm, samples * sizeof(int16_t));
     if (vs != MUSE_LINK_VOICE_OK) {
         set_error_text("音声データが不正です");
         return false;
     }
-    if (!s_voice_pcm) {
+    int16_t* copy = static_cast<int16_t*>(
+        heap_caps_malloc(samples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!copy) {
+        set_error_text("PSRAM 不足で音声を送信できません");
         return false;
     }
-    memcpy(s_voice_pcm, pcm, samples * sizeof(int16_t));
-    s_voice_samples = samples;
-    s_voice_pending = true;
-    advance(MUSE_SESSION_EV_TURN_BEGIN);
-    ESP_LOGI(kTag, "send_voice_note: %u samples queued", (unsigned)samples);
+    memcpy(copy, pcm, samples * sizeof(int16_t));
+    if (!muse_link_take_voice_note(copy, samples)) {
+        heap_caps_free(copy);
+        return false;
+    }
     return true;
 }
 
@@ -602,6 +810,37 @@ extern "C" void muse_link_session_fill_status(muse_link_status_fields_t* f) {
     f->last_error = s_error;
 }
 
+// ---- 音声ターン全文キャプチャフック (CONFIG_MUSE_LATEST_REPLY=1) ----
+extern "C" uint32_t muse_review_turn(void) {
+    return s_review_gen.fetch_add(1) + 1;
+}
+
+extern "C" void muse_review_unavailable(void) {
+    ESP_LOGW(kTag, "latest reply capture unavailable");
+}
+
+extern "C" void muse_review_store_complete(uint32_t turn, const char* text, bool shortened) {
+    (void)shortened;
+    if (!s_voice_active || !text || !*text || !s_reply_mtx) {
+        return;
+    }
+    xSemaphoreTake(s_reply_mtx, portMAX_DELAY);
+    if (s_review_stored_turn != turn) {
+        // 最初の確定メッセージで opening preview (71B) を全文へ差し替える。
+        s_review_stored_turn = turn;
+        s_reply_len = 0;
+        s_reply_total = 0;
+        if (s_reply) {
+            s_reply[0] = '\0';
+        }
+    } else if (s_reply_len > 0) {
+        reply_append_unlocked("\n\n");
+    }
+    reply_append_unlocked(text);
+    xSemaphoreGive(s_reply_mtx);
+    muse_link_wifi_touch();
+}
+
 // ---- @chat コンソールフック (グローバルスコープ) ----
 // SDK の typed turn は返答を "@chat {...}" として stdout に書く。SAS-Watch では
 // 返答本文をログに出さない方針なので、ここで取り込む (stdout には出さない)。
@@ -623,12 +862,14 @@ extern "C" void muse_hatch_console(const char* type, const char* text, const cha
     } else if (strcmp(type, "done") == 0) {
         s_text_active = false;
         reply_finish();
+        muse_link_wifi_touch();
         advance(MUSE_SESSION_EV_TURN_DONE);
     } else if (strcmp(type, "error") == 0) {
         s_text_active = false;
         set_error_text("Muse でエラーが発生しました");
         advance(MUSE_SESSION_EV_TURN_ERROR);
     } else if (strcmp(type, "busy") == 0) {
+        muse_link_wifi_touch();
         advance(MUSE_SESSION_EV_TURN_BEGIN);
     }
     // sent / message_done / options は無視 (進捗のみ)。

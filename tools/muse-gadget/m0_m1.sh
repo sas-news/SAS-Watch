@@ -134,16 +134,31 @@ have_cmd() {
 # ---- 共通ユーティリティ ---------------------------------------------------
 
 ensure_esptool() {
-    if [ -f "$IDF_EXPORT_FILE" ]; then
+    if [ -n "${MUSE_IDF_EXPORT:-}" ] && [ -f "$MUSE_IDF_EXPORT" ]; then
+        if [ -z "${IDF_TOOLS_PATH:-}" ] && [ -d "$IDF_TOOLS_DIR" ]; then
+            export IDF_TOOLS_PATH="$IDF_TOOLS_DIR"
+        fi
+        # shellcheck disable=SC1090
+        . "$MUSE_IDF_EXPORT" >/dev/null 2>&1 || die "ESP-IDF の export.sh に失敗しました: $MUSE_IDF_EXPORT"
+    elif [ -f "$IDF_EXPORT_FILE" ]; then
         if [ -z "${IDF_TOOLS_PATH:-}" ] && [ -d "$IDF_TOOLS_DIR" ]; then
             export IDF_TOOLS_PATH="$IDF_TOOLS_DIR"
         fi
         # shellcheck disable=SC1090
         . "$IDF_EXPORT_FILE" >/dev/null 2>&1 || die "ESP-IDF の export.sh に失敗しました: $IDF_EXPORT_FILE"
+    elif [ -f "$WORKSPACE/muse-gadget-test/esp-idf-v6.0.3/export.sh" ]; then
+        if [ -z "${IDF_TOOLS_PATH:-}" ] && [ -d "$WORKSPACE/muse-gadget-test/espressif-v6" ]; then
+            export IDF_TOOLS_PATH="$WORKSPACE/muse-gadget-test/espressif-v6"
+        fi
+        # shellcheck disable=SC1090
+        . "$WORKSPACE/muse-gadget-test/esp-idf-v6.0.3/export.sh" >/dev/null 2>&1 || die "ESP-IDF の export.sh に失敗しました"
+    elif [ -f "$HOME/esp/esp-idf/export.sh" ]; then
+        # shellcheck disable=SC1090
+        . "$HOME/esp/esp-idf/export.sh" >/dev/null 2>&1 || die "ESP-IDF の export.sh に失敗しました: $HOME/esp/esp-idf/export.sh"
     fi
     have_cmd python || die "python が見つかりません (ESP-IDF の export.sh を確認してください)"
     python -m esptool version >/dev/null 2>&1 \
-        || die "esptool が見つかりません。ESP-IDF v6.0.3 を有効にしてください (docs/muse-gadget.md)"
+        || die "esptool が見つかりません。ESP-IDF を有効にしてください (docs/muse-gadget.md)"
 }
 
 # シリアル (pyserial) が使える python を探す。IDF python env を優先する。
@@ -152,7 +167,11 @@ resolve_idf_python() {
     [ -n "${IDF_PYTHON:-}" ] && candidates+=("$IDF_PYTHON")
     shopt -s nullglob
     local candidate
-    for candidate in "$WORKSPACE"/.toolchain/espressif*/python_env/*/bin/python; do
+    for candidate in \
+        "$WORKSPACE"/.toolchain/espressif*/python_env/*/bin/python \
+        "$WORKSPACE"/muse-gadget-test/espressif*/python_env/*/bin/python \
+        /home/sasnews/Desktop/ai-space/muse-gadget-test/espressif-v6/python_env/*/bin/python \
+        "$HOME"/.espressif/python_env/*/bin/python; do
         [ -x "$candidate" ] && candidates+=("$candidate")
     done
     shopt -u nullglob

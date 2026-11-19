@@ -308,7 +308,9 @@ void audit_label_check(lv_obj_t* o, const lv_area_t& clip) {
         }
       }
       lv_area_t ink_vis;
-      if (any && area_intersect(&ink_vis, ink, clip)) {
+      // USER_2 = face_theme の影/上光/縁取り装飾ラベル (重なり監査のみ除外)。
+      if (any && !lv_obj_has_flag(o, LV_OBJ_FLAG_USER_2) &&
+          area_intersect(&ink_vis, ink, clip)) {
         s_lbls.push_back({ink_vis, vis, t, o});
       }
       // 欠けグリフ検査 (フォールバックも lv_font_get_glyph_dsc が辿る。

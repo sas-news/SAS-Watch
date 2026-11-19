@@ -27,6 +27,7 @@
 | T55 追記 | **Phase 2 ③ (Muse セッション: start/stop/send_text/send_voice_note/last_reply) 実装済み**。on ビルドは 0x22f4f0 (T54 から +3,520B)。実 TLS/RAM は実機未検証 (手順は §12.6)。詳細は §12 |
 | T56 追記 | **Phase 2 ⑤ (UI 字幕: Muse アプリ + core MusePort) 実装済み**。off は 0x215fa0 (+3,104B、目標 +10KB 以内)、on は 0x230330 (+3,648B)。既定 off ではアプリは「このファームでは Muse が無効です」表示。実セッションでの字幕表示は実機未確認 (§12.6 と同時)。詳細は §13 |
 | T57 追記 | **Phase 2 ⑤ (音声 UI: 15 秒の音声ノートを Muse へ / ファイル非保存) 実装済み**。off は 0x216550 (+1,456B)、on は 0x231800 (+5,328B)。録音は T38 のファイル無しストリーム → PSRAM 480KB に PCM → `send_voice_note`。実録音/送信/PSRAM/電池は実機未確認 (§14.7)。詳細は §14 |
+| M1 実機検証 (GO) | **実機 (`/dev/ttyACM0`) で M1 テキスト往復 + `MIC2` 録音を検証完了 (2026-11-18)**。静的内蔵 SRAM 約 **+96KB 削減**・Wi-Fi/BLE 共存・PMF 無効化 + RF 停止指数バックオフ・`muse_session`/`muse_voice_capture` 修正・`ES7210 MIC2` 修正を実施。off **0x21c710** (静的 DIRAM 空き **115,221B**) / on **0x2385c0** (空き **109,637B**)。`muse start` → `ready` (`int_free=32,531B / int_largest=13,824B / psram_free=368,528B`) → 日本語 `muse send` 43B → `muse reply` 36B → `muse stop` (`heap=62,495B`) と `'v'` (`samples=88064 peak=3780`) が通過。詳細は **§15** |
 
 > **T49 の数字の訂正**: T49 は「SAS-Watch への増分 = flash +77,763B / PSA 増分 0」と見積もったが、
 > 本統合の実測は **+97,248B**。PSA crypto は SAS-Watch にリンク済みでも、noise が使う
@@ -971,3 +972,54 @@ MusePort は nullptr で、アプリは「このファームでは Muse が無�
   マイクの同時利用は不可 (audio コンポーネントは録音中に再生/ビープもしない)。
 - 実機スクショは `./sim/build/snapshot --out docs/screenshots` で生成できる
   (54/55/56/57/58 が Muse。既存ショットは維持)。
+
+---
+
+## 15. 実機 M1 検証と RAM / Wi-Fi / 音声修正 (2026-11-18)
+
+`/dev/ttyACM0` に接続した実機へ公式 `s3-206` ファームを書き込んでペアリングした後、
+NVS (`0x11000`, `homehub` スキーマ: `access_token` 597B / `noise_host` / `ssid` / `password`) から
+資格情報を抽出し、SAS-Watch 本体ファーム (`CONFIG_WATCH_ENABLE_MUSE_LINK=y`) 上で実機検証した記録。
+
+### 15.1 実機で判明した問題と修正内容
+
+1. **内蔵 SRAM 枯渇 (`start` ガード拒否: 起動後空き `9,611B` / 最大連続 `1,536B < 12,288B`)**
+   - `firmware/components/theme_store/src/theme_store.cpp`: `s_tail` (4KB)・`s_list` (1.9KB)・`mbuf` (32KB)・`ThemeManifest m` (12.2KB) を `EXT_RAM_BSS_ATTR` (PSRAM) へ移動（**+51,052B** 節約）し、`file_at()` は DRAM スタック 512B 経由の段階読込に変更（`esp_flash_read` の内蔵 bounce 確保回避）。
+   - `firmware/components/ui/src/esp_port.cpp`: `zip_open_list::tail` (4KB) と `ThemePackageEntry list` ×3 (5.7KB) を `EXT_RAM_BSS_ATTR` へ移動（**+9,856B** 節約）し、`zip_at()` を `staged_fread()` (DRAM 4KB ステージ) 経由に統一。
+   - `firmware/components/ui/src/theme.cpp`: `hex_color()` を `constexpr` 化して `kStandard` / `kLight` を `.rodata` (Flash) へ逃がし、`s_base` (11.8KB) を `SAS_BIG_STATIC` (PSRAM) へ移動（**+35,460B** 節約、`s_active` のみ DRAM 維持）。
+   - 合計 **約 +96.4KB** の静的内蔵 SRAM を回復し、`on` ビルド起動後の内部ヒープは `90,747B`、`int_largest=31,744B` まで余裕を確保した。
+
+2. **Wi-Fi / BLE 共存・PMF 無効化・指数バックオフ再接続**
+   - `firmware/components/ble_link/`: `ble_link_set_wifi_quiet(bool)` を追加。Wi-Fi セッション中は未接続時の BLE 広告のみ停止し（既存 BLE 接続は維持）、`session_end` / 失敗時に広告を再開する。
+   - `firmware/components/wifi/src/wifi.cpp`:
+     - `ESP_COEX_PREFER_WIFI` + `WIFI_PS_NONE` + `listen_interval=10` + 対象 SSID 限定スキャンで BSSID/ch/authmode を取得。
+     - `kConnectSettleMs=4000` (4 秒安定待ち) を設定し、AP 側の一時切断 (`0x2a0 reason=2`) を `session_start()` 内で吸収。
+     - ESP-IDF 5.5 では `pmf_cfg.capable=false` が無視されるため、**`esp_wifi_disable_pmf_config(WIFI_IF_STA)`** を `set_config` 直後・`start` 直前に明示呼び出し。
+     - 再試行時は **`driver_down()` (`esp_wifi_stop` + `deinit`)** まで落として完全 RF 停止状態で指数バックオフ (`{3s, 10s, 22s, 35s, 40s}`) を行い、4 回目以降は `WIFI_ALL_CHANNEL_SCAN` にフォールバックする。`wifi::poll()` を公開し、セッション中の一時切断でも同じ完全再起動手順を回せるようにした。
+   - `firmware/sdkconfig.defaults`: `CONFIG_BT_CTRL_MODEM_SLEEP=y` (`MODE_1`, `MAIN_XTAL`, `MAIN_XTAL_PU_DURING_LIGHT_SLEEP`)、`CONFIG_ESP_PHY_RF_CAL_PARTIAL=y`、`CONFIG_LWIP_DHCP_DOES_NOT_CHECK_OFFERED_IP=y`、`CONFIG_LWIP_TCP_{SND_BUF,WND}_DEFAULT=16384`、`CONFIG_LWIP_TCP_RECVMBOX_SIZE=32`、`CONFIG_MBEDTLS_HARDWARE_AES=n`、`CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=16384` を設定。`SPIRAM_MALLOC_ALWAYSINTERNAL=4096`、`SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`、`ESP_WIFI_NVS_ENABLED=n`、`STATIC_RX=10`、`STATIC_TX=8`、`TX_BA_WIN=16`。
+
+3. **`muse_link` / `watch_app` 安定化と PSRAM トリム**
+   - `firmware/components/muse_link/CMakeLists.txt` & `Kconfig`: `CONFIG_MUSE_HATCH_COMPACT_BUFFERS=1` + `CONFIG_MUSE_LATEST_REPLY=1` を有効化し、`sdk/include/muse_review.h` を無改変コピーして全文 UTF-8 取り込みに対応。開始ガード下限 `WATCH_MUSE_MIN_PSRAM_KB` を `1150KB`、Wi-Fi アイドルタイムアウトを `120s` に調整。
+   - `muse_session.cpp` / `muse_voice_capture.cpp`: 音声ノート送信のゼロコピー化 (`muse_link_take_voice_note` で 480KB×2 複製を廃止)、`muse_hatch_turn_audio_wait` による 25 秒ペーシング送信、スピーカー非搭載機向けに `muse_hatch_turn_read` 無音ドレイン、`wifi::reconnecting()` 中の切断猶予、Wi-Fi/接続タイムアウト調整 (`130s` / `90s`)、`task_exit(s_state == ERROR)` のエラー保持、`muse set ssid|pass` 追加。
+   - `watch_app.cpp`: Muse セッション・Wi-Fi 所有中の `PowerPolicy::Lease` (`Res::Wifi`, `"muse"`) を追加し自動 deep sleep を抑止。
+
+4. **実機マイク入力 (`ES7210 MIC2`) 修正 (`firmware/components/audio/src/audio.cpp`)**
+   - 実機計測で `MIC1` (ch0) が無音 (`-70.2 dBFS`)、`MIC2` (ch1) が有効 (`-30.7 dBFS`) と判明したため、`mic_codec_fs()` で `channel=2` + `ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1)` + ゲイン `30.0f` dB を設定し、`rec done` ログへ `peak=` を追加。
+
+### 15.2 修正後ビルドサイズ (`IDF 5.5.1`)
+
+| 指標 | `off` (既定) | `on` (`CONFIG_WATCH_ENABLE_MUSE_LINK=y`) | 差分 (`on - off`) |
+|---|---|---|---|
+| `sas_watch.bin` | `0x21c710` (2,213,648B) | `0x2385c0` (2,328,000B) | +114,352B |
+| Used static IRAM | 16,384 (空き 0) | 16,384 (空き 0) | 0 |
+| Used stat D/IRAM | 226,539 (空き 115,221) | 232,123 (空き 109,637) | +5,584 |
+| Flash `.text` / `.rodata` | 1,466,820 / 573,428 | 1,565,336 / 586,976 | +98,516 / +13,548 |
+
+### 15.3 実機 M1 計測サマリ (`2026-11-18`)
+
+- 資格情報永続化: シリアル `M` 行モード (`16B / 0.18s`) 投入後、`esptool hard_reset` および `0x20000` 再書込み後も `configured=true`, `token_len=597`, `host=hatch.metaaivm.com` を保持（作業終了後、一時平文ファイルは `shred -u` で消去済み）。
+- セッション起動 (`muse start`): 開始前 `int_largest=31,744B`, `psram_free=1,545,180B`, `psram_largest=1,212,416B` → retry 4 (`disable_pmf=1`, all-channel scan) で AP 接続維持 (`38.87s` 無切断で `muse stop` まで継続) → `ready` (`ready heap: int_free=32,531B int_largest=13,824B psram_free=368,528B psram_largest=360,448B`, ready 中 `'h'` `heap=24,799B`)。
+- 日本語送受信 (`muse send` → `muse reply`): 43B 送信 → `9.5s` で応答完了 → `last reply 36 bytes (kept 36)`。
+- 停止回復 (`muse stop`): `wifi=false`, `wifi quiet off` (BLE 広告再開), `session="off"`, `'h'` `heap=62,495B`。
+- マイク録音 (`'v'` 5.5 秒テスト): `audio: rec done ... samples=88064 size=44048 peak=3780 stream=0`。
+- 未確認 (今後の TODO(hw)): Muse アプリ UI からのボタン音声入力送信、テーマ (`cute`/`cyber`) 切替状態での 15 秒音声送信 PSRAM 余裕、電池消費、`muse_chat` 停止 API の追加。

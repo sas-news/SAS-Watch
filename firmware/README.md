@@ -109,6 +109,7 @@ git checkout -- firmware/dependencies.lock   # ローカル専用の変更を戻
 |---|---|
 | `b` | 描画ベンチ。主要 6 画面で全面再描画とスクロールの ms を `bench:` 行に出す (docs/perf.md) |
 | `t` | 同梱テーマを順に切り替える (standard→mame→cosmos→cute→cyber。NVS に保存される) |
+| `y` | 拡張キャラ系テーマを切り替える (mol→sopia。NVS に保存される) |
 | `h` | app タスクの心拍・内蔵ヒープ |
 | `s` | 強制 deep sleep |
 | `g` | 直前の起床ゲート・入眠の診断を再表示 |

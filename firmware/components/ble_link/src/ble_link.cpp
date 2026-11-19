@@ -83,6 +83,8 @@ bool s_started = false;
 bool s_adv_wanted = true;
 // true なら広告間隔を低速化する (画面OFF中 ~1.0–1.3s)。
 bool s_adv_slow = false;
+// Wi-Fi 接続・通信中は未接続時の BLE 広告を止めて RF 共存競合を抑える。
+bool s_wifi_quiet = false;
 // true なら dictation 中: 短い接続間隔 + 2M PHY を希望する。
 // 開始/停止/切断で必ず切り替える (戻し忘れると電池を食う)。
 bool s_stream_mode = false;
@@ -423,6 +425,7 @@ ble_gatt_svc_def kGattSvcs[] = {
 int gap_event(ble_gap_event* event, void* arg);
 
 int start_advertising() {
+  if (s_wifi_quiet) return 0;
   // "SAS-Watch-XXXX" の XXXX は MAC の下位 2 バイト (局所的な識別用)。
   uint8_t mac[6] = {0};
   ble_hs_id_copy_addr(s_addr_type, mac, nullptr);
@@ -773,6 +776,18 @@ extern "C" void ble_link_set_adv_rate(bool slow) {
   if (!s_started || s_conn != BLE_HS_CONN_HANDLE_NONE) return;
   if (s_adv_wanted) {
     if (ble_gap_adv_active()) ble_gap_adv_stop();
+    start_advertising();
+  }
+}
+
+extern "C" void ble_link_set_wifi_quiet(bool quiet) {
+  if (s_wifi_quiet == quiet) return;
+  s_wifi_quiet = quiet;
+  ESP_LOGI(kTag, "wifi quiet %s", quiet ? "on (pause BLE adv)" : "off");
+  if (!s_started || s_conn != BLE_HS_CONN_HANDLE_NONE) return;
+  if (quiet) {
+    if (ble_gap_adv_active()) ble_gap_adv_stop();
+  } else if (s_adv_wanted && !ble_gap_adv_active()) {
     start_advertising();
   }
 }

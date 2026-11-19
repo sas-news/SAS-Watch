@@ -48,9 +48,13 @@ idf_component_register(
 if(MUSE_LINK_SRCS)
     # SDK の muse_hatch_console (stdout へ @chat を書く) は、SAS-Watch 側の
     # フック (src/muse_session.cpp) に置き換える。SDK ソースは無改変のまま、
-    # このファイルだけ定義側のシンボル名を退避する。
+    # コンパイル定義だけで切り替えとコンパクトバッファ・全文レビューを有効化する。
     set_source_files_properties("sdk/chat/src/muse_chat_text.c"
-        PROPERTIES COMPILE_DEFINITIONS "muse_hatch_console=muse_hatch_console_sdk_renamed")
+        PROPERTIES COMPILE_DEFINITIONS
+        "muse_hatch_console=muse_hatch_console_sdk_renamed;CONFIG_MUSE_LATEST_REPLY=1")
+    set_source_files_properties("sdk/chat/src/muse_chat_session.cpp"
+        PROPERTIES COMPILE_DEFINITIONS
+        "CONFIG_MUSE_HATCH_COMPACT_BUFFERS=1;CONFIG_MUSE_LATEST_REPLY=1")
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     target_compile_options(${COMPONENT_LIB} PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>

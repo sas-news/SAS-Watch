@@ -21,7 +21,7 @@ namespace {
 // Wi-Fi 接続待ちの最大時間。muse_link_start 自体は専用タスクを起動して
 // 即座に返る (docs/muse-bmin.md §12.1)。
 // TODO(hw): 実機で Wi-Fi 接続待ち (起動〜ready) の実測時間を確認して調整する。
-constexpr uint32_t kWifiTimeoutMs = 20000;
+constexpr uint32_t kWifiTimeoutMs = 130000;
 
 // 音声入力 (T57)。15 秒の音声ノートを PSRAM 上で PCM にして送る。
 // 音声はファイルに保存しない (AudioPort の stream 経路のみ)。

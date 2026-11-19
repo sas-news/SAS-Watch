@@ -6,6 +6,7 @@
 #include "audio/audio.hpp"
 #include "board/board.hpp"
 #include "board/power_consts.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_idf_version.h"
@@ -152,6 +153,8 @@ void theme_assets_reset(uint32_t asset_bytes) {
   s_arena_used = 0;
 }
 
+bool staged_fread(FILE* f, uint8_t* dst, uint32_t n);
+
 namespace {
 
 struct ZipCtx {
@@ -161,7 +164,7 @@ struct ZipCtx {
 bool zip_at(void* user, uint32_t off, uint8_t* dst, uint32_t n) {
   FILE* f = static_cast<ZipCtx*>(user)->f;
   return std::fseek(f, static_cast<long>(off), SEEK_SET) == 0 &&
-         std::fread(dst, 1, n, f) == n;
+         staged_fread(f, dst, n);
 }
 
 // <root>/<id>.zip を開いてエントリ表を返す。開けなければ cnt<0。
@@ -179,7 +182,7 @@ int zip_open_list(const char* id, FILE** out_f,
   }
   ZipCtx zc{f};
   watch::ThemeZipSrc z{&zc, &zip_at, static_cast<uint32_t>(fsz)};
-  static uint8_t tail[4096];
+  EXT_RAM_BSS_ATTR static uint8_t tail[4096];
   const int cnt = watch::theme_zipfile_list(z, list, cap, tail, sizeof(tail));
   if (cnt < 0) {
     std::fclose(f);
@@ -206,7 +209,7 @@ bool theme_entry_stat(const char* id, const char* name, uint32_t* out_size) {
   if (!id || !name || !out_size) return false;
   // zip
   {
-    static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
+    EXT_RAM_BSS_ATTR static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
     FILE* f = nullptr;
     const int cnt = zip_open_list(id, &f, list,
                                   watch::kThemePackageMaxEntries);
@@ -260,7 +263,7 @@ bool theme_entry_read(const char* id, const char* name, uint8_t* dst,
   if (!id || !name || !dst) return false;
   // zip
   {
-    static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
+    EXT_RAM_BSS_ATTR static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
     FILE* f = nullptr;
     const int cnt = zip_open_list(id, &f, list,
                                   watch::kThemePackageMaxEntries);
@@ -306,7 +309,7 @@ bool theme_entry_head(const char* id, const char* name, uint8_t* dst,
   if (!id || !name || !dst) return false;
   // zip
   {
-    static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
+    EXT_RAM_BSS_ATTR static watch::ThemePackageEntry list[watch::kThemePackageMaxEntries];
     FILE* f = nullptr;
     const int cnt = zip_open_list(id, &f, list,
                                   watch::kThemePackageMaxEntries);
@@ -363,6 +366,12 @@ uint8_t* theme_asset_alloc(uint32_t n) {
   uint8_t* p = s_arena + s_arena_used;
   s_arena_used += (n + 7u) & ~7u;
   return p;
+}
+
+uint32_t theme_asset_mark() { return s_arena_used; }
+
+void theme_asset_rewind(uint32_t mark) {
+  if (mark <= s_arena_used) s_arena_used = mark;
 }
 
 // ---- 画面背景ブロック ----

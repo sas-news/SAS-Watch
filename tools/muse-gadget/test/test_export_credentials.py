@@ -45,7 +45,9 @@ ENTRIES = 126
 DUMMY_HOST = "host-EXAMPLE.invalid"
 DUMMY_VM = "vm-EXAMPLE-0001"
 DUMMY_TOKEN = "DUMMY-TOKEN-0123456789-abcdefghijklmnopqrstuvwxyz"
-SECRETS = (DUMMY_HOST, DUMMY_VM, DUMMY_TOKEN)
+DUMMY_SSID = "Dummy WiFi Net"
+DUMMY_PASS = "Dummy Pass 9876"
+SECRETS = (DUMMY_HOST, DUMMY_VM, DUMMY_TOKEN, DUMMY_SSID, DUMMY_PASS)
 
 
 # ---- 合成 NVS イメージの組み立て (ESP-IDF 不要) ---------------------------
@@ -497,6 +499,8 @@ def _find_idf_generator() -> Optional[Path]:
     candidates += [
         WORKSPACE / ".toolchain" / "esp-idf",
         WORKSPACE / ".toolchain" / "esp-idf-v6.0.3",
+        WORKSPACE / "muse-gadget-test" / "esp-idf-v6.0.3",
+        Path.home() / "esp" / "esp-idf",
     ]
     for base in candidates:
         generator = base / "components" / "nvs_flash" / "nvs_partition_generator" / "nvs_partition_gen.py"
@@ -512,8 +516,10 @@ def _find_idf_python() -> Optional[Path]:
         candidates.append(Path(env_python))
     for pattern in (
         ".toolchain/espressif*/python_env/*/bin/python",
+        "muse-gadget-test/espressif*/python_env/*/bin/python",
     ):
         candidates += sorted(WORKSPACE.glob(pattern))
+    candidates += sorted(Path.home().glob(".espressif/python_env/*/bin/python"))
     candidates.append(Path(sys.executable))
     for candidate in candidates:
         try:
@@ -817,6 +823,114 @@ class SerialFeedTests(unittest.TestCase):
         result = self.run_feeder(token_len=len(DUMMY_TOKEN) - 1)
         self.assertEqual(result.returncode, 6, result.stderr)
         self.assertIn("一致しません", result.stderr)
+        assert_no_secrets(self, result.stdout)
+        assert_no_secrets(self, result.stderr)
+
+
+class HomehubAndWifiTests(unittest.TestCase):
+    """公式 Muse ファームの namespace ``homehub`` と ``--include-wifi`` の検証。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def build_homehub(
+        self,
+        *,
+        access_token: Optional[bytes] = DUMMY_TOKEN.encode(),
+        auth_token: Optional[bytes] = None,
+        noise_host: Optional[bytes] = DUMMY_HOST.encode(),
+        vm_url: Optional[bytes] = None,
+        ssid: Optional[bytes] = DUMMY_SSID.encode(),
+        password: Optional[bytes] = DUMMY_PASS.encode(),
+        also_muse_non_token: bool = True,
+    ) -> Path:
+        entries: List[bytes] = []
+        entries.append(_entry(0, 0x01, 1, "homehub", bytes([1]) + b"\xff" * 7))
+        if access_token is not None:
+            entries += _string_entries(1, "access_token", access_token)
+        if auth_token is not None:
+            entries += _string_entries(1, "auth_token", auth_token)
+        if noise_host is not None:
+            entries += _string_entries(1, "noise_host", noise_host)
+        if vm_url is not None:
+            entries += _string_entries(1, "vm_url", vm_url)
+        if ssid is not None:
+            entries += _string_entries(1, "ssid", ssid)
+        if password is not None:
+            entries += _string_entries(1, "password", password)
+        if also_muse_non_token:
+            entries.append(_entry(0, 0x01, 1, "muse", bytes([2]) + b"\xff" * 7))
+            entries.append(_entry(2, 0x01, 1, "volume", bytes([80]) + b"\xff" * 7))
+        return write_temp_image(self.tmp, _page(entries, 0, ec.PAGE_STATUS_ACTIVE), "homehub.bin")
+
+    def test_homehub_defaults_and_include_wifi_export(self):
+        path = self.build_homehub(noise_host=None, vm_url=None)
+        out = self.tmp / "creds.json"
+        shell = self.tmp / "muse-set.txt"
+        result = run_tool(
+            ["--nvs", str(path), "--include-wifi", "--check", "--out", str(out), "--shell", str(shell)]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('namespace "homehub": あり', result.stdout)
+        self.assertIn("結果: OK (5/5)", result.stdout)
+        assert_no_secrets(self, result.stdout)
+        assert_no_secrets(self, result.stderr)
+
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(payload["host"], ec.DEFAULT_HOST)
+        self.assertEqual(payload["vm"], "")
+        self.assertEqual(payload["token"], DUMMY_TOKEN)
+        self.assertEqual(payload["source_namespace"], "homehub")
+        self.assertEqual(payload["wifi_ssid"], DUMMY_SSID)
+        self.assertEqual(payload["wifi_pass"], DUMMY_PASS)
+        self.assertEqual(payload["lengths"]["wifi_ssid"], len(DUMMY_SSID))
+        self.assertEqual(payload["lengths"]["wifi_pass"], len(DUMMY_PASS))
+
+        lines = shell.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(
+            lines,
+            [
+                "muse set ssid %s" % DUMMY_SSID,
+                "muse set pass %s" % DUMMY_PASS,
+                "muse set host %s" % ec.DEFAULT_HOST,
+                "muse set vm",
+                "muse set token %s" % DUMMY_TOKEN,
+                "muse status",
+            ],
+        )
+
+    def test_homehub_vm_url_derivation_and_auth_token_fallback(self):
+        path = self.build_homehub(
+            access_token=None,
+            auth_token=DUMMY_TOKEN.encode(),
+            vm_url=("wss://%s.metaaivm.com/v1/noise" % DUMMY_VM).encode(),
+        )
+        parsed = ec.parse_nvs(path.read_bytes())
+        creds = ec.extract_credentials(parsed)
+        self.assertEqual(creds.host, DUMMY_HOST)
+        self.assertEqual(creds.vm, DUMMY_VM)
+        self.assertEqual(creds.token, DUMMY_TOKEN)
+        self.assertEqual(creds.source_namespace, "homehub")
+
+    def test_homehub_open_wifi_without_password(self):
+        path = self.build_homehub(password=None)
+        shell = self.tmp / "open-wifi.txt"
+        result = run_tool(["--nvs", str(path), "--include-wifi", "--shell", str(shell)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        assert_no_secrets(self, result.stdout)
+        lines = shell.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "muse set ssid %s" % DUMMY_SSID)
+        self.assertEqual(lines[1], "muse set pass")
+
+    def test_include_wifi_missing_ssid_fails_without_secret_leak(self):
+        path = self.build_homehub(ssid=None)
+        result = run_tool(["--nvs", str(path), "--include-wifi", "--check"])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NG (4/5)", result.stdout)
         assert_no_secrets(self, result.stdout)
         assert_no_secrets(self, result.stderr)
 

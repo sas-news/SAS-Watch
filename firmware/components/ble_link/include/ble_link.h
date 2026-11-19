@@ -85,6 +85,9 @@ void ble_link_set_advertising(bool enable);
 // 広告間隔を低速 (~1.0–1.3s) と通常 (0.5–1.0s) で切り替える。
 // 広告中なら張り直し、接続中はフラグだけ記録して次の広告開始に反映。
 void ble_link_set_adv_rate(bool slow);
+// Wi-Fi 利用中の一時静音: true の間は未接続時の BLE 広告を止め、power_apply の
+// ble_link_set_advertising(true) 遷移による再開も抑止する (既存接続は維持)。
+void ble_link_set_wifi_quiet(bool quiet);
 
 // ---- AI dictation (リアルタイム音声) 中のリンク高速化 ----
 // true: 接続間隔を 15–30ms / latency 0 に要求し、2M PHY を希望する。

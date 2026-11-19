@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "esp_attr.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_vfs.h"
@@ -38,15 +39,26 @@ uint32_t s_size = 0;          // 期待サイズ
 char s_pending[32] = {};      // 適用待ち theme id (volatile 共有)
 volatile bool s_has_pending = false;
 
-// NimBLE タスク上だけで動くため、大きいバッファは static に置いて
-// スタックを食わない (単一スレッド前提で再入なし)。
-uint8_t s_tail[4096];
-watch::ThemePackageEntry s_list[kMaxEntries];
+// NimBLE タスク上だけで動くため、大きいバッファは static (PSRAM) に置いて
+// スタックと内蔵 SRAM を節約する (単一スレッド前提で再入なし)。
+EXT_RAM_BSS_ATTR uint8_t s_tail[4096];
+EXT_RAM_BSS_ATTR watch::ThemePackageEntry s_list[kMaxEntries];
 
 bool file_at(void* user, uint32_t off, uint8_t* dst, uint32_t n) {
   FILE* f = static_cast<FILE*>(user);
-  return std::fseek(f, static_cast<long>(off), SEEK_SET) == 0 &&
-         std::fread(dst, 1, n, f) == n;
+  if (std::fseek(f, static_cast<long>(off), SEEK_SET) != 0) return false;
+  // dst (s_tail 等) は PSRAM に置くため、直接 std::fread すると
+  // esp_flash_read が内蔵 RAM の一時バッファ確保を行う。DRAM スタックで刻む。
+  uint8_t stage[512];
+  uint32_t done = 0;
+  while (done < n) {
+    const uint32_t m =
+        (n - done) < sizeof(stage) ? (n - done) : sizeof(stage);
+    if (std::fread(stage, 1, m, f) != m) return false;
+    std::memcpy(dst + done, stage, m);
+    done += m;
+  }
+  return true;
 }
 
 // .theme.bulk を検証して /assets/themes/<id>.zip へ rename する。
@@ -74,14 +86,14 @@ bool install(const char* tmp, char* out_id, size_t cap) {
     std::fclose(f);
     return false;
   }
-  static uint8_t mbuf[32 * 1024];
+  EXT_RAM_BSS_ATTR static uint8_t mbuf[32 * 1024];
   uint32_t moff = 0;
   if (!watch::theme_zipfile_data_offset(z, *me, &moff) ||
       !z.at(z.user, moff, mbuf, me->size)) {
     std::fclose(f);
     return false;
   }
-  static watch::ThemeManifest m;  // NimBLE タスクのスタック節約のため static
+  EXT_RAM_BSS_ATTR static watch::ThemeManifest m;  // NimBLE タスクのスタック・内蔵 SRAM 節約のため PSRAM static
   if (watch::theme_manifest_parse(mbuf, me->size, &m) !=
       watch::ThemeManifestError::kOk) {
     ESP_LOGW(TAG, "bad manifest");

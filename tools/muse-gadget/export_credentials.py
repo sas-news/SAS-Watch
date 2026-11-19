@@ -70,11 +70,23 @@ DEFAULT_NVS_SIZE = 0xC000  # 49,152
 HOST_MAX = 63
 VM_MAX = 63
 TOKEN_MAX = 1023
+SSID_MAX = 32
+PASS_MAX = 63
+URL_MAX = 255
+DEFAULT_HOST = "hatch.metaaivm.com"
 MUSE_NAMESPACE = "muse"
+HOMEHUB_NAMESPACE = "homehub"
 KEY_HOST = "host"
 KEY_VM = "vm"
 KEY_VM_LEGACY = "vm_id"  # SAS-Watch Phase 1 の旧キー (読むだけ)
 KEY_TOKEN = "token"
+KEY_HOMEHUB_TOKEN = "access_token"
+KEY_HOMEHUB_TOKEN_LEGACY = "auth_token"
+KEY_HOMEHUB_HOST = "noise_host"
+KEY_HOMEHUB_VM_URL = "vm_url"
+KEY_SSID = "ssid"
+KEY_PASS_MUSE = "pass"
+KEY_PASS_HOMEHUB = "password"
 
 # SAS-Watch のシリアル行モード (T52) は 1 行 1100 バイトまで。
 SERIAL_LINE_MAX = 1100
@@ -366,6 +378,21 @@ class Credentials:
     vm: str
     token: str
     vm_legacy: bool = False
+    source_namespace: str = MUSE_NAMESPACE
+
+
+@dataclass
+class WifiCredentials:
+    ssid: str
+    password: str
+
+
+def _use_homehub(parsed: ParsedNVS) -> bool:
+    """muse 側に token が無く homehub namespace があるときは公式ペアリング形式とみなす。"""
+    muse_ns = parsed.namespaces.get(MUSE_NAMESPACE)
+    homehub_ns = parsed.namespaces.get(HOMEHUB_NAMESPACE)
+    muse_has_token = muse_ns is not None and KEY_TOKEN in muse_ns
+    return (not muse_has_token) and (homehub_ns is not None)
 
 
 def _decode_credential(value: ParsedValue, max_len: int) -> Tuple[Optional[str], Optional[str], int]:
@@ -389,9 +416,93 @@ def _decode_credential(value: ParsedValue, max_len: int) -> Tuple[Optional[str],
     return text, None, len(text)
 
 
+def _decode_wifi_str(
+    value: ParsedValue, max_len: int, allow_empty: bool
+) -> Tuple[Optional[str], Optional[str], int]:
+    """Wi-Fi SSID/パスワードを検証して文字列にする (空白 0x20 可、制御文字不可)。"""
+    if value.kind != "string":
+        return None, "文字列ではありません (NVS の型が違います)", 0
+    raw = value.data if isinstance(value.data, bytes) else b""
+    if not raw:
+        if allow_empty:
+            return "", None, 0
+        return None, "空です", 0
+    if len(raw) > max_len:
+        return None, "長すぎます (上限 %d バイト)" % max_len, len(raw)
+    if any(byte < 0x20 or byte == 0x7F for byte in raw):
+        return None, "改行・制御文字を含みます", len(raw)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "UTF-8 として読めません", len(raw)
+    return text, None, len(raw)
+
+
+def _derive_vm_id_from_url(url: str) -> Tuple[Optional[str], Optional[str]]:
+    """wss://<vm_id>.<domain>/... から vm_id を取り出す (vm_connect.h の vm_derive_id 互換)。"""
+    pos = url.find("://")
+    if pos < 0:
+        return None, "vm_url から VM ID を取り出せません"
+    rest = url[pos + 3 :]
+    dot = rest.find(".")
+    if dot <= 0:
+        return None, "vm_url から VM ID を取り出せません"
+    vm_id = rest[:dot]
+    if len(vm_id) > VM_MAX:
+        return None, "VM ID が長すぎます (上限 %d バイト)" % VM_MAX
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+    if any(ch not in allowed for ch in vm_id):
+        return None, "vm_url の VM ID に不正な文字が含まれます"
+    return vm_id, None
+
+
 def inspect_credentials(parsed: ParsedNVS) -> Dict[str, KeyStatus]:
-    """namespace ``muse`` の host/vm/token の状態を返す (値は含めない)。"""
+    """namespace ``muse`` (または公式ペアリング済みの ``homehub``) の host/vm/token の状態を返す (値は含めない)。"""
     statuses: Dict[str, KeyStatus] = {}
+    if _use_homehub(parsed):
+        ns = parsed.namespaces[HOMEHUB_NAMESPACE]
+        host_val = ns.get(KEY_HOMEHUB_HOST)
+        if host_val is None or (host_val.kind == "string" and host_val.data == b""):
+            statuses[KEY_HOST] = KeyStatus(
+                name=KEY_HOST, found=True, valid=True, length=len(DEFAULT_HOST)
+            )
+        else:
+            _text, error, length = _decode_credential(host_val, HOST_MAX)
+            statuses[KEY_HOST] = KeyStatus(
+                name=KEY_HOST, found=True, valid=error is None, length=length, error=error or ""
+            )
+
+        vm_val = ns.get(KEY_HOMEHUB_VM_URL)
+        if vm_val is None or (vm_val.kind == "string" and vm_val.data == b""):
+            statuses[KEY_VM] = KeyStatus(name=KEY_VM, found=True, valid=True, length=0)
+        else:
+            url_text, error, length = _decode_credential(vm_val, URL_MAX)
+            if error is not None or url_text is None:
+                statuses[KEY_VM] = KeyStatus(
+                    name=KEY_VM, found=True, valid=False, length=length, error=error or ""
+                )
+            else:
+                vm_id, vm_err = _derive_vm_id_from_url(url_text)
+                statuses[KEY_VM] = KeyStatus(
+                    name=KEY_VM,
+                    found=True,
+                    valid=vm_err is None,
+                    length=len(vm_id) if vm_id is not None else 0,
+                    error=vm_err or "",
+                )
+
+        tok_val = ns.get(KEY_HOMEHUB_TOKEN)
+        if tok_val is None:
+            tok_val = ns.get(KEY_HOMEHUB_TOKEN_LEGACY)
+        if tok_val is None:
+            statuses[KEY_TOKEN] = KeyStatus(name=KEY_TOKEN, found=False, error="キーがありません")
+        else:
+            _text, error, length = _decode_credential(tok_val, TOKEN_MAX)
+            statuses[KEY_TOKEN] = KeyStatus(
+                name=KEY_TOKEN, found=True, valid=error is None, length=length, error=error or ""
+            )
+        return statuses
+
     ns = parsed.namespaces.get(MUSE_NAMESPACE)
 
     if ns is None:
@@ -422,6 +533,84 @@ def inspect_credentials(parsed: ParsedNVS) -> Dict[str, KeyStatus]:
     return statuses
 
 
+def inspect_wifi_credentials(parsed: ParsedNVS) -> Dict[str, KeyStatus]:
+    """``homehub`` または ``muse`` から Wi-Fi (ssid/password) の状態を返す (値は含めない)。"""
+    homehub_ns = parsed.namespaces.get(HOMEHUB_NAMESPACE)
+    muse_ns = parsed.namespaces.get(MUSE_NAMESPACE)
+
+    if homehub_ns is not None and KEY_SSID in homehub_ns:
+        ns = homehub_ns
+        pass_key = KEY_PASS_HOMEHUB
+    elif muse_ns is not None and KEY_SSID in muse_ns:
+        ns = muse_ns
+        pass_key = KEY_PASS_MUSE
+    elif homehub_ns is not None:
+        ns = homehub_ns
+        pass_key = KEY_PASS_HOMEHUB
+    else:
+        ns = muse_ns
+        pass_key = KEY_PASS_MUSE
+
+    if ns is None:
+        return {
+            "wifi_ssid": KeyStatus(name="wifi_ssid", found=False, error="namespace がありません"),
+            "wifi_pass": KeyStatus(name="wifi_pass", found=False, error="namespace がありません"),
+        }
+
+    statuses: Dict[str, KeyStatus] = {}
+    ssid_val = ns.get(KEY_SSID)
+    if ssid_val is None:
+        statuses["wifi_ssid"] = KeyStatus(name="wifi_ssid", found=False, error="キーがありません")
+    else:
+        _t, err, length = _decode_wifi_str(ssid_val, SSID_MAX, allow_empty=False)
+        statuses["wifi_ssid"] = KeyStatus(
+            name="wifi_ssid", found=True, valid=err is None, length=length, error=err or ""
+        )
+
+    pass_val = ns.get(pass_key)
+    if pass_val is None:
+        # オープンネットワークでは password キー自体が無い場合がある
+        statuses["wifi_pass"] = KeyStatus(name="wifi_pass", found=True, valid=True, length=0)
+    else:
+        _t, err, length = _decode_wifi_str(pass_val, PASS_MAX, allow_empty=True)
+        statuses["wifi_pass"] = KeyStatus(
+            name="wifi_pass", found=True, valid=err is None, length=length, error=err or ""
+        )
+    return statuses
+
+
+def extract_wifi_credentials(parsed: ParsedNVS) -> WifiCredentials:
+    """検証済みの Wi-Fi 資格情報を返す。欠落・不正なら CredentialsError。"""
+    statuses = inspect_wifi_credentials(parsed)
+    bad = [status for status in statuses.values() if not status.ok]
+    if bad:
+        details = "、".join(
+            "%s: %s" % (status.name, status.error if status.error else "不正") for status in bad
+        )
+        raise CredentialsError("Wi-Fi の資格情報が揃っていません (%s)" % details)
+
+    homehub_ns = parsed.namespaces.get(HOMEHUB_NAMESPACE)
+    muse_ns = parsed.namespaces.get(MUSE_NAMESPACE)
+    if homehub_ns is not None and KEY_SSID in homehub_ns:
+        ns = homehub_ns
+        pass_key = KEY_PASS_HOMEHUB
+    else:
+        ns = muse_ns  # type: ignore[assignment]
+        pass_key = KEY_PASS_MUSE
+
+    ssid_text, err, _len = _decode_wifi_str(ns[KEY_SSID], SSID_MAX, allow_empty=False)
+    if ssid_text is None:  # pragma: no cover
+        raise CredentialsError("wifi_ssid を読み出せません (%s)" % err)
+    pass_val = ns.get(pass_key)
+    if pass_val is None:
+        pass_text = ""
+    else:
+        pass_text, err, _len = _decode_wifi_str(pass_val, PASS_MAX, allow_empty=True)
+        if pass_text is None:  # pragma: no cover
+            raise CredentialsError("wifi_pass を読み出せません (%s)" % err)
+    return WifiCredentials(ssid=ssid_text, password=pass_text)
+
+
 def extract_credentials(parsed: ParsedNVS) -> Credentials:
     """検証済みの資格情報を返す。欠落・不正なら CredentialsError。"""
     statuses = inspect_credentials(parsed)
@@ -431,6 +620,37 @@ def extract_credentials(parsed: ParsedNVS) -> Credentials:
             "%s: %s" % (status.name, status.error if status.error else "不正") for status in bad
         )
         raise CredentialsError("Muse の資格情報が揃っていません (%s)" % details)
+
+    if _use_homehub(parsed):
+        ns = parsed.namespaces[HOMEHUB_NAMESPACE]
+        host_val = ns.get(KEY_HOMEHUB_HOST)
+        if host_val is None or (host_val.kind == "string" and host_val.data == b""):
+            host = DEFAULT_HOST
+        else:
+            host_t, err, _l = _decode_credential(host_val, HOST_MAX)
+            if host_t is None:  # pragma: no cover
+                raise CredentialsError("host を読み出せません (%s)" % err)
+            host = host_t
+
+        vm_val = ns.get(KEY_HOMEHUB_VM_URL)
+        if vm_val is None or (vm_val.kind == "string" and vm_val.data == b""):
+            vm = ""
+        else:
+            url_t, err, _l = _decode_credential(vm_val, URL_MAX)
+            if url_t is None:  # pragma: no cover
+                raise CredentialsError("vm_url を読み出せません (%s)" % err)
+            vm_id, vm_err = _derive_vm_id_from_url(url_t)
+            if vm_id is None:  # pragma: no cover
+                raise CredentialsError("vm_url を読み出せません (%s)" % vm_err)
+            vm = vm_id
+
+        tok_val = ns.get(KEY_HOMEHUB_TOKEN) or ns.get(KEY_HOMEHUB_TOKEN_LEGACY)
+        if tok_val is None:  # pragma: no cover
+            raise CredentialsError("token を読み出せません")
+        token_t, err, _l = _decode_credential(tok_val, TOKEN_MAX)
+        if token_t is None:  # pragma: no cover
+            raise CredentialsError("token を読み出せません (%s)" % err)
+        return Credentials(host=host, vm=vm, token=token_t, source_namespace=HOMEHUB_NAMESPACE)
 
     ns = parsed.namespaces[MUSE_NAMESPACE]
 
@@ -446,16 +666,25 @@ def extract_credentials(parsed: ParsedNVS) -> Credentials:
         vm=read(KEY_VM_LEGACY if legacy else KEY_VM, VM_MAX),
         token=read(KEY_TOKEN, TOKEN_MAX),
         vm_legacy=legacy,
+        source_namespace=MUSE_NAMESPACE,
     )
 
 
 # ---- 出力 -----------------------------------------------------------------
 
 
-def _summary_rows(statuses: Dict[str, KeyStatus]) -> List[Tuple[str, str]]:
+def _summary_rows(
+    statuses: Dict[str, KeyStatus], keys: Tuple[str, ...] = (KEY_HOST, KEY_VM, KEY_TOKEN)
+) -> List[Tuple[str, str]]:
     rows = []
-    labels = {KEY_HOST: "host ", KEY_VM: "vm   ", KEY_TOKEN: "token"}
-    for key in (KEY_HOST, KEY_VM, KEY_TOKEN):
+    labels = {
+        KEY_HOST: "host ",
+        KEY_VM: "vm   ",
+        KEY_TOKEN: "token",
+        "wifi_ssid": "ssid ",
+        "wifi_pass": "pass ",
+    }
+    for key in keys:
         status = statuses[key]
         if status.ok:
             note = "  (旧キー vm_id から)" if status.legacy else ""
@@ -464,22 +693,33 @@ def _summary_rows(statuses: Dict[str, KeyStatus]) -> List[Tuple[str, str]]:
             text = "なし (%s)" % (status.error or "キーがありません")
         else:
             text = "不正 (%s)" % (status.error or "不明")
-        rows.append((labels[key], text))
+        rows.append((labels.get(key, key), text))
     return rows
 
 
 def print_check(
-    source_label: str, nvs_size: int, parsed: ParsedNVS, statuses: Dict[str, KeyStatus]
+    source_label: str,
+    nvs_size: int,
+    parsed: ParsedNVS,
+    statuses: Dict[str, KeyStatus],
+    wifi_statuses: Optional[Dict[str, KeyStatus]] = None,
 ) -> bool:
     print("NVS イメージ: %s (%d バイト, %d ページ)" % (source_label, nvs_size, parsed.pages_seen))
     print('namespace "muse": %s' % ("あり" if MUSE_NAMESPACE in parsed.namespaces else "なし"))
+    if _use_homehub(parsed):
+        print('namespace "homehub": %s' % ("あり" if HOMEHUB_NAMESPACE in parsed.namespaces else "なし"))
     for label, text in _summary_rows(statuses):
         print("  %s: %s" % (label, text))
+    all_statuses = list(statuses.values())
+    if wifi_statuses is not None:
+        for label, text in _summary_rows(wifi_statuses, ("wifi_ssid", "wifi_pass")):
+            print("  %s: %s" % (label, text))
+        all_statuses.extend(wifi_statuses.values())
     for warning in parsed.warnings:
         print("  警告: %s" % warning)
-    good = sum(1 for status in statuses.values() if status.ok)
-    ok = good == len(statuses)
-    print("結果: %s (%d/%d)" % ("OK" if ok else "NG", good, len(statuses)))
+    good = sum(1 for status in all_statuses if status.ok)
+    ok = good == len(all_statuses)
+    print("結果: %s (%d/%d)" % ("OK" if ok else "NG", good, len(all_statuses)))
     if not ok:
         print(
             "  token が無い/空なら M1 は NO-GO です (docs/muse-m1.md の GO/NO-GO を参照)。",
@@ -521,33 +761,51 @@ def _check_overwrite(paths: List[Path], force: bool) -> None:
         )
 
 
-def write_json(path: Path, credentials: Credentials, source_label: str) -> None:
-    payload = {
+def write_json(
+    path: Path,
+    credentials: Credentials,
+    source_label: str,
+    wifi: Optional[WifiCredentials] = None,
+) -> None:
+    lengths: Dict[str, int] = {
+        "host": len(credentials.host),
+        "vm": len(credentials.vm),
+        "token": len(credentials.token),
+    }
+    payload: Dict[str, object] = {
         "host": credentials.host,
         "vm": credentials.vm,
         "token": credentials.token,
-        "lengths": {
-            "host": len(credentials.host),
-            "vm": len(credentials.vm),
-            "token": len(credentials.token),
-        },
+        "source_namespace": credentials.source_namespace,
+        "lengths": lengths,
         "source": source_label,
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "warning": "Muse の資格情報。共有・コミットしない。使い終わったら削除する。",
     }
+    if wifi is not None:
+        payload["wifi_ssid"] = wifi.ssid
+        payload["wifi_pass"] = wifi.password
+        lengths["wifi_ssid"] = len(wifi.ssid.encode("utf-8"))
+        lengths["wifi_pass"] = len(wifi.password.encode("utf-8"))
     _atomic_write_0600(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
-def build_shell_lines(credentials: Credentials) -> List[str]:
+def build_shell_lines(
+    credentials: Credentials, wifi: Optional[WifiCredentials] = None
+) -> List[str]:
     """シリアル行モードに送る行を作る。値はそのまま入るので扱い注意。"""
-    lines = [
+    lines: List[str] = []
+    if wifi is not None:
+        lines.append("muse set ssid %s" % wifi.ssid)
+        lines.append(("muse set pass %s" % wifi.password) if wifi.password else "muse set pass")
+    lines.extend([
         "muse set host %s" % credentials.host,
-        "muse set vm %s" % credentials.vm,
+        ("muse set vm %s" % credentials.vm) if credentials.vm else "muse set vm",
         "muse set token %s" % credentials.token,
         "muse status",
-    ]
+    ])
     for line in lines:
-        if len(line) + 1 > SERIAL_LINE_MAX:  # +1 は改行
+        if len(line.encode("utf-8")) + 1 > SERIAL_LINE_MAX:  # +1 は改行
             raise CredentialsError(
                 "シリアル 1 行の上限 (%d バイト) を超えます。値が長すぎます" % SERIAL_LINE_MAX
             )
@@ -556,8 +814,10 @@ def build_shell_lines(credentials: Credentials) -> List[str]:
     return lines
 
 
-def write_shell(path: Path, credentials: Credentials) -> None:
-    _atomic_write_0600(path, "\n".join(build_shell_lines(credentials)) + "\n")
+def write_shell(
+    path: Path, credentials: Credentials, wifi: Optional[WifiCredentials] = None
+) -> None:
+    _atomic_write_0600(path, "\n".join(build_shell_lines(credentials, wifi=wifi)) + "\n")
 
 
 # ---- CLI ------------------------------------------------------------------
@@ -574,7 +834,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "例:\n"
             "  export_credentials.py --nvs muse-nvs.bin --check\n"
             "  export_credentials.py --flash full-backup.bin --check\n"
-            "  export_credentials.py --nvs muse-nvs.bin --out creds.json --shell muse-set.txt\n"
+            "  export_credentials.py --nvs muse-nvs.bin --include-wifi --out creds.json --shell muse-set.txt\n"
             "\n"
             "NVS の場所 (公式ファーム): offset 0x11000 / size 0xC000 "
             "(--nvs-offset/--nvs-size で変更可)。\n"
@@ -608,6 +868,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--check",
         action="store_true",
         help="キーの有無と長さだけを表示して終了 (値は表示しない)。全部揃っていれば exit 0",
+    )
+    parser.add_argument(
+        "--include-wifi",
+        action="store_true",
+        help="Wi-Fi の ssid/password も検査・書き出し対象に含める (値は画面に出さない)",
     )
     parser.add_argument(
         "--out", metavar="FILE", type=Path, help="資格情報を JSON で書き出す (0600)"
@@ -662,13 +927,17 @@ def run(argv: Optional[List[str]] = None) -> int:
 
         parsed = parse_nvs(nvs)
         statuses = inspect_credentials(parsed)
+        wifi_statuses = inspect_wifi_credentials(parsed) if args.include_wifi else None
 
         do_check = args.check or (args.out is None and args.shell is None)
-        if do_check and not print_check(source_label, len(nvs), parsed, statuses):
+        if do_check and not print_check(
+            source_label, len(nvs), parsed, statuses, wifi_statuses=wifi_statuses
+        ):
             return 1
 
         if args.out is not None or args.shell is not None:
             credentials = extract_credentials(parsed)
+            wifi = extract_wifi_credentials(parsed) if args.include_wifi else None
             outputs: List[Path] = []
             if args.out is not None:
                 outputs.append(args.out)
@@ -676,10 +945,10 @@ def run(argv: Optional[List[str]] = None) -> int:
                 outputs.append(args.shell)
             _check_overwrite(outputs, args.force)
             if args.out is not None:
-                write_json(args.out, credentials, source_label)
+                write_json(args.out, credentials, source_label, wifi=wifi)
                 print("→ JSON を保存しました: %s (0600)" % args.out)
             if args.shell is not None:
-                write_shell(args.shell, credentials)
+                write_shell(args.shell, credentials, wifi=wifi)
                 print("→ シリアル投入用コマンド列を保存しました: %s (0600)" % args.shell)
             print(
                 "  注意: これらのファイルは Muse の資格情報。共有・コミットしない。"

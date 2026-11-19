@@ -81,6 +81,9 @@ bool theme_asset_load(const char* id, const char* name, const uint8_t** out,
 // アリーナに n バイトだけ確保する (デコード済データの置き場所)。
 // 満杯なら nullptr。確保した領域は theme_assets_reset() まで有効。
 uint8_t* theme_asset_alloc(uint32_t n);
+// 直近の theme_asset_alloc 前後で消費位置を記憶/巻き戻しする (余剰返却・失敗復元用)。
+uint32_t theme_asset_mark();
+void theme_asset_rewind(uint32_t mark);
 void theme_assets_reset(uint32_t asset_bytes);
 
 // 画面背景用ブロック (PSRAM アリーナ先頭の固定 2 ブロック)。

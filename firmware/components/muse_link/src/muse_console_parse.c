@@ -123,6 +123,10 @@ bool muse_console_parse(const char *line, muse_console_parsed_t *out)
         cmd = MUSE_CONSOLE_SET_VM;
     } else if (take_word(&after_field, "token")) {
         cmd = MUSE_CONSOLE_SET_TOKEN;
+    } else if (take_word(&after_field, "ssid")) {
+        cmd = MUSE_CONSOLE_SET_SSID;
+    } else if (take_word(&after_field, "pass") || take_word(&after_field, "password")) {
+        cmd = MUSE_CONSOLE_SET_PASS;
     } else {
         return false;
     }

@@ -27,5 +27,7 @@ bool configured();
 bool session_start(uint32_t timeout_ms);
 void session_end();
 bool connected();
+bool reconnecting();
+void poll();
 
 }  // namespace wifi

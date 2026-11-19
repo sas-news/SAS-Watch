@@ -6,6 +6,7 @@
 // 録音の実体 (AudioPort の ADPCM リング読み出し → PCM デコード) は
 // watch_app の MusePort アダプタが行い、ここは状態機械と PCM バッファを持つ。
 #include "muse_link/muse_link.h"
+#include "muse_link_internal.h"
 #include "muse_voice_logic.h"
 
 #include <cstring>
@@ -83,6 +84,7 @@ extern "C" bool muse_link_voice_start(uint32_t max_sec) {
     s_pcm = pcm;
     s_pcm_cap = samples;
     muse_voice_logic_begin(&s_logic, max_sec, now_ms());
+    muse_link_wifi_touch();
     ESP_LOGI(kTag, "voice start: max=%us samples=%u psram=%uB", (unsigned)max_sec,
              (unsigned)samples, (unsigned)(samples * sizeof(int16_t)));
     return true;
@@ -103,6 +105,7 @@ extern "C" bool muse_link_voice_append(const int16_t* pcm, size_t samples) {
     }
     std::memcpy(s_pcm + before, pcm, samples * sizeof(int16_t));
     muse_voice_logic_tick(&s_logic, now_ms());
+    muse_link_wifi_touch();
     return true;
 }
 
@@ -117,11 +120,13 @@ extern "C" void muse_link_voice_stop(void) {
         muse_voice_logic_mark_error(&s_logic, "音声が取れませんでした");
         return;
     }
-    // send_voice_note はセッション側の PSRAM バッファにコピーしてから
-    // 専用タスクで送る (T55) ので、こちらのバッファはすぐ解放できる。
-    const bool ok = muse_link_send_voice_note(s_pcm, samples);
-    free_pcm();
-    if (!ok) {
+    // 録画用 PSRAM バッファの所有権をそのままセッションへ渡す (480KB 二重確保・コピーなし)。
+    const bool ok = muse_link_take_voice_note(s_pcm, samples);
+    if (ok) {
+        s_pcm = nullptr;
+        s_pcm_cap = 0;
+    } else {
+        free_pcm();
         const char* e = muse_link_last_error();
         muse_voice_logic_mark_error(
             &s_logic, (e && *e) ? e : "音声を送信できませんでした");
