@@ -53,27 +53,27 @@
       "scrim": 20,
       "deco": [
         {
+          "img": "ic_serotonin.png",
+          "x": 46,
+          "y": 19,
+          "z": "front"
+        },
+        {
           "img": "ic_tube.png",
-          "x": 56,
-          "y": 18,
+          "x": 150,
+          "y": 20,
           "z": "front"
         },
         {
           "img": "ic_kipp.png",
-          "x": 96,
-          "y": 18,
-          "z": "front"
-        },
-        {
-          "img": "ic_serotonin.png",
-          "x": 136,
-          "y": 18,
+          "x": 173,
+          "y": 19,
           "z": "front"
         },
         {
           "img": "ic_crystal.png",
-          "x": 176,
-          "y": 18,
+          "x": 205,
+          "y": 21,
           "z": "front"
         }
       ]
@@ -92,64 +92,72 @@
       "y": 0
     },
     "date": {
-      "x": 8,
-      "y": 284,
+      "x": 18,
+      "y": 264,
       "font": 20,
-      "color": "0xD6E6FF",
-      "shadow": "0x05070E",
+      "color": "0xEAF4FF",
+      "outline": "0x080E20",
+      "outline_w": 1,
+      "shadow": "0x040712",
       "shadow_dx": 1,
       "shadow_dy": 2
     },
     "battery": {
-      "x": 298,
-      "y": 34,
-      "w": 74,
+      "x": 282,
+      "y": 22,
+      "w": 68,
       "font": 20,
       "color": "0xFFFFFF",
-      "outline": "0x0A1224",
+      "outline": "0x081024",
       "outline_w": 1
     },
     "battery_gauge": {
-      "x": 298,
-      "y": 32,
-      "w": 74,
+      "x": 282,
+      "y": 20,
+      "w": 68,
       "h": 24,
       "color": "0x6FDCFF",
-      "track": "0x18244A",
-      "charging": "0xC79A20",
+      "track": "0x23366B",
+      "charging": "0xE2B23C",
       "radius": 12,
       "cap": 1
     },
     "steps": {
-      "x": 10,
-      "y": -20,
+      "x": 38,
+      "y": -32,
       "font": 20,
-      "color": "0xE6F0FF",
-      "outline": "0x0A1224",
+      "color": "0xD4EAFF",
+      "outline": "0x081024",
       "outline_w": 2,
-      "shadow": "0x05070E",
+      "shadow": "0x040712",
       "shadow_dx": 1,
       "shadow_dy": 2
     },
     "time_h": {
-      "x": 8,
-      "y": 96,
+      "x": 18,
+      "y": 78,
       "font": 84,
-      "color": "0xE8F4FF",
+      "color": "0xE2D8FF",
       "highlight": "0xFFFFFF",
-      "highlight_dy": -6,
-      "outline": "0x3A2E7A",
-      "outline_w": 2
+      "highlight_dy": -5,
+      "outline": "0x3B2B7E",
+      "outline_w": 2,
+      "shadow": "0x040714",
+      "shadow_dx": 2,
+      "shadow_dy": 4
     },
     "time_m": {
-      "x": 8,
-      "y": 186,
+      "x": 18,
+      "y": 170,
       "font": 84,
-      "color": "0xE8F4FF",
-      "highlight": "0xFFFFFF",
-      "highlight_dy": -6,
-      "outline": "0x3A2E7A",
-      "outline_w": 2
+      "color": "0x7CEBFF",
+      "highlight": "0xF4FEFF",
+      "highlight_dy": -5,
+      "outline": "0x1A367A",
+      "outline_w": 2,
+      "shadow": "0x040714",
+      "shadow_dx": 2,
+      "shadow_dy": 4
     }
   }
 }
