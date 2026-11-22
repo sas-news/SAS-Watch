@@ -234,7 +234,19 @@ static void check_tree(lv_obj_t* root, const char* where) {
   }
 }
 
+struct SwipeState {
+  lv_obj_t* scr = nullptr;
+  lv_point_t start = {0, 0};
+  bool active = false;
+  bool fired = false;
+  bool ignore = false;  // スライダー操作・スクロール中などはスワイプ扱いしない
+};
+SwipeState s_swipe;
+
+void reset_swipe() { s_swipe = SwipeState{}; }
+
 void drop_screens_now() {
+  reset_swipe();
   // アクティブ画面を直接削除すると、LVGL の画面参照が一時的に NULL に
   // なり、次のレイアウト更新で親チェーンが壊れて lv_obj_get_screen が
   // 無限ループすることがある (cyber 適用後に戻る → taskLVGL が WDT)。
@@ -275,25 +287,97 @@ void drop_screens_now() {
   }
 }
 
-void on_gesture(lv_event_t*) {
-  const lv_dir_t d = lv_indev_get_gesture_dir(lv_indev_active());
+// 累積移動量ベースのスワイプ認識 (T58 で LV_DEF_REFR_PERIOD=15ms に短縮され、
+// LVGL 標準の tick 速度依存 indev_gesture が零ベクトル読取でリセットされるため)。
+constexpr int32_t kSwipeVerDist = 40;  // 上下スワイプ閾値 (~3.2mm @ 315PPI)
+constexpr int32_t kSwipeHorDist = 48;  // 左右スワイプ閾値 (~3.9mm @ 315PPI)
+
+bool dispatch_swipe(lv_dir_t d, lv_indev_t* indev) {
   const watch::Route cur = s_ctx.nav ? s_ctx.nav->current() : watch::Route::Home;
+  bool consumed = false;
   switch (d) {
     case LV_DIR_RIGHT:
-      emit(watch::ActionType::Back);
+      if (cur != watch::Route::Home) emit(watch::ActionType::Back);
+      // Home 上の横スワイプでも離指時の誤タップ (chara 切替等) を防ぐ。
+      consumed = true;
       break;
     case LV_DIR_BOTTOM:
       // 下スワイプ = クイック設定 (Home のみ)
-      if (cur == watch::Route::Home) emit_nav(watch::Route::Quick);
+      if (cur == watch::Route::Home) {
+        emit_nav(watch::Route::Quick);
+        consumed = true;
+      }
       break;
     case LV_DIR_TOP:
       // 上スワイプ = アプリ一覧 (Home のみ)
-      if (cur == watch::Route::Home) emit_nav(watch::Route::More);
+      if (cur == watch::Route::Home) {
+        emit_nav(watch::Route::More);
+        consumed = true;
+      }
       break;
     case LV_DIR_LEFT:
-      break;  // 予約 (将来タイル)
+      // 予約 (将来タイル): Home 上での横スワイプによる誤タップを抑止
+      if (cur == watch::Route::Home) consumed = true;
+      break;
     default:
       break;
+  }
+  // 押下中のまま解放待ちに遷移させ、離指時の CLICKED/SHORT_CLICKED 等を抑止する。
+  if (consumed && indev) lv_indev_wait_release(indev);
+  return consumed;
+}
+
+void on_swipe_event(lv_event_t* e) {
+  const lv_event_code_t code = lv_event_get_code(e);
+  lv_obj_t* cur_scr = lv_event_get_current_target_obj(e);
+  if (code == LV_EVENT_PRESSED) {
+    lv_indev_t* indev = lv_indev_active();
+    if (!indev) {
+      reset_swipe();
+      return;
+    }
+    lv_obj_t* target = lv_event_get_target_obj(e);
+    s_swipe.scr = cur_scr;
+    lv_indev_get_point(indev, &s_swipe.start);
+    s_swipe.active = true;
+    s_swipe.fired = false;
+    s_swipe.ignore =
+        (target != nullptr && lv_obj_check_type(target, &lv_slider_class));
+    return;
+  }
+  if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    if (s_swipe.scr == cur_scr) reset_swipe();
+    return;
+  }
+  if (code != LV_EVENT_PRESSING) return;
+  if (!s_swipe.active || s_swipe.fired || s_swipe.ignore ||
+      s_swipe.scr != cur_scr) {
+    return;
+  }
+  lv_indev_t* indev = lv_indev_active();
+  if (!indev) return;
+  if (lv_indev_get_scroll_obj(indev) != nullptr) {
+    s_swipe.ignore = true;
+    return;
+  }
+  lv_point_t pt = {0, 0};
+  lv_indev_get_point(indev, &pt);
+  const int32_t dx = pt.x - s_swipe.start.x;
+  const int32_t dy = pt.y - s_swipe.start.y;
+  const int32_t adx = dx < 0 ? -dx : dx;
+  const int32_t ady = dy < 0 ? -dy : dy;
+  lv_dir_t dir = LV_DIR_NONE;
+  if (adx >= kSwipeHorDist && adx * 2 >= ady * 3) {
+    dir = (dx > 0) ? LV_DIR_RIGHT : LV_DIR_LEFT;
+  } else if (ady >= kSwipeVerDist && ady * 2 >= adx * 3) {
+    dir = (dy > 0) ? LV_DIR_BOTTOM : LV_DIR_TOP;
+  }
+  if (dir == LV_DIR_NONE) return;
+  if (dispatch_swipe(dir, indev)) {
+    s_swipe.fired = true;
+  } else if (dir == LV_DIR_TOP || dir == LV_DIR_BOTTOM) {
+    // 非 Home 画面で縦スクロール限界に達した後の横ブレで Back が暴発しないようにする。
+    s_swipe.ignore = true;
   }
 }
 
@@ -307,7 +391,10 @@ void attach_input(lv_obj_t* scr) {
   lv_obj_add_flag(
       scr, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_CLICKABLE |
                                       LV_OBJ_FLAG_EVENT_BUBBLE));
-  lv_obj_add_event_cb(scr, on_gesture, LV_EVENT_GESTURE, nullptr);
+  lv_obj_add_event_cb(scr, on_swipe_event, LV_EVENT_PRESSED, nullptr);
+  lv_obj_add_event_cb(scr, on_swipe_event, LV_EVENT_PRESSING, nullptr);
+  lv_obj_add_event_cb(scr, on_swipe_event, LV_EVENT_RELEASED, nullptr);
+  lv_obj_add_event_cb(scr, on_swipe_event, LV_EVENT_PRESS_LOST, nullptr);
   lv_obj_add_event_cb(scr, on_long_press, LV_EVENT_LONG_PRESSED, nullptr);
 }
 
@@ -469,6 +556,7 @@ const char* route_name(watch::Route r) {
 }
 
 void swap_screen(watch::Route r, bool rebuild = false) {
+  reset_swipe();
   const ScreenOps* ops = screen_ops(r);
   if (!ops) {
     // 画面未実装の Route (Notifications/Media/Dev/Agent/Confirm) は無視。

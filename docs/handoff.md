@@ -1,9 +1,19 @@
-# handoff.md — 現状 (2026-11-19)
+# handoff.md — 現状 (2026-11-22)
 
 次に作業する人が最初に読む「今どうなっているか」。残タスクと方針は `docs/roadmap.md`。
 過去の経緯 (2026-10-15 までの引き継ぎ文書、T14 監査など) は `docs/archive/handoff-2026-10-15.md`。
 
 ## 要点
+
+### 2026-11-22: Home スワイプ判定改善・立ち絵タップ競合解消・星夜もる (`mol`) 改善
+
+- **Home スワイプと立ち絵切替タップの競合修正 (`shell.cpp`, `face_theme.cpp`)**:
+  - `LV_DEF_REFR_PERIOD=15` 下で LVGL 既定の tick 速度依存 `indev_gesture()` が同一キャッシュ読取 (`vect=0`) によりリセットされアプリ一覧が開きにくくなっていた問題と、スワイプ離指時の `CLICKED` 貫通を修正。
+  - `shell.cpp` の `attach_input()` を累積移動量ベース (`on_swipe_event` / `dispatch_swipe`: 縦 40px・横 48px・縦横比 3:2 以上) に置換し、スライダー (`lv_slider_class`)・スクロール中 (`lv_indev_get_scroll_obj`) を除外、スワイプ確定時に `lv_indev_wait_release()` で離指クリックを抑止。
+  - `face_theme.cpp` の `chara` 切替を `chara_touch_cb` (`PRESSED`/`PRESSING`/`PRESS_LOST`/`SHORT_CLICKED`) へ変更し、移動量 `18px` 以内かつ `400ms` 未満の静止タップのみに限定。
+  - 検証: `core` 296/296、`sim/snapshot` (既定・`mol`) 監査 0 件、`off` (`0x21c850`) / `on` (`0x2386f0`) ビルド通過、実機 (`/dev/ttyACM0`, `0x20000`) 6 画面 `'b'` ベンチ正常 (`mol` Home `101ms` / 一覧 `89(91)ms`, `int_free=83,767B`, `psram_free=2,112,400B`、実機操作確認済み)。
+- **テーマ「星夜もる」(`mol`) 改善 (`d3d0065`)**:
+  - トップ左上化学アイコン 4 種 (セロトニン・試験管・キップの装置・硫酸銅五水和物結晶) の描き直しと、2 色数字・日付/電池/歩数配置調整を行い `mol.zip` を再生成・実機 assets (`0x820000`) 書込み済み。
 
 ### 2026-11-19: T58 UI 描画・スクロール高速化 + アイコン/mol/sopia 不具合修正完了
 

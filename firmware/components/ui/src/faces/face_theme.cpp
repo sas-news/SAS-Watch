@@ -44,8 +44,68 @@ int s_chara_n = 0;
 int s_chara_idx = 0;
 char s_chara_theme[24] = {};
 
-void chara_tap_cb(lv_event_t*) {
+constexpr int32_t kCharaTapSlop = 18;     // ~1.45mm (315 PPI)
+constexpr uint32_t kCharaTapMaxMs = 400;  // 長押しはタップ扱いしない
+struct CharaTapState {
+  lv_point_t start = {0, 0};
+  uint32_t t0 = 0;
+  bool down = false;
+  bool moved = false;
+};
+CharaTapState s_chara_tap;
+
+void chara_touch_cb(lv_event_t* e) {
   if (s_chara_n < 2 || !s.chara) return;
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    lv_indev_t* indev = lv_indev_active();
+    if (!indev) {
+      s_chara_tap.down = false;
+      return;
+    }
+    lv_indev_get_point(indev, &s_chara_tap.start);
+    s_chara_tap.t0 = lv_tick_get();
+    s_chara_tap.down = true;
+    s_chara_tap.moved = false;
+    return;
+  }
+  if (code == LV_EVENT_PRESSING) {
+    if (!s_chara_tap.down || s_chara_tap.moved) return;
+    lv_indev_t* indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t pt = {0, 0};
+    lv_indev_get_point(indev, &pt);
+    const int32_t dx = pt.x - s_chara_tap.start.x;
+    const int32_t dy = pt.y - s_chara_tap.start.y;
+    if ((dx < 0 ? -dx : dx) > kCharaTapSlop ||
+        (dy < 0 ? -dy : dy) > kCharaTapSlop) {
+      s_chara_tap.moved = true;
+    }
+    return;
+  }
+  if (code == LV_EVENT_PRESS_LOST) {
+    s_chara_tap.down = false;
+    s_chara_tap.moved = false;
+    return;
+  }
+  if (code != LV_EVENT_SHORT_CLICKED) return;
+
+  bool ok = s_chara_tap.down && !s_chara_tap.moved &&
+            lv_tick_elaps(s_chara_tap.t0) < kCharaTapMaxMs;
+  s_chara_tap.down = false;
+  s_chara_tap.moved = false;
+  if (!ok) return;
+
+  if (lv_indev_t* indev = lv_indev_active()) {
+    lv_point_t pt = {0, 0};
+    lv_indev_get_point(indev, &pt);
+    const int32_t dx = pt.x - s_chara_tap.start.x;
+    const int32_t dy = pt.y - s_chara_tap.start.y;
+    if ((dx < 0 ? -dx : dx) > kCharaTapSlop ||
+        (dy < 0 ? -dy : dy) > kCharaTapSlop) {
+      return;
+    }
+  }
   s_chara_idx = (s_chara_idx + 1) % s_chara_n;
   const lv_image_dsc_t* d = ui::theme_image(s_chara_ids[s_chara_idx]);
   if (d) lv_image_set_src(s.chara, d);
@@ -377,6 +437,7 @@ void build_text_elem(lv_obj_t* scr, const ui::Theme& t, int i) {
 lv_obj_t* build(lv_obj_t* scr) {
   const ui::Theme& t = ui::theme();
   s = St{};
+  s_chara_tap = CharaTapState{};
 
   // behind=1 の要素は立ち絵の背面に置く (時計の数字をキャラの後ろへ)。
   for (int i = 0; i < watch::kThemeFaceElemCount; ++i) {
@@ -416,9 +477,12 @@ lv_obj_t* build(lv_obj_t* scr) {
       lv_image_set_src(im, img);
       lv_obj_add_flag(im, LV_OBJ_FLAG_EVENT_BUBBLE);
       if (s_chara_n > 1) {
-        // タップで次の絵へ。ジェスチャーは親 (画面) に通す。
+        // 静止した短いタップだけで次の絵へ切替。スワイプや長押しと競合させない。
         lv_obj_add_flag(im, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(im, chara_tap_cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(im, chara_touch_cb, LV_EVENT_PRESSED, nullptr);
+        lv_obj_add_event_cb(im, chara_touch_cb, LV_EVENT_PRESSING, nullptr);
+        lv_obj_add_event_cb(im, chara_touch_cb, LV_EVENT_PRESS_LOST, nullptr);
+        lv_obj_add_event_cb(im, chara_touch_cb, LV_EVENT_SHORT_CLICKED, nullptr);
       }
       s.chara = im;
       place(im, e, false);  // 立ち絵は装飾: 角で切れてよい
